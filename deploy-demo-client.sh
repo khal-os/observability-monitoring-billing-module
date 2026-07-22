@@ -26,6 +26,11 @@
 #   --langwatch-key KEY   LangWatch project API key (from onboarding; can be
 #                         applied later by re-running with this flag)
 #   --image REF           API image reference          (default: platform-api:local)
+#   --demo-traces         push demo traces into LangWatch + sync (default)
+#   --no-demo-traces      skip the demo traces only — LangWatch still boots
+#                         and is fully onboarded (admin, org, project, API
+#                         key wired, real sync enabled); prices are ALWAYS
+#                         registered in the client DB regardless of this flag
 #
 # LangWatch onboarding is AUTOMATIC: the script registers admin@<name>.com
 # with a random password (printed in the summary — save it), creates the
@@ -56,7 +61,7 @@ NAME="${1:-}"; shift || true
 [[ "$NAME" =~ ^[a-z][a-z0-9-]{1,30}$ ]] || die "nome deve ser um slug ([a-z][a-z0-9-]+): '$NAME'"
 
 API_PORT="" LANGWATCH_PORT="" UI_PORT="" MONGO_HOST_PORT="" MONGO_USER="" MONGO_PASS=""
-LANGWATCH_KEY="" IMAGE="platform-api:local"
+LANGWATCH_KEY="" IMAGE="platform-api:local" DEMO_TRACES=1
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -68,6 +73,8 @@ while [[ $# -gt 0 ]]; do
     --mongo-pass)      MONGO_PASS="$2"; shift 2 ;;
     --langwatch-key)   LANGWATCH_KEY="$2"; shift 2 ;;
     --image)           IMAGE="$2"; shift 2 ;;
+    --demo-traces)     DEMO_TRACES=1; shift ;;
+    --no-demo-traces)  DEMO_TRACES=0; shift ;;
     *) die "opção desconhecida: $1" ;;
   esac
 done
@@ -235,16 +242,19 @@ if [[ -z "$(get LANGWATCH_API_KEY)" && "$LW_OK" -eq 1 ]]; then
 fi
 
 
-# ---------- demo data ----------
-if true; then
+# ---------- prices (SEMPRE — independem do LangWatch) ----------
+step "demo: registrando preços do modelo premium no banco"
+quiet ./packages/api/scripts/register-demo-prices.sh "${NAME}" || die "registro de preços falhou"
+
+# ---------- demo traces (opcional: --no-demo-traces pula SÓ os traces) ----------
+if [[ "$DEMO_TRACES" -eq 0 ]]; then
+  step "demo: traces pulados (--no-demo-traces) — LangWatch onboarded, sem tráfego"
+else
   if [[ -z "$(get LANGWATCH_API_KEY)" ]]; then
     step "${YLW}demo pulado: LangWatch ainda sem API key (re-rode o deploy)${RST}"
   else
     step "demo: gerando tráfego determinístico para '${NAME}'"
     node packages/api/scripts/generate-demo-fixtures.mjs --client "${NAME}" > /dev/null
-
-    step "demo: registrando preços do modelo premium"
-    ./packages/api/scripts/register-demo-prices.sh "${NAME}" > /dev/null
 
     step "demo: enviando o tráfego para o LangWatch do cliente"
     node packages/api/scripts/push-demo-to-langwatch.mjs "${NAME}" | tr '\r' '\n' | grep . | tail -1 | sed 's/^/  /' 
@@ -301,7 +311,10 @@ if [[ -n "$LW_ADMIN_PASSWORD" ]]; then
   row "senha" "${B}${LW_ADMIN_PASSWORD}${RST}   ${DIM}(também em ${ENVFILE})${RST}"
 fi
 echo
-if [[ -n "$(get LANGWATCH_API_KEY)" ]]; then
+if [[ "$DEMO_TRACES" -eq 0 ]]; then
+  printf '  %s\n' "${CYN}DADOS${RST}"
+  row "demo" "sem traces demo (--no-demo-traces); LangWatch onboarded, preços no banco, sync real habilitado"
+elif [[ -n "$(get LANGWATCH_API_KEY)" ]]; then
   TOT=$(curl -s -m 8 "http://localhost:${API_PORT}/api/v1/traces?page=1&page_size=1" | python3 -c 'import json,sys; print(json.load(sys.stdin)["total"])' 2>/dev/null || echo '?')
   printf '  %s\n' "${CYN}DADOS${RST}"
   row "demo" "${TOT} traces ingeridos e precificados (R\$ 1–100), sync real habilitado"
