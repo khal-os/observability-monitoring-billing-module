@@ -75,6 +75,39 @@ containers() {
   done
 }
 
+# Live wait: while polling a readiness check, redraws the container tree IN
+# PLACE (TTY) with a footer showing the target and elapsed time — the stack's
+# health dots update in real time as containers come up. Non-TTY (CI/pipes)
+# falls back to the classic dots. Usage: wait_live <rótulo> <alvo> <check_fn> <tentativas> <intervalo>
+wait_live() {
+  local label="$1" target="$2" check="$3" tries="$4" delay="$5"
+  local i lines=0 t0=$SECONDS ok=0 block footer
+  step "$label"
+  if [[ ! -t 1 ]]; then
+    for ((i = 0; i < tries; i++)); do
+      "$check" && { ok=1; break; }
+      echo -n "."; sleep "$delay"
+    done
+    [[ "$ok" -eq 1 ]] && echo " ok" || echo " timeout"
+    return $(( 1 - ok ))
+  fi
+  for ((i = 0; i < tries; i++)); do
+    "$check" && ok=1
+    if [[ "$ok" -eq 1 ]]; then
+      footer="  ${GRN}✔${RST} ${target} ${DIM}· $(( SECONDS - t0 ))s${RST}"
+    else
+      footer="  ${DIM}⏳ ${target} · $(( SECONDS - t0 ))s${RST}"
+    fi
+    block="$(containers)"$'\n'"$footer"
+    (( lines > 0 )) && printf '\033[%dA\033[0J' "$lines"
+    printf '%s\n' "$block"
+    lines=$(printf '%s\n' "$block" | wc -l)
+    [[ "$ok" -eq 1 ]] && return 0
+    sleep "$delay"
+  done
+  return 1
+}
+
 # ---------- args ----------
 NAME="${1:-}"; shift || true
 [[ -n "$NAME" ]] || die "uso: ./deploy-demo-client.sh <name> [options]"
@@ -170,17 +203,19 @@ docker image inspect platform-ui:local > /dev/null 2>&1 \
 # ---------- stack ----------
 step "subindo a stack (8 contêineres)"
 quiet make up "CLIENT=${NAME}" || die "compose up falhou"
-containers
+
+# ---------- health checks (live container tree while waiting) ----------
+check_api() { curl -sf -o /dev/null -m 3 "http://localhost:${API_PORT}/api/v1/docs/openapi.json"; }
+check_lw()  {
+  local c
+  c=$(curl -s -o /dev/null -m 3 -w '%{http_code}' "http://localhost:${LANGWATCH_PORT}/" 2>/dev/null || true)
+  [[ "$c" == "200" || "$c" == "302" || "$c" == "307" ]]
+}
+check_ui()  { curl -sf -o /dev/null -m 3 "http://localhost:${UI_PORT}/"; }
 
 # ---------- health: api (implies mongo healthy via depends_on) ----------
-printf '%s' "${CYN}▸${RST} ${B}aguardando API${RST}"
-for _ in $(seq 1 30); do
-  curl -sf -o /dev/null -m 3 "http://localhost:${API_PORT}/api/v1/docs/openapi.json" && break
-  echo -n "."; sleep 4
-done
-curl -sf -o /dev/null -m 3 "http://localhost:${API_PORT}/api/v1/docs/openapi.json" \
+wait_live "aguardando API" "http://localhost:${API_PORT}/api/v1" check_api 30 4 \
   || die "API não respondeu em http://localhost:${API_PORT} — veja: make logs CLIENT=${NAME}"
-printf ' %s\n' "${GRN}ok${RST}"
 
 # ---------- migrations (idempotent) ----------
 step "rodando migrações"
@@ -188,14 +223,13 @@ quiet make migrate "CLIENT=${NAME}" || die "migrações falharam"
 info "migrações aplicadas"
 
 # ---------- health: langwatch (first boot runs its own migrations, be patient) ----------
-printf '%s' "${CYN}▸${RST} ${B}aguardando LangWatch${RST}"
-LW_OK=0
-for _ in $(seq 1 60); do
-  code=$(curl -s -o /dev/null -m 3 -w '%{http_code}' "http://localhost:${LANGWATCH_PORT}/" 2>/dev/null || true)
-  [[ "$code" == "200" || "$code" == "302" || "$code" == "307" ]] && { LW_OK=1; break; }
-  echo -n "."; sleep 5
-done
-[[ "$LW_OK" -eq 1 ]] && printf ' %s\n' "${GRN}ok${RST}" || echo " AINDA SUBINDO (primeiro boot demora; acompanhe com make logs CLIENT=${NAME})"
+if wait_live "aguardando LangWatch (primeiro boot roda migrações — paciência)" \
+     "http://localhost:${LANGWATCH_PORT}" check_lw 60 5; then
+  LW_OK=1
+else
+  LW_OK=0
+  info "AINDA SUBINDO (primeiro boot demora; acompanhe com make logs CLIENT=${NAME})"
+fi
 
 
 # ---------- langwatch onboarding (automatic) ----------
@@ -308,14 +342,8 @@ else
 fi
 
 # ---------- health: ui ----------
-printf '%s' "${CYN}▸${RST} ${B}aguardando UI${RST}"
-for _ in $(seq 1 15); do
-  curl -sf -o /dev/null -m 3 "http://localhost:${UI_PORT}/" && break
-  echo -n "."; sleep 2
-done
-curl -sf -o /dev/null -m 3 "http://localhost:${UI_PORT}/" \
+wait_live "aguardando UI" "http://localhost:${UI_PORT}" check_ui 15 2 \
   || die "UI não respondeu em http://localhost:${UI_PORT} — veja: make logs CLIENT=${NAME}"
-printf ' %s\n' "${GRN}ok${RST}"
 
 # ---------- summary ----------
 line() { printf '%s\n' "${DIM}──────────────────────────────────────────────────────────────${RST}"; }
