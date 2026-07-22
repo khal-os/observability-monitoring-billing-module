@@ -56,22 +56,21 @@ die()   { printf '%s\n' "${RED}✖ ERRO:${RST} $*" >&2; exit 1; }
 LOG="$(mktemp)"
 quiet() { "$@" > "$LOG" 2>&1 || { tail -15 "$LOG"; return 1; }; }
 
-# Substep: one line per container of this client's stack, tree-style, with a
-# colored health dot (● verde = up/healthy, amarelo = starting, vermelho = down).
+# Substep: one line per container of this client's stack, in docker compose's
+# own visual language (` Container <name>  <Status>`), status colored by health
+# (verde = up/healthy, amarelo = starting, vermelho = down).
 containers() {
-  local rows i last mark branch cname cstatus
+  local rows i cname cstatus color
   mapfile -t rows < <(docker ps -a --filter "label=com.docker.compose.project=${NAME}" \
     --format '{{.Names}}\t{{.Status}}' | sort)
-  last=$(( ${#rows[@]} - 1 ))
   for i in "${!rows[@]}"; do
     cname="${rows[$i]%%$'\t'*}"; cstatus="${rows[$i]#*$'\t'}"
-    branch='├─'; [[ "$i" -eq "$last" ]] && branch='└─'
     case "$cstatus" in
-      *starting*)          mark="${YLW}●${RST}" ;;
-      *healthy*|Up*)       mark="${GRN}●${RST}" ;;
-      *)                   mark="${RED}●${RST}" ;;
+      *starting*)          color="$YLW" ;;
+      *healthy*|Up*)       color="$GRN" ;;
+      *)                   color="$RED" ;;
     esac
-    printf '  %s %s %-34s %s%s%s\n' "${DIM}${branch}${RST}" "$mark" "$cname" "$DIM" "$cstatus" "$RST"
+    printf ' %sContainer %-34s%s %s%s%s\n' "$DIM" "$cname" "$RST" "$color" "$cstatus" "$RST"
   done
 }
 
@@ -201,8 +200,10 @@ docker image inspect platform-ui:local > /dev/null 2>&1 \
   || { step "buildando imagem da UI"; quiet docker build -f docker/ui.Dockerfile -t platform-ui:local . || die "build da UI falhou"; }
 
 # ---------- stack ----------
+# Sem `quiet`: o próprio renderer do docker compose mostra cada contêiner
+# subindo em tempo real (Created → Started → Healthy), como num `up` manual.
 step "subindo a stack (8 contêineres)"
-quiet make up "CLIENT=${NAME}" || die "compose up falhou"
+make -s up "CLIENT=${NAME}" || die "compose up falhou"
 
 # ---------- health checks (live container tree while waiting) ----------
 check_api() { curl -sf -o /dev/null -m 3 "http://localhost:${API_PORT}/api/v1/docs/openapi.json"; }
@@ -297,7 +298,7 @@ if [[ -z "$(get LANGWATCH_API_KEY)" && "$LW_OK" -eq 1 ]]; then
   fi
   sed -i "s|^LANGWATCH_API_KEY=.*|LANGWATCH_API_KEY=${KEY_NOW}|" "$ENVFILE"
   step "API key aplicada — recriando a api com sync real"
-  make up "CLIENT=${NAME}" > /dev/null 2>&1
+  make -s up "CLIENT=${NAME}"
 fi
 
 
