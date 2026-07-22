@@ -51,9 +51,29 @@ fi
 
 step()  { printf '%s\n' "${CYN}▸${RST} ${B}$*${RST}"; }
 info()  { printf '%s\n' "  ${DIM}$*${RST}"; }
+sub()   { printf '  %s %s\n' "${DIM}·${RST}" "$*"; }
 die()   { printf '%s\n' "${RED}✖ ERRO:${RST} $*" >&2; exit 1; }
 LOG="$(mktemp)"
 quiet() { "$@" > "$LOG" 2>&1 || { tail -15 "$LOG"; return 1; }; }
+
+# Substep: one line per container of this client's stack, tree-style, with a
+# colored health dot (● verde = up/healthy, amarelo = starting, vermelho = down).
+containers() {
+  local rows i last mark branch cname cstatus
+  mapfile -t rows < <(docker ps -a --filter "label=com.docker.compose.project=${NAME}" \
+    --format '{{.Names}}\t{{.Status}}' | sort)
+  last=$(( ${#rows[@]} - 1 ))
+  for i in "${!rows[@]}"; do
+    cname="${rows[$i]%%$'\t'*}"; cstatus="${rows[$i]#*$'\t'}"
+    branch='├─'; [[ "$i" -eq "$last" ]] && branch='└─'
+    case "$cstatus" in
+      *starting*)          mark="${YLW}●${RST}" ;;
+      *healthy*|Up*)       mark="${GRN}●${RST}" ;;
+      *)                   mark="${RED}●${RST}" ;;
+    esac
+    printf '  %s %s %-34s %s%s%s\n' "${DIM}${branch}${RST}" "$mark" "$cname" "$DIM" "$cstatus" "$RST"
+  done
+}
 
 # ---------- args ----------
 NAME="${1:-}"; shift || true
@@ -150,6 +170,7 @@ docker image inspect platform-ui:local > /dev/null 2>&1 \
 # ---------- stack ----------
 step "subindo a stack (8 contêineres)"
 quiet make up "CLIENT=${NAME}" || die "compose up falhou"
+containers
 
 # ---------- health: api (implies mongo healthy via depends_on) ----------
 printf '%s' "${CYN}▸${RST} ${B}aguardando API${RST}"
@@ -213,12 +234,13 @@ if [[ -z "$(get LANGWATCH_API_KEY)" && "$LW_OK" -eq 1 ]]; then
       -d "{\"0\":{\"json\":{\"name\":\"Admin ${NAME}\",\"email\":\"${LW_ADMIN_EMAIL}\",\"password\":\"${LW_ADMIN_PASSWORD}\"}}}")
     # Usuário já existente não é fatal: o sign-in abaixo decide (senha vem
     # do env quando o registro aconteceu numa execução anterior).
-    trpc_ok "$reg" || info "(usuário já existia — sign-in com a senha registrada no env)"
+    if trpc_ok "$reg"; then sub "usuário admin criado"; else sub "usuário já existia — sign-in com a senha do env"; fi
 
     curl -sf -m 20 -c "$JAR" -o /dev/null -X POST "${BASE}/api/auth/sign-in/email" \
       -H 'Content-Type: application/json' -H "Origin: ${BASE}" \
       -d "{\"email\":\"${LW_ADMIN_EMAIL}\",\"password\":\"${LW_ADMIN_PASSWORD}\"}" \
       || die "sign-in do admin falhou — complete manualmente em ${BASE} e re-rode com --langwatch-key"
+    sub "sessão autenticada"
 
     org=$(curl -s -m 20 -b "$JAR" -X POST "${BASE}/api/trpc/organization.createAndAssign?batch=1" \
       -H 'Content-Type: application/json' -H "Origin: ${BASE}" \
@@ -226,15 +248,18 @@ if [[ -z "$(get LANGWATCH_API_KEY)" && "$LW_OK" -eq 1 ]]; then
     trpc_ok "$org" || die "criação da organização falhou: ${org:0:200}"
     ORG_ID=$(python3 -c 'import json,sys; d=json.loads(sys.argv[1])[0]["result"]["data"]["json"]; print(d["organization"]["id"])' "$org")
     TEAM_ID=$(python3 -c 'import json,sys; d=json.loads(sys.argv[1])[0]["result"]["data"]["json"]; print(d["team"]["id"])' "$org")
+    sub "organização criada (${ORG_ID})"
 
     proj=$(curl -s -m 20 -b "$JAR" -X POST "${BASE}/api/trpc/project.create?batch=1" \
       -H 'Content-Type: application/json' -H "Origin: ${BASE}" \
       -d "{\"0\":{\"json\":{\"organizationId\":\"${ORG_ID}\",\"teamId\":\"${TEAM_ID}\",\"name\":\"${NAME}\",\"language\":\"other\",\"framework\":\"other\"}}}")
     trpc_ok "$proj" || die "criação do projeto falhou: ${proj:0:200}"
     rm -f "$JAR"
+    sub "projeto criado"
 
     KEY_NOW="$(lw_project_key || true)"
     [[ -n "$KEY_NOW" ]] || die "projeto criado mas API key não encontrada no Postgres do LangWatch"
+    sub "API key extraída do Postgres do LangWatch"
   fi
   sed -i "s|^LANGWATCH_API_KEY=.*|LANGWATCH_API_KEY=${KEY_NOW}|" "$ENVFILE"
   step "API key aplicada — recriando a api com sync real"
@@ -245,6 +270,7 @@ fi
 # ---------- prices (SEMPRE — independem do LangWatch) ----------
 step "demo: registrando preços do modelo premium no banco"
 quiet ./packages/api/scripts/register-demo-prices.sh "${NAME}" || die "registro de preços falhou"
+grep -E '^→|já registrado' "$LOG" | sed "s/^→ /  ${DIM}·${RST} /; s/^ *(/  ${DIM}·${RST} (/" || true
 
 # ---------- demo traces (opcional: --no-demo-traces pula SÓ os traces) ----------
 if [[ "$DEMO_TRACES" -eq 0 ]]; then
@@ -301,7 +327,8 @@ printf '  %s\n' "${GRN}✔${RST} ${B}Cliente '${NAME}' no ar${RST}"
 echo
 printf '  %s\n' "${CYN}ACESSOS${RST}"
 row "UI"        "http://localhost:${UI_PORT}"
-row "API"       "http://localhost:${API_PORT}/api/v1   ${DIM}(docs: /api/v1/docs)${RST}"
+row "API"       "http://localhost:${API_PORT}/api/v1"
+row "API docs"  "http://localhost:${API_PORT}/api/v1/docs/"
 row "LangWatch" "http://localhost:${LANGWATCH_PORT}"
 row "Mongo dev" "mongodb://localhost:$(get MONGO_HOST_PORT)/?directConnection=true   ${DIM}(db: ${NAME})${RST}"
 if [[ -n "$LW_ADMIN_PASSWORD" ]]; then
