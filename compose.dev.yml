@@ -1,0 +1,32 @@
+# DEV-ONLY override — never part of a production deployment:
+#
+#   docker compose -f compose.client.yml -f compose.dev.yml --env-file clients/<name>.env up -d
+#   (or: make up CLIENT=<name>)
+#
+# Adds to the api service:
+# - the build block, so `... up --build` / `make build` can produce the
+#   image locally (production references a prebuilt ${API_IMAGE});
+# - the generated demo fixtures mounted over the image's fixture directory,
+#   so the fixture-backed fake sync (empty LANGWATCH_API_KEY) serves THIS
+#   client's demo traffic. Regenerate with
+#   packages/api/scripts/generate-demo-fixtures.mjs.
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    volumes:
+      - ./demo-data/${CLIENT_NAME}:/app/packages/api/src/infrastructure/traceSource/fixtures:ro
+
+  ui:
+    build:
+      context: .
+      dockerfile: docker/ui.Dockerfile
+
+  # Dev-only mongo access for Compass/mongosh from the host, bound to
+  # localhost. Set MONGO_HOST_PORT in the client env file for a stable port;
+  # unset, Docker picks a free ephemeral one (see `docker port <client>-mongo`).
+  mongo:
+    ports:
+      - "127.0.0.1:${MONGO_HOST_PORT:-0}:27017"

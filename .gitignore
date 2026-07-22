@@ -1,0 +1,8 @@
+.vscode
+node_modules
+.claude/settings.local.json
+
+# Real client env files carry secrets — only the template is committed
+clients/*.env
+!clients/example.env
+demo-data/

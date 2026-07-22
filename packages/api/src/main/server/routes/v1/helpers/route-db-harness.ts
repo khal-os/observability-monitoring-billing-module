@@ -1,0 +1,82 @@
+import { MongoDb } from '../../../../../infrastructure/database/mongodb/mongo-db.js';
+import {
+  MIGRATIONS_COLLECTION,
+  runMigrations,
+} from '../../../../../infrastructure/database/mongodb/helpers/migration-runner.js';
+import { migrations } from '../../../../../infrastructure/database/mongodb/migrations/index.js';
+import { PRICE_VERSIONS_COLLECTION } from '../../../../../infrastructure/database/mongodb/priceVersion/mongodb-price-version-repository.js';
+import { TRACES_COLLECTION } from '../../../../../infrastructure/database/mongodb/trace/mongodb-trace-repository.js';
+import { makeSyncTracesUseCase } from '../../../../factories/sync-factory.js';
+import { StampedTokenCost } from '../../../../../core/models/trace-model.js';
+
+/**
+ * THE single storage-aware helper behind the route suites. The HTTP-level
+ * tests are storage-blind: everything they need from the store — lifecycle,
+ * reset+migrate, the ingested-June fixture state, and the raw reads that
+ * power the MANDATORY invariant-3 independent recomputation — comes through
+ * here. Swapping the storage backend means rewriting THIS file only; the
+ * suites and their assertions stay untouched.
+ */
+
+/** Raw stored trace, as the independent consistency checks consume it. */
+export interface StoredTraceRecord {
+  traceId: string;
+  agent?: { id?: string; version?: string };
+  model?: string;
+  pricingStatus: string;
+  startedAt: Date;
+  stampedCosts?: StampedTokenCost[];
+  totalCostMicrocents?: number;
+}
+
+export const routeDbHarness = {
+  connect: (): Promise<void> =>
+    MongoDb.connectWithUri(process.env.MONGO_URL as string),
+
+  disconnect: (): Promise<void> => MongoDb.disconnect(),
+
+  resetAndMigrate: async (): Promise<void> => {
+    for (const collection of [
+      TRACES_COLLECTION,
+      PRICE_VERSIONS_COLLECTION,
+      MIGRATIONS_COLLECTION,
+    ]) {
+      await MongoDb.getCollection(collection).deleteMany({});
+    }
+
+    await runMigrations(MongoDb.getClient().db(), migrations);
+  },
+
+  /**
+   * The pristine fixture state every route suite starts from: clean store,
+   * migrations (incl. the PoC price seed), then the two June sync windows
+   * ingested through the real pipeline (fixture-backed source client).
+   */
+  ingestJuneFixtures: async (): Promise<void> => {
+    await routeDbHarness.resetAndMigrate();
+
+    const sync = makeSyncTracesUseCase();
+
+    await sync.sync({
+      from: new Date('2026-06-01T00:00:00.000Z'),
+      to: new Date('2026-06-15T00:00:00.000Z'),
+    });
+    await sync.sync({
+      from: new Date('2026-06-15T00:00:00.000Z'),
+      to: new Date('2026-07-01T00:00:00.000Z'),
+    });
+  },
+
+  /**
+   * Raw trace read for the independent recomputation (invariant 3): on
+   * purpose NOT the billing aggregation path — plain records, half-open
+   * [from, to) on startedAt.
+   */
+  readTracesBetween: async (
+    from: Date,
+    to: Date,
+  ): Promise<StoredTraceRecord[]> =>
+    (await MongoDb.getCollection(TRACES_COLLECTION)
+      .find({ startedAt: { $gte: from, $lt: to } })
+      .toArray()) as unknown as StoredTraceRecord[],
+};

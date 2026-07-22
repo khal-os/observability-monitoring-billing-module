@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Traces — Plataforma</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="page">
+    <nav class="tabs">
+      <button id="tab-traces" class="tab active">Traces</button>
+      <button id="tab-sessions" class="tab">Sessões</button>
+      <button id="tab-billing" class="tab">Faturas</button>
+      <span id="client-name" class="client-name"></span>
+    </nav>
+
+    <div id="error" class="error hidden"></div>
+
+    <section id="view-traces">
+      <header class="page-header">
+        <h1>Traces</h1>
+        <span id="total-label" class="total-label"></span>
+      </header>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Trace</th>
+              <th>Agente</th>
+              <th>Tipo</th>
+              <th>Status</th>
+              <th class="num">Duração</th>
+              <th class="num">Tokens</th>
+              <th class="num">Custo</th>
+              <th class="num">Quando</th>
+            </tr>
+          </thead>
+          <tbody id="traces-body">
+            <tr><td colspan="8" class="empty">Carregando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <footer class="pager">
+        <button id="prev" disabled>&larr; Anterior</button>
+        <span id="page-label"></span>
+        <button id="next" disabled>Próxima &rarr;</button>
+      </footer>
+    </section>
+
+    <section id="view-sessions" class="hidden">
+      <header class="page-header">
+        <h1>Sessões</h1>
+        <span id="sessions-total-label" class="total-label"></span>
+      </header>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Sessão</th>
+              <th>Agente</th>
+              <th class="num">Traces</th>
+              <th>Status</th>
+              <th class="num">Duração</th>
+              <th class="num">Tokens</th>
+              <th class="num">Custo</th>
+              <th class="num">Última atividade</th>
+            </tr>
+          </thead>
+          <tbody id="sessions-body">
+            <tr><td colspan="8" class="empty">Carregando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <footer class="pager">
+        <button id="sessions-prev" disabled>&larr; Anterior</button>
+        <span id="sessions-page-label"></span>
+        <button id="sessions-next" disabled>Próxima &rarr;</button>
+      </footer>
+    </section>
+
+    <section id="view-billing" class="hidden">
+      <header class="page-header">
+        <h1>Faturas</h1>
+        <span id="bills-total-label" class="total-label"></span>
+      </header>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Fatura</th>
+              <th>Status</th>
+              <th class="num">Traces</th>
+              <th class="num">Pendentes</th>
+              <th class="num">Tokens</th>
+              <th class="num">Total</th>
+            </tr>
+          </thead>
+          <tbody id="bills-body">
+            <tr><td colspan="6" class="empty">Carregando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="billing-note">
+        Uma fatura por mês-calendário. Total ≡ soma dos custos carimbados dos
+        traces do mês; traces com preço pendente ficam fora do total até o
+        carimbo. Clique em uma fatura para ver o extrato.
+      </p>
+    </section>
+  </main>
+
+  <div id="backdrop" class="backdrop hidden"></div>
+  <aside id="panel" class="panel hidden" aria-label="Detalhe do trace">
+    <div id="panel-content"></div>
+  </aside>
+
+  <script src="app.js"></script>
+</body>
+</html>

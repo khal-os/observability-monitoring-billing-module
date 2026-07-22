@@ -1,0 +1,136 @@
+/**
+ * API docs contract tests: the OpenAPI document is generated from the SAME
+ * strict zod schemas used here to parse REAL responses — if the docs and
+ * the API ever diverge (or any internal field leaks), this suite fails.
+ */
+import request from 'supertest';
+import { server } from '../../app.js';
+import { routeDbHarness } from './helpers/route-db-harness.js';
+import {
+  traceDetailResponseSchema,
+  traceListResponseSchema,
+} from '../../../../presentation/controllers/traces/trace-view-schemas.js';
+import {
+  sessionDetailResponseSchema,
+  sessionListResponseSchema,
+} from '../../../../presentation/controllers/sessions/session-view-schemas.js';
+import {
+  billListResponseSchema,
+  billingSummaryResponseSchema,
+} from '../../../../presentation/controllers/billing/billing-view-schemas.js';
+import { apiErrorSchema } from '../../../../presentation/helpers/docs-schemas.js';
+
+const app = server.app;
+
+const FORBIDDEN_INTERNAL_KEYS =
+  /marketPriceUsd|ptaxReference|markupPercent|Microcents|microcents/;
+
+describe('API Docs (OpenAPI)', () => {
+  beforeAll(async () => {
+    await routeDbHarness.connect();
+    await routeDbHarness.ingestJuneFixtures();
+  });
+
+  afterAll(async () => {
+    await routeDbHarness.disconnect();
+  });
+
+  describe('GET /api/v1/docs/openapi.json', () => {
+    it('MUST publish an OpenAPI 3.1 document covering every endpoint', async () => {
+      const response = await request(app)
+        .get('/api/v1/docs/openapi.json')
+        .expect(200);
+
+      expect(response.body.openapi).toBe('3.1.0');
+      // No CLIENT_NAME in the test environment -> the generic module title.
+      expect(response.body.info.title).toBe('Módulo de Observabilidade — API');
+      expect(Object.keys(response.body.paths).sort()).toEqual([
+        '/api/v1/billing/summary',
+        '/api/v1/bills',
+        '/api/v1/sessions',
+        '/api/v1/sessions/{id}',
+        '/api/v1/traces',
+        '/api/v1/traces/{id}',
+      ]);
+    });
+
+    it('MUST NOT document any internal field (invariant 4 holds in the spec too)', async () => {
+      const response = await request(app)
+        .get('/api/v1/docs/openapi.json')
+        .expect(200);
+
+      expect(JSON.stringify(response.body)).not.toMatch(
+        FORBIDDEN_INTERNAL_KEYS,
+      );
+    });
+  });
+
+  describe('GET /api/v1/docs', () => {
+    it('MUST serve the Swagger UI', async () => {
+      const response = await request(app)
+        .get('/api/v1/docs/')
+        .expect(200);
+
+      expect(response.headers['content-type']).toContain('text/html');
+      expect(response.text.toLowerCase()).toContain('swagger');
+    });
+  });
+
+  describe('Contract: real responses parse against the documented schemas', () => {
+    it('GET /traces MUST match the published list schema (strict)', async () => {
+      const response = await request(app).get('/api/v1/traces').expect(200);
+
+      expect(() => traceListResponseSchema.parse(response.body)).not.toThrow();
+    });
+
+    it('GET /traces/:id MUST match the published detail schema — stamped and pending', async () => {
+      const stamped = await request(app)
+        .get('/api/v1/traces/trace-w1-005')
+        .expect(200);
+      const pending = await request(app)
+        .get('/api/v1/traces/trace-w1-006')
+        .expect(200);
+
+      expect(() => traceDetailResponseSchema.parse(stamped.body)).not.toThrow();
+      expect(() => traceDetailResponseSchema.parse(pending.body)).not.toThrow();
+    });
+
+    it('GET /sessions and /sessions/:id MUST match the published schemas', async () => {
+      const list = await request(app).get('/api/v1/sessions').expect(200);
+      const detail = await request(app)
+        .get('/api/v1/sessions/sess-checkout-001')
+        .expect(200);
+
+      expect(() => sessionListResponseSchema.parse(list.body)).not.toThrow();
+      expect(() => sessionDetailResponseSchema.parse(detail.body)).not.toThrow();
+    });
+
+    it('GET /billing/summary MUST match the published schema', async () => {
+      const response = await request(app)
+        .get('/api/v1/billing/summary?year=2026&month=6')
+        .expect(200);
+
+      expect(() =>
+        billingSummaryResponseSchema.parse(response.body),
+      ).not.toThrow();
+    });
+
+    it('GET /bills MUST match the published schema', async () => {
+      const response = await request(app).get('/api/v1/bills').expect(200);
+
+      expect(() => billListResponseSchema.parse(response.body)).not.toThrow();
+    });
+
+    it('Error payloads MUST match the published error schema', async () => {
+      const badRequest = await request(app)
+        .get('/api/v1/traces?from=banana')
+        .expect(400);
+      const notFound = await request(app)
+        .get('/api/v1/traces/nao-existe')
+        .expect(404);
+
+      expect(() => apiErrorSchema.parse(badRequest.body)).not.toThrow();
+      expect(() => apiErrorSchema.parse(notFound.body)).not.toThrow();
+    });
+  });
+});

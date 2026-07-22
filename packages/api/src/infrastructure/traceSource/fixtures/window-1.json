@@ -1,0 +1,181 @@
+[
+  {
+    "traceId": "trace-w1-002",
+    "sessionId": "sess-checkout-001",
+    "agent": { "id": "agent-atendimento", "version": "1.4.2", "instance": "agent-atendimento-7d9f4b-k2xp8" },
+    "model": "openai/gpt-5-mini",
+    "type": "chat",
+    "channel": { "type": "whatsapp", "version": "3.2.0", "instance": "omni-wa-6b4c9f-r3zs5" },
+    "domain": "varejo",
+    "subdomain": "loja-sp",
+    "startedAt": "2026-06-05T14:01:30.000Z",
+    "finishedAt": "2026-06-05T14:01:37.000Z",
+    "status": "ok",
+    "tokens": { "input": 2400, "output": 500, "cache_read": 800 },
+    "input": "Cliente: O pedido é o #88231. Consegue ver se a troca ainda está no prazo?",
+    "output": "Verifiquei aqui: o pedido #88231 foi entregue em 28/05, então você ainda está dentro do prazo de 30 dias para troca. Quer que eu já gere a etiqueta de devolução?",
+    "spans": [
+      {
+        "spanId": "span-w1-002-1",
+        "type": "tool",
+        "name": "consulta-pedido",
+        "startedAt": "2026-06-05T14:01:30.200Z",
+        "finishedAt": "2026-06-05T14:01:33.100Z",
+        "status": "ok",
+        "input": { "orderId": "88231" },
+        "output": { "deliveredAt": "2026-05-28", "exchangeDeadlineDays": 30 }
+      },
+      {
+        "spanId": "span-w1-002-2",
+        "type": "llm",
+        "name": "openai/gpt-5-mini",
+        "startedAt": "2026-06-05T14:01:33.200Z",
+        "finishedAt": "2026-06-05T14:01:36.900Z",
+        "status": "ok",
+        "tokens": { "input": 2400, "output": 500, "cache_read": 800 }
+      }
+    ]
+  },
+  {
+    "traceId": "trace-w1-003",
+    "sessionId": "sess-checkout-001",
+    "agent": { "id": "agent-atendimento", "version": "1.4.2", "instance": "agent-atendimento-7d9f4b-k2xp8" },
+    "model": "openai/gpt-5-mini",
+    "type": "chat",
+    "channel": { "type": "whatsapp", "version": "3.2.0", "instance": "omni-wa-6b4c9f-r3zs5" },
+    "domain": "varejo",
+    "subdomain": "loja-sp",
+    "startedAt": "2026-06-05T14:03:00.000Z",
+    "finishedAt": "2026-06-05T14:03:02.000Z",
+    "status": "ok",
+    "tokens": { "input": 900, "output": 150 },
+    "input": "Cliente: Pode gerar sim, obrigado!",
+    "output": "Pronto! A etiqueta de devolução foi enviada para o seu e-mail. É só colar na caixa e postar em qualquer agência. Posso ajudar em mais alguma coisa?",
+    "spans": [
+      {
+        "spanId": "span-w1-003-1",
+        "type": "llm",
+        "name": "openai/gpt-5-mini",
+        "startedAt": "2026-06-05T14:03:00.100Z",
+        "finishedAt": "2026-06-05T14:03:01.900Z",
+        "status": "ok",
+        "tokens": { "input": 900, "output": 150 }
+      }
+    ]
+  },
+  {
+    "traceId": "trace-w1-001",
+    "sessionId": "sess-checkout-001",
+    "agent": { "id": "agent-atendimento", "version": "1.4.2", "instance": "agent-atendimento-7d9f4b-k2xp8" },
+    "model": "openai/gpt-5-mini",
+    "type": "chat",
+    "channel": { "type": "whatsapp", "version": "3.2.0", "instance": "omni-wa-6b4c9f-r3zs5" },
+    "domain": "varejo",
+    "subdomain": "loja-sp",
+    "startedAt": "2026-06-05T14:00:00.000Z",
+    "finishedAt": "2026-06-05T14:00:04.000Z",
+    "status": "ok",
+    "tokens": { "input": 1200, "output": 350 },
+    "input": "Cliente: Oi! Comprei um tênis na loja de vocês e veio o número errado. Como faço para trocar?",
+    "output": "Olá! Sinto muito pelo transtorno. A troca é simples: me informa o número do pedido, por favor, que eu já verifico o prazo e as opções para você.",
+    "spans": [
+      {
+        "spanId": "span-w1-001-1",
+        "type": "llm",
+        "name": "openai/gpt-5-mini",
+        "startedAt": "2026-06-05T14:00:00.100Z",
+        "finishedAt": "2026-06-05T14:00:03.900Z",
+        "status": "ok",
+        "tokens": { "input": 1200, "output": 350 }
+      }
+    ]
+  },
+  {
+    "traceId": "trace-w1-004",
+    "agent": { "id": "agent-atendimento", "version": "1.4.2", "instance": "agent-atendimento-7d9f4b-k2xp8" },
+    "model": "openai/gpt-5-mini",
+    "type": "chat",
+    "channel": { "type": "web", "version": "3.2.0", "instance": "omni-web-2e7a1d-q9fp4" },
+    "domain": "varejo",
+    "startedAt": "2026-06-06T09:15:00.000Z",
+    "finishedAt": "2026-06-06T09:15:03.000Z",
+    "status": "ok",
+    "tokens": { "input": 600, "output": 200 },
+    "input": "Qual o horário de funcionamento da loja do Shopping Ibirapuera?",
+    "output": "A loja do Shopping Ibirapuera funciona de segunda a sábado das 10h às 22h e aos domingos das 14h às 20h.",
+    "spans": [
+      {
+        "spanId": "span-w1-004-1",
+        "type": "llm",
+        "name": "openai/gpt-5-mini",
+        "startedAt": "2026-06-06T09:15:00.100Z",
+        "finishedAt": "2026-06-06T09:15:02.900Z",
+        "status": "ok",
+        "tokens": { "input": 600, "output": 200 }
+      }
+    ]
+  },
+  {
+    "traceId": "trace-w1-005",
+    "sessionId": "sess-cobranca-002",
+    "agent": { "id": "agent-cobranca", "version": "2.0.1", "instance": "agent-cobranca-5c8e2d-t7qh4" },
+    "model": "anthropic/claude-sonnet-5",
+    "type": "chat",
+    "channel": { "type": "whatsapp", "version": "3.2.0", "instance": "omni-wa-6b4c9f-r3zs5" },
+    "domain": "financeiro",
+    "subdomain": "cobranca",
+    "startedAt": "2026-06-08T11:00:00.000Z",
+    "finishedAt": "2026-06-08T11:00:09.000Z",
+    "status": "error",
+    "tokens": { "input": 3000, "output": 420 },
+    "input": "Cliente: Recebi uma cobrança em duplicidade na fatura deste mês, podem verificar?",
+    "output": "Peço desculpas — não consegui acessar sua fatura agora por causa de uma instabilidade no sistema. Pode tentar novamente em alguns minutos?",
+    "spans": [
+      {
+        "spanId": "span-w1-005-1",
+        "type": "llm",
+        "name": "anthropic/claude-sonnet-5",
+        "startedAt": "2026-06-08T11:00:00.100Z",
+        "finishedAt": "2026-06-08T11:00:02.500Z",
+        "status": "ok",
+        "tokens": { "input": 3000, "output": 420 }
+      },
+      {
+        "spanId": "span-w1-005-2",
+        "type": "tool",
+        "name": "consulta-fatura",
+        "startedAt": "2026-06-08T11:00:02.600Z",
+        "finishedAt": "2026-06-08T11:00:08.800Z",
+        "status": "error",
+        "errorMessage": "Timeout ao consultar o ERP financeiro (5000ms excedidos)",
+        "input": { "customerId": "cli-4411", "invoiceMonth": "2026-06" }
+      }
+    ]
+  },
+  {
+    "traceId": "trace-w1-006",
+    "sessionId": "sess-suporte-003",
+    "agent": { "id": "agent-suporte", "version": "0.9.7", "instance": "agent-suporte-9a1f3c-b5nd2" },
+    "model": "meta/llama-4-scout",
+    "type": "chat",
+    "channel": { "type": "web", "version": "3.2.0", "instance": "omni-web-2e7a1d-q9fp4" },
+    "domain": "suporte",
+    "startedAt": "2026-06-10T16:40:00.000Z",
+    "finishedAt": "2026-06-10T16:40:06.000Z",
+    "status": "ok",
+    "tokens": { "input": 5000, "output": 800 },
+    "input": "Meu roteador está piscando a luz vermelha de internet, o que faço?",
+    "output": "Vamos resolver: primeiro desligue o roteador da tomada por 30 segundos e ligue novamente. Se a luz continuar vermelha após 2 minutos, me avise que verifico se há instabilidade na sua região.",
+    "spans": [
+      {
+        "spanId": "span-w1-006-1",
+        "type": "llm",
+        "name": "meta/llama-4-scout",
+        "startedAt": "2026-06-10T16:40:00.100Z",
+        "finishedAt": "2026-06-10T16:40:05.900Z",
+        "status": "ok",
+        "tokens": { "input": 5000, "output": 800 }
+      }
+    ]
+  }
+]
