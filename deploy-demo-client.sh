@@ -29,8 +29,11 @@
 #   --demo-traces         push demo traces into LangWatch + sync (default)
 #   --no-demo-traces      skip the demo traces only — LangWatch still boots
 #                         and is fully onboarded (admin, org, project, API
-#                         key wired, real sync enabled); prices are ALWAYS
-#                         registered in the client DB regardless of this flag
+#                         key wired, real sync enabled)
+#   --demo-prices         register the premium demo model's prices (default)
+#   --no-demo-prices      skip price registration — traces then land as
+#                         pending_price until prices are registered
+#                         (make price) and reprocessed (make reprocess)
 #
 # LangWatch onboarding is AUTOMATIC: the script registers admin@<name>.com
 # with a random password (printed in the summary — save it), creates the
@@ -113,7 +116,7 @@ NAME="${1:-}"; shift || true
 [[ "$NAME" =~ ^[a-z][a-z0-9-]{1,30}$ ]] || die "nome deve ser um slug ([a-z][a-z0-9-]+): '$NAME'"
 
 API_PORT="" LANGWATCH_PORT="" UI_PORT="" MONGO_HOST_PORT="" MONGO_USER="" MONGO_PASS=""
-LANGWATCH_KEY="" IMAGE="platform-api:local" DEMO_TRACES=1
+LANGWATCH_KEY="" IMAGE="platform-api:local" DEMO_TRACES=1 DEMO_PRICES=1
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -127,6 +130,8 @@ while [[ $# -gt 0 ]]; do
     --image)           IMAGE="$2"; shift 2 ;;
     --demo-traces)     DEMO_TRACES=1; shift ;;
     --no-demo-traces)  DEMO_TRACES=0; shift ;;
+    --demo-prices)     DEMO_PRICES=1; shift ;;
+    --no-demo-prices)  DEMO_PRICES=0; shift ;;
     *) die "opção desconhecida: $1" ;;
   esac
 done
@@ -302,10 +307,14 @@ if [[ -z "$(get LANGWATCH_API_KEY)" && "$LW_OK" -eq 1 ]]; then
 fi
 
 
-# ---------- prices (SEMPRE — independem do LangWatch) ----------
-step "demo: registrando preços do modelo premium no banco"
-quiet ./packages/api/scripts/register-demo-prices.sh "${NAME}" || die "registro de preços falhou"
-grep -E '^→|já registrado' "$LOG" | sed "s/^→ /  ${DIM}·${RST} /; s/^ *(/  ${DIM}·${RST} (/" || true
+# ---------- prices (opcional: --no-demo-prices pula) ----------
+if [[ "$DEMO_PRICES" -eq 0 ]]; then
+  step "demo: preços pulados (--no-demo-prices) — traces ficarão pending_price até make price + make reprocess"
+else
+  step "demo: registrando preços do modelo premium no banco"
+  quiet ./packages/api/scripts/register-demo-prices.sh "${NAME}" || die "registro de preços falhou"
+  grep -E '^→|já registrado' "$LOG" | sed "s/^→ /  ${DIM}·${RST} /; s/^ *(/  ${DIM}·${RST} (/" || true
+fi
 
 # ---------- demo traces (opcional: --no-demo-traces pula SÓ os traces) ----------
 if [[ "$DEMO_TRACES" -eq 0 ]]; then
@@ -367,9 +376,11 @@ if [[ -n "$LW_ADMIN_PASSWORD" ]]; then
   row "senha" "${B}${LW_ADMIN_PASSWORD}${RST}   ${DIM}(também em ${ENVFILE})${RST}"
 fi
 echo
+PRICES_TXT="preços no banco"
+[[ "$DEMO_PRICES" -eq 0 ]] && PRICES_TXT="SEM preços (--no-demo-prices)"
 if [[ "$DEMO_TRACES" -eq 0 ]]; then
   printf '  %s\n' "${CYN}DADOS${RST}"
-  row "demo" "sem traces demo (--no-demo-traces); LangWatch onboarded, preços no banco, sync real habilitado"
+  row "demo" "sem traces demo (--no-demo-traces); LangWatch onboarded, ${PRICES_TXT}, sync real habilitado"
 elif [[ -n "$(get LANGWATCH_API_KEY)" ]]; then
   TOT=$(curl -s -m 8 "http://localhost:${API_PORT}/api/v1/traces?page=1&page_size=1" | python3 -c 'import json,sys; print(json.load(sys.stdin)["total"])' 2>/dev/null || echo '?')
   printf '  %s\n' "${CYN}DADOS${RST}"
