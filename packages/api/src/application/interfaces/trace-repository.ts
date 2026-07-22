@@ -2,7 +2,7 @@ import {
   AgentRef,
   StampedTokenCost,
   TraceModel,
-} from '../../core/models/trace-model.js';
+} from '../../domain/models/trace-model.js';
 
 /**
  * Attribution fields are MUTABLE in open periods (invariant 7). This type

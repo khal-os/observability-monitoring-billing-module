@@ -4,7 +4,7 @@ import {
   SourceSpan,
   SourceTrace,
   TokenCounts,
-} from '../../../data/interfaces/trace-source-client.js';
+} from '../../../application/interfaces/trace-source-client.js';
 import { LangWatchApiSpan, LangWatchApiTrace } from './langwatch-api-schema.js';
 
 // QA14 — mapeamento do payload real para o contrato T1. Convenções de

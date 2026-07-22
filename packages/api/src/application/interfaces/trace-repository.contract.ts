@@ -2,7 +2,7 @@ import { TraceRepository } from './trace-repository.js';
 import {
   StampedTokenCost,
   TraceModel,
-} from '../../core/models/trace-model.js';
+} from '../../domain/models/trace-model.js';
 
 /**
  * ADAPTER-AGNOSTIC contract suite for TraceRepository — the executable

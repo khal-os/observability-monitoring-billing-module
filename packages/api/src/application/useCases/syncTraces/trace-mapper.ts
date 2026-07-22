@@ -1,6 +1,6 @@
 import { SourceTrace } from '../../interfaces/trace-source-client.js';
-import { TraceModel, UnclassifiedInfo } from '../../../core/models/trace-model.js';
-import { SpanModel } from '../../../core/models/span-model.js';
+import { TraceModel, UnclassifiedInfo } from '../../../domain/models/trace-model.js';
+import { SpanModel } from '../../../domain/models/span-model.js';
 import { StampOutcome } from './price-stamper.js';
 
 /**

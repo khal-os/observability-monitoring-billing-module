@@ -1,5 +1,5 @@
-import { TOKEN_TYPES, TokenType } from '../../../core/models/price-version-model.js';
-import { StampedTokenCost, TokenCounts } from '../../../core/models/trace-model.js';
+import { TOKEN_TYPES, TokenType } from '../../../domain/models/price-version-model.js';
+import { StampedTokenCost, TokenCounts } from '../../../domain/models/trace-model.js';
 import { EffectivePrices } from '../../interfaces/price-version-repository.js';
 import { costMicrocents, sumMicrocents } from '../../../common/helpers/money/money.js';
 

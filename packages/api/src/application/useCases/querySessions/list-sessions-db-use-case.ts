@@ -5,7 +5,7 @@ import {
   SessionListFilters,
   SessionQueryRepository,
 } from './query-sessions-protocols.js';
-import { SessionSummaryModel } from '../../../core/models/session-model.js';
+import { SessionSummaryModel } from '../../../domain/models/session-model.js';
 
 export class ListSessionsDbUseCase implements ListSessionsUseCase {
   private readonly sessionQueryRepository: SessionQueryRepository;

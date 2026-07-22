@@ -16,7 +16,7 @@ import {
   formatBrlExactFromMicrocents,
   formatBrlFromMicrocents,
 } from '../../../../common/helpers/money/money.js';
-import { StampedTokenCost } from '../../../../core/models/trace-model.js';
+import { StampedTokenCost } from '../../../../domain/models/trace-model.js';
 
 const app = server.app;
 

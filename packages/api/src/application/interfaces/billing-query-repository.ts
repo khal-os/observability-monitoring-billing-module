@@ -1,7 +1,7 @@
 import {
   BillingSummaryLine,
   PendingPriceSummary,
-} from '../../core/useCases/get-billing-summary-use-case.js';
+} from '../../domain/useCases/get-billing-summary-use-case.js';
 
 export interface BillingMonthAggregate {
   lines: BillingSummaryLine[];

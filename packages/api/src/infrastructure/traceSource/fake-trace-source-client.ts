@@ -4,7 +4,7 @@ import {
   TraceSourceClient,
   SourceTrace,
   SyncWindow,
-} from '../../data/interfaces/trace-source-client.js';
+} from '../../application/interfaces/trace-source-client.js';
 import { sourceTraceListSchema } from './source-trace-schema.js';
 
 // QA14: fake client backed by JSON fixtures shaped like the expected real

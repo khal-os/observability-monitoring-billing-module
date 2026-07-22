@@ -3,9 +3,9 @@ import {
   BillingMonthAggregate,
   BillRow,
   BillingQueryRepository,
-} from '../../../../data/interfaces/billing-query-repository.js';
-import { BillingSummaryLine } from '../../../../core/useCases/get-billing-summary-use-case.js';
-import { TokenType } from '../../../../core/models/price-version-model.js';
+} from '../../../../application/interfaces/billing-query-repository.js';
+import { BillingSummaryLine } from '../../../../domain/useCases/get-billing-summary-use-case.js';
+import { TokenType } from '../../../../domain/models/price-version-model.js';
 import { MongoDb } from '../mongo-db.js';
 import { TRACES_COLLECTION } from '../trace/mongodb-trace-repository.js';
 

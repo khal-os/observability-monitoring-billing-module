@@ -1,6 +1,6 @@
-import { TraceListFilters } from '../../core/useCases/list-traces-use-case.js';
-import { TraceModel } from '../../core/models/trace-model.js';
-import { Paginated, Pagination } from '../../core/models/pagination.js';
+import { TraceListFilters } from '../../domain/useCases/list-traces-use-case.js';
+import { TraceModel } from '../../domain/models/trace-model.js';
+import { Paginated, Pagination } from '../../domain/models/pagination.js';
 
 export interface TraceQueryRepository {
   /** Server-side filters, pagination and ordering (most recent first). */

@@ -1,6 +1,6 @@
 import { stampTokens } from './price-stamper.js';
 import { EffectivePrices } from '../../interfaces/price-version-repository.js';
-import { PriceVersionModel, TokenType } from '../../../core/models/price-version-model.js';
+import { PriceVersionModel, TokenType } from '../../../domain/models/price-version-model.js';
 
 const JUNE_1 = new Date('2026-06-01T00:00:00.000Z');
 

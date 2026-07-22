@@ -1,6 +1,6 @@
 import { Migration } from '../helpers/migration-runner.js';
 import { PRICE_VERSIONS_COLLECTION } from '../priceVersion/mongodb-price-version-repository.js';
-import { PriceVersionModel } from '../../../../core/models/price-version-model.js';
+import { PriceVersionModel } from '../../../../domain/models/price-version-model.js';
 import { brlToMicrocents } from '../../../../common/helpers/money/money.js';
 
 /**

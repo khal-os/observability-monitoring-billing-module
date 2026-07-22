@@ -2,7 +2,7 @@ import {
   GetTraceDetailUseCase,
   TraceQueryRepository,
 } from './query-traces-protocols.js';
-import { TraceModel } from '../../../core/models/trace-model.js';
+import { TraceModel } from '../../../domain/models/trace-model.js';
 
 export class GetTraceDetailDbUseCase implements GetTraceDetailUseCase {
   private readonly traceQueryRepository: TraceQueryRepository;

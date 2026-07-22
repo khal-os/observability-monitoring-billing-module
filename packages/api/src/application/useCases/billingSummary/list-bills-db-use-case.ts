@@ -5,7 +5,7 @@ import {
 import {
   BillListItem,
   ListBillsUseCase,
-} from '../../../core/useCases/list-bills-use-case.js';
+} from '../../../domain/useCases/list-bills-use-case.js';
 
 export class ListBillsDbUseCase implements ListBillsUseCase {
   private readonly billingQueryRepository: BillingQueryRepository;

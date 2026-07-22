@@ -8,8 +8,8 @@ import {
   TraceRepository,
   PendingStamp,
 } from './sync-traces-protocols.js';
-import { PriceVersionModel, TokenType } from '../../../core/models/price-version-model.js';
-import { TraceModel } from '../../../core/models/trace-model.js';
+import { PriceVersionModel, TokenType } from '../../../domain/models/price-version-model.js';
+import { TraceModel } from '../../../domain/models/trace-model.js';
 import { SyncTracesToDbUseCase } from './sync-traces-use-case.js';
 
 const WINDOW = {

@@ -1,5 +1,5 @@
-import { TraceModel } from '../../../core/models/trace-model.js';
-import { SpanModel } from '../../../core/models/span-model.js';
+import { TraceModel } from '../../../domain/models/trace-model.js';
+import { SpanModel } from '../../../domain/models/span-model.js';
 import {
   formatBrlExactFromMicrocents,
   formatBrlFromMicrocents,

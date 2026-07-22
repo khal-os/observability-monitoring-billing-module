@@ -1,6 +1,6 @@
 import { PriceVersionRepository } from './price-version-repository.js';
 import { DuplicatePriceVersionError } from '../errors/duplicate-price-version-error.js';
-import { PriceVersionModel } from '../../core/models/price-version-model.js';
+import { PriceVersionModel } from '../../domain/models/price-version-model.js';
 import { brlToMicrocents } from '../../common/helpers/money/money.js';
 
 /**

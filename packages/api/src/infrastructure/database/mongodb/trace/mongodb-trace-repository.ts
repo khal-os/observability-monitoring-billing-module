@@ -2,9 +2,9 @@ import {
   PendingStamp,
   TraceAttribution,
   TraceRepository,
-} from '../../../../data/interfaces/trace-repository.js';
-import { TraceModel } from '../../../../core/models/trace-model.js';
-import { deriveUnclassified } from '../../../../data/useCases/syncTraces/trace-mapper.js';
+} from '../../../../application/interfaces/trace-repository.js';
+import { TraceModel } from '../../../../domain/models/trace-model.js';
+import { deriveUnclassified } from '../../../../application/useCases/syncTraces/trace-mapper.js';
 import { MongoDb } from '../mongo-db.js';
 
 export const TRACES_COLLECTION = 'traces';

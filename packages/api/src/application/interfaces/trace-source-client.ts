@@ -3,7 +3,7 @@ import {
   ChannelRef,
   ExecutionStatus,
   TokenCounts,
-} from '../../core/models/trace-model.js';
+} from '../../domain/models/trace-model.js';
 
 /**
  * VENDOR-NEUTRAL port for the trace source connector. This shape IS the

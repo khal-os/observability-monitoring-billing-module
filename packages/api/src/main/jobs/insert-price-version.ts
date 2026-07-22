@@ -4,9 +4,9 @@ import { makePriceVersionRepository } from '../factories/price-factory.js';
 import {
   TOKEN_TYPES,
   TokenType,
-} from '../../core/models/price-version-model.js';
+} from '../../domain/models/price-version-model.js';
 import { brlToMicrocents } from '../../common/helpers/money/money.js';
-import { DuplicatePriceVersionError } from '../../data/errors/duplicate-price-version-error.js';
+import { DuplicatePriceVersionError } from '../../application/errors/duplicate-price-version-error.js';
 
 /**
  * T4 runbook (v1 has no admin UI): registers a NEW price version — always

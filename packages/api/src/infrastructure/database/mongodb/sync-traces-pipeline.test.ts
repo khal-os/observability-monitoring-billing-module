@@ -18,11 +18,11 @@ import {
   TRACES_COLLECTION,
 } from './trace/mongodb-trace-repository.js';
 import { FakeTraceSourceClient } from '../../traceSource/fake-trace-source-client.js';
-import { SyncTracesToDbUseCase } from '../../../data/useCases/syncTraces/sync-traces-use-case.js';
-import { ReprocessPendingToDbUseCase } from '../../../data/useCases/reprocessPending/reprocess-pending-use-case.js';
+import { SyncTracesToDbUseCase } from '../../../application/useCases/syncTraces/sync-traces-use-case.js';
+import { ReprocessPendingToDbUseCase } from '../../../application/useCases/reprocessPending/reprocess-pending-use-case.js';
 import { brlToMicrocents } from '../../../common/helpers/money/money.js';
-import { StampedTokenCost } from '../../../core/models/trace-model.js';
-import { SourceTrace } from '../../../data/interfaces/trace-source-client.js';
+import { StampedTokenCost } from '../../../domain/models/trace-model.js';
+import { SourceTrace } from '../../../application/interfaces/trace-source-client.js';
 
 const WINDOW_1 = {
   from: new Date('2026-06-01T00:00:00.000Z'),

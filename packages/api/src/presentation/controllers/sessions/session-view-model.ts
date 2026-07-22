@@ -1,5 +1,5 @@
-import { SessionSummaryModel } from '../../../core/models/session-model.js';
-import { SessionDetail } from '../../../core/useCases/get-session-detail-use-case.js';
+import { SessionSummaryModel } from '../../../domain/models/session-model.js';
+import { SessionDetail } from '../../../domain/useCases/get-session-detail-use-case.js';
 import { formatBrlFromMicrocents } from '../../../common/helpers/money/money.js';
 import {
   contentToText,

@@ -1,6 +1,6 @@
 import { GetTraceDetailController } from './get-trace-detail-controller.js';
 import { GetTraceDetailUseCase } from './traces-protocols.js';
-import { TraceModel } from '../../../core/models/trace-model.js';
+import { TraceModel } from '../../../domain/models/trace-model.js';
 import { InvalidParamError, NotFoundError } from '../../errors/index.js';
 
 const makeDetail = (): TraceModel => ({

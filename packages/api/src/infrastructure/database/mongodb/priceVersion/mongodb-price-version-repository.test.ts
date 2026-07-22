@@ -11,7 +11,7 @@ import {
 import {
   runPriceVersionRepositoryContract,
   PriceVersionRepositoryHarness,
-} from '../../../../data/interfaces/price-version-repository.contract.js';
+} from '../../../../application/interfaces/price-version-repository.contract.js';
 
 /**
  * The Mongo adapter proves the SHARED PriceVersionRepository contract

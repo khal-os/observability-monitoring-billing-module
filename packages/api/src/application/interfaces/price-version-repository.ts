@@ -1,7 +1,7 @@
 import {
   PriceVersionModel,
   TokenType,
-} from '../../core/models/price-version-model.js';
+} from '../../domain/models/price-version-model.js';
 
 export type EffectivePrices = Partial<Record<TokenType, PriceVersionModel>>;
 

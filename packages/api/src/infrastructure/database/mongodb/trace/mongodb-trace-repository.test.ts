@@ -8,7 +8,7 @@ import {
   makeContractTrace,
   runTraceRepositoryContract,
   TraceRepositoryHarness,
-} from '../../../../data/interfaces/trace-repository.contract.js';
+} from '../../../../application/interfaces/trace-repository.contract.js';
 
 /**
  * The Mongo adapter proves the SHARED TraceRepository contract — the

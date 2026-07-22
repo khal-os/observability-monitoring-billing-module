@@ -2,7 +2,7 @@ import {
   TraceSourceClient,
   SourceTrace,
   SyncWindow,
-} from '../../../data/interfaces/trace-source-client.js';
+} from '../../../application/interfaces/trace-source-client.js';
 import {
   langWatchApiTraceSchema,
   langWatchSearchResponseSchema,

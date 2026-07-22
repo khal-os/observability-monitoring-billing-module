@@ -1,12 +1,12 @@
 import {
   EffectivePrices,
   PriceVersionRepository,
-} from '../../../../data/interfaces/price-version-repository.js';
-import { DuplicatePriceVersionError } from '../../../../data/errors/duplicate-price-version-error.js';
+} from '../../../../application/interfaces/price-version-repository.js';
+import { DuplicatePriceVersionError } from '../../../../application/errors/duplicate-price-version-error.js';
 import {
   PriceVersionModel,
   TokenType,
-} from '../../../../core/models/price-version-model.js';
+} from '../../../../domain/models/price-version-model.js';
 import { MongoDb } from '../mongo-db.js';
 
 export const PRICE_VERSIONS_COLLECTION = 'price_versions';

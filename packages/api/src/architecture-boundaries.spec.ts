@@ -5,10 +5,10 @@
  * 1. The vendor name may only appear inside its adapter
  *    (infrastructure/traceSource/langwatch/), the environment wiring
  *    (infrastructure/configuration/) and the composition root
- *    (main/factories/sync-factory.ts). core/data/presentation/common are
- *    vendor-blind by test, not by convention.
- * 2. Dependency direction: core depends on nothing outer; data only on
- *    core; presentation only on core (+ its own layer and common).
+ *    (main/factories/sync-factory.ts). domain/application/presentation/common
+ *    are vendor-blind by test, not by convention.
+ * 2. Dependency direction: domain depends on nothing outer; application only
+ *    on domain; presentation only on domain (+ its own layer and common).
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -19,7 +19,7 @@ const findSrcDir = (): string => {
     join(process.cwd(), 'packages', 'api', 'src'),
   ];
   const srcDir = candidates.find((candidate) =>
-    existsSync(join(candidate, 'core')),
+    existsSync(join(candidate, 'domain')),
   );
 
   if (!srcDir) {
@@ -119,25 +119,30 @@ describe('Architecture boundaries', () => {
             .map((imported) => `${posixRelative(file)} -> ${imported}`),
         );
 
-    it('core MUST NOT depend on any outer layer', () => {
+    it('domain MUST NOT depend on any outer layer', () => {
       expect(
-        violations('core', ['data', 'infrastructure', 'presentation', 'main']),
+        violations('domain', [
+          'application',
+          'infrastructure',
+          'presentation',
+          'main',
+        ]),
       ).toEqual([]);
     });
 
-    it('data MUST NOT depend on infrastructure, presentation or main', () => {
+    it('application MUST NOT depend on infrastructure, presentation or main', () => {
       expect(
-        violations('data', ['infrastructure', 'presentation', 'main']),
+        violations('application', ['infrastructure', 'presentation', 'main']),
       ).toEqual([]);
     });
 
-    it('presentation MUST NOT depend on data implementations, infrastructure or main', () => {
+    it('presentation MUST NOT depend on application implementations, infrastructure or main', () => {
       expect(
-        violations('presentation', ['data', 'infrastructure', 'main']),
+        violations('presentation', ['application', 'infrastructure', 'main']),
       ).toEqual([]);
     });
 
-    it('infrastructure MUST NOT depend on presentation or main (adapters implement data ports only)', () => {
+    it('infrastructure MUST NOT depend on presentation or main (adapters implement application ports only)', () => {
       expect(violations('infrastructure', ['presentation', 'main'])).toEqual(
         [],
       );
@@ -146,8 +151,8 @@ describe('Architecture boundaries', () => {
     it('common MUST stay dependency-free towards every layer', () => {
       expect(
         violations('common', [
-          'core',
-          'data',
+          'domain',
+          'application',
           'infrastructure',
           'presentation',
           'main',
@@ -176,12 +181,12 @@ describe('Architecture boundaries', () => {
       expect(offenders).toEqual([]);
     });
 
-    it('MUST keep core, data, presentation and common storage-blind — tests included', () => {
+    it('MUST keep domain, application, presentation and common storage-blind — tests included', () => {
       const offenders = allFiles
         .filter((file) => {
           const path = posixRelative(file);
 
-          if (!/^(core|data|presentation|common)\//.test(path)) return false;
+          if (!/^(domain|application|presentation|common)\//.test(path)) return false;
 
           // main/ is forbidden too: importing anything from main (e.g. the
           // storage-aware route harness) would make a business layer

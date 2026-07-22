@@ -1,6 +1,6 @@
-import { SyncTracesToDbUseCase } from '../../data/useCases/syncTraces/sync-traces-use-case.js';
-import { ReprocessPendingToDbUseCase } from '../../data/useCases/reprocessPending/reprocess-pending-use-case.js';
-import { TraceSourceClient } from '../../data/interfaces/trace-source-client.js';
+import { SyncTracesToDbUseCase } from '../../application/useCases/syncTraces/sync-traces-use-case.js';
+import { ReprocessPendingToDbUseCase } from '../../application/useCases/reprocessPending/reprocess-pending-use-case.js';
+import { TraceSourceClient } from '../../application/interfaces/trace-source-client.js';
 import { FakeTraceSourceClient } from '../../infrastructure/traceSource/fake-trace-source-client.js';
 import { HttpLangWatchClient } from '../../infrastructure/traceSource/langwatch/http-langwatch-client.js';
 import { MongoDbPriceVersionRepository } from '../../infrastructure/database/mongodb/priceVersion/mongodb-price-version-repository.js';

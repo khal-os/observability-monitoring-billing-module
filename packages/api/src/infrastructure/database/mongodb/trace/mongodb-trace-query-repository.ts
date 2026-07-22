@@ -1,8 +1,8 @@
 import { Document, Filter } from 'mongodb';
-import { TraceQueryRepository } from '../../../../data/interfaces/trace-query-repository.js';
-import { TraceListFilters } from '../../../../core/useCases/list-traces-use-case.js';
-import { Paginated, Pagination } from '../../../../core/models/pagination.js';
-import { TraceModel } from '../../../../core/models/trace-model.js';
+import { TraceQueryRepository } from '../../../../application/interfaces/trace-query-repository.js';
+import { TraceListFilters } from '../../../../domain/useCases/list-traces-use-case.js';
+import { Paginated, Pagination } from '../../../../domain/models/pagination.js';
+import { TraceModel } from '../../../../domain/models/trace-model.js';
 import { MongoDb } from '../mongo-db.js';
 import { TRACES_COLLECTION } from './mongodb-trace-repository.js';
 

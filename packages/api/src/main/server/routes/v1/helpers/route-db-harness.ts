@@ -7,7 +7,7 @@ import { migrations } from '../../../../../infrastructure/database/mongodb/migra
 import { PRICE_VERSIONS_COLLECTION } from '../../../../../infrastructure/database/mongodb/priceVersion/mongodb-price-version-repository.js';
 import { TRACES_COLLECTION } from '../../../../../infrastructure/database/mongodb/trace/mongodb-trace-repository.js';
 import { makeSyncTracesUseCase } from '../../../../factories/sync-factory.js';
-import { StampedTokenCost } from '../../../../../core/models/trace-model.js';
+import { StampedTokenCost } from '../../../../../domain/models/trace-model.js';
 
 /**
  * THE single storage-aware helper behind the route suites. The HTTP-level

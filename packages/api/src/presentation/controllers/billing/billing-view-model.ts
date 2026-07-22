@@ -1,9 +1,9 @@
 import {
   BillingSummary,
   BillingSummaryLine,
-} from '../../../core/useCases/get-billing-summary-use-case.js';
-import { BillListItem } from '../../../core/useCases/list-bills-use-case.js';
-import { TokenType } from '../../../core/models/price-version-model.js';
+} from '../../../domain/useCases/get-billing-summary-use-case.js';
+import { BillListItem } from '../../../domain/useCases/list-bills-use-case.js';
+import { TokenType } from '../../../domain/models/price-version-model.js';
 import {
   formatBrlExactFromMicrocents,
   formatBrlFromCents,

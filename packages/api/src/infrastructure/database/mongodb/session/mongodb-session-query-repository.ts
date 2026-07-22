@@ -1,10 +1,10 @@
 import { Document } from 'mongodb';
-import { SessionQueryRepository } from '../../../../data/interfaces/session-query-repository.js';
-import { SessionListFilters } from '../../../../core/useCases/list-sessions-use-case.js';
-import { SessionDetail } from '../../../../core/useCases/get-session-detail-use-case.js';
-import { SessionSummaryModel } from '../../../../core/models/session-model.js';
-import { Paginated, Pagination } from '../../../../core/models/pagination.js';
-import { TraceModel } from '../../../../core/models/trace-model.js';
+import { SessionQueryRepository } from '../../../../application/interfaces/session-query-repository.js';
+import { SessionListFilters } from '../../../../domain/useCases/list-sessions-use-case.js';
+import { SessionDetail } from '../../../../domain/useCases/get-session-detail-use-case.js';
+import { SessionSummaryModel } from '../../../../domain/models/session-model.js';
+import { Paginated, Pagination } from '../../../../domain/models/pagination.js';
+import { TraceModel } from '../../../../domain/models/trace-model.js';
 import { MongoDb } from '../mongo-db.js';
 import { TRACES_COLLECTION } from '../trace/mongodb-trace-repository.js';
 
