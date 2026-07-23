@@ -117,10 +117,11 @@ export const mapToTrace = (
     totalCostMicrocents:
       stamp.pricingStatus === 'stamped' ? stamp.totalCostMicrocents : undefined,
     stampedAt: stamp.pricingStatus === 'stamped' ? ingestedAt : undefined,
-    pendingPrice:
-      stamp.pricingStatus === 'pending_price'
-        ? { missingTokenTypes: stamp.missingPriceTokenTypes }
-        : undefined,
+    // NOT consolidated (the deliberate exception to decision 51): the
+    // missing-types honesty depends on the MUTABLE price table, so it is
+    // derived at read time (queryTraces/derive-pending-price.ts) — a stored
+    // copy would go stale the moment a price is registered.
+    pendingPrice: undefined,
     unclassified: classifyAttribution(trace),
     ingestedAt,
     input: trace.input,

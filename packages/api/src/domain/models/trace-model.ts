@@ -52,8 +52,12 @@ export interface UnclassifiedInfo {
 }
 
 /**
- * Honesty companion of pending_price (US3): WHICH token types lacked an
- * effective price at ingestion. Cleared when the trace gets stamped.
+ * Honesty companion of pending_price (US3): WHICH token types currently
+ * lack an effective price. DERIVED AT READ TIME (the deliberate exception
+ * to decision 51 — its truth depends on the mutable price table, so a
+ * stored copy would go stale the moment a price is registered). Never
+ * persisted: sync writes null, the read use cases compute it fresh via
+ * queryTraces/derive-pending-price.ts. Absent on stamped traces.
  */
 export interface PendingPriceInfo {
   missingTokenTypes: TokenType[];

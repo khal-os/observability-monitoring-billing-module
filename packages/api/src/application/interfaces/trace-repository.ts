@@ -3,7 +3,6 @@ import {
   StampedTokenCost,
   TraceModel,
 } from '../../domain/models/trace-model.js';
-import { TokenType } from '../../domain/models/price-version-model.js';
 
 /**
  * Attribution fields are MUTABLE in open periods (invariant 7). This type
@@ -52,18 +51,6 @@ export interface TraceRepository {
     traceId: string,
     stamp: PendingStamp,
   ): Promise<'stamped' | 'skipped'>;
-
-  /**
-   * Refreshes the honesty companion of a STILL-pending trace: which token
-   * types lack an effective price as of the latest evaluation (reprocess
-   * shrinks the list as prices get registered). Guarded like the stamp:
-   * writes only while pricingStatus is pending_price — never resurrects
-   * pendingPrice on a stamped trace.
-   */
-  updatePendingPriceInfo(
-    traceId: string,
-    missingTokenTypes: TokenType[],
-  ): Promise<void>;
 
   findPendingPrice(): Promise<TraceModel[]>;
 }

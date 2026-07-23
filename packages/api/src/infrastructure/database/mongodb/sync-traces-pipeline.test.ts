@@ -20,6 +20,8 @@ import {
 import { FakeTraceSourceClient } from '../../traceSource/fake-trace-source-client.js';
 import { SyncTracesToDbUseCase } from '../../../application/useCases/syncTraces/sync-traces-use-case.js';
 import { ReprocessPendingToDbUseCase } from '../../../application/useCases/reprocessPending/reprocess-pending-use-case.js';
+import { GetTraceDetailDbUseCase } from '../../../application/useCases/queryTraces/get-trace-detail-db-use-case.js';
+import { MongoDbTraceQueryRepository } from './trace/mongodb-trace-query-repository.js';
 import { brlToMicrocents } from '../../../common/helpers/money/money.js';
 import { StampedTokenCost } from '../../../domain/models/trace-model.js';
 import { SourceTrace } from '../../../application/interfaces/trace-source-client.js';
@@ -294,15 +296,21 @@ describe('Sync + price stamping (integration)', () => {
       }
     });
 
-    it('MUST shrink the missing-types list as prices arrive, while staying pending (honesty refresh)', async () => {
-      const { sut, reprocess, priceVersionRepository } = makeSut();
+    it('MUST derive the missing-types list AT READ TIME — fresh the moment a price is registered, no job needed', async () => {
+      const { sut, priceVersionRepository } = makeSut();
+      const readTraceDetail = new GetTraceDetailDbUseCase({
+        traceQueryRepository: new MongoDbTraceQueryRepository(),
+        priceVersionRepository,
+      });
 
       await sut.sync(WINDOW_1);
 
-      // Ingestion snapshot: both used token types lack a price.
-      expect((await findTrace('trace-w1-006'))?.pendingPrice).toEqual({
-        missingTokenTypes: ['input', 'output'],
-      });
+      // Nothing stored, everything derived: the document carries no
+      // snapshot (decision 51 exception), the read computes it.
+      expect((await findTrace('trace-w1-006'))?.pendingPrice ?? null).toBeNull();
+      expect(
+        (await readTraceDetail.get('trace-w1-006'))?.pendingPrice,
+      ).toEqual({ missingTokenTypes: ['input', 'output'] });
 
       // Only ONE of the two missing prices gets registered…
       await priceVersionRepository.insertVersion({
@@ -312,16 +320,14 @@ describe('Sync + price stamping (integration)', () => {
         effectiveFrom: JUNE_1,
       });
 
-      const report = await reprocess.reprocess();
+      // …and the VERY NEXT read is already honest — no reprocess ran, the
+      // trace stays pending (never partially stamped, invariant 2), but the
+      // list names only what is STILL missing.
+      const derived = await readTraceDetail.get('trace-w1-006');
 
-      // …so the trace stays pending (never partially stamped, invariant 2)
-      // but the honesty companion now names only what is STILL missing.
-      expect(report.stamped).toBe(0);
-      const pending = await findTrace('trace-w1-006');
-
-      expect(pending?.pricingStatus).toBe('pending_price');
-      expect(pending?.totalCostMicrocents).toBeNull();
-      expect(pending?.pendingPrice).toEqual({ missingTokenTypes: ['output'] });
+      expect(derived?.pricingStatus).toBe('pending_price');
+      expect(derived?.totalCostMicrocents ?? null).toBeNull();
+      expect(derived?.pendingPrice).toEqual({ missingTokenTypes: ['output'] });
     });
   });
 

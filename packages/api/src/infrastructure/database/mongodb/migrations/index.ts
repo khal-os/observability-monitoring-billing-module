@@ -8,6 +8,7 @@ import { embedSpans } from './006-embed-spans.js';
 import { mergeSpanContents } from './007-merge-span-contents.js';
 import { mergeContentIntoTraces } from './008-merge-content-into-traces.js';
 import { consolidateDerivedFields } from './009-consolidate-derived-fields.js';
+import { nullPendingPrice } from './010-null-pending-price.js';
 
 /** Ordered list — the runner applies each exactly once, in this order. */
 export const migrations: Migration[] = [
@@ -20,4 +21,5 @@ export const migrations: Migration[] = [
   mergeSpanContents,
   mergeContentIntoTraces,
   consolidateDerivedFields,
+  nullPendingPrice,
 ];

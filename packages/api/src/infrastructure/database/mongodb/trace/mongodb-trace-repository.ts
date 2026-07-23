@@ -4,7 +4,6 @@ import {
   TraceRepository,
 } from '../../../../application/interfaces/trace-repository.js';
 import { TraceModel } from '../../../../domain/models/trace-model.js';
-import { TokenType } from '../../../../domain/models/price-version-model.js';
 import { deriveUnclassified } from '../../../../application/useCases/syncTraces/trace-mapper.js';
 import { MongoDb } from '../mongo-db.js';
 
@@ -104,18 +103,6 @@ export class MongoDbTraceRepository implements TraceRepository {
     );
 
     return result.matchedCount > 0 ? 'stamped' : 'skipped';
-  }
-
-  async updatePendingPriceInfo(
-    traceId: string,
-    missingTokenTypes: TokenType[],
-  ): Promise<void> {
-    // Same guard as the stamp: only a still-pending trace can match, so a
-    // stamped trace can never get its pendingPrice resurrected.
-    await MongoDb.getCollection(TRACES_COLLECTION).updateOne(
-      { traceId, pricingStatus: 'pending_price' },
-      { $set: { pendingPrice: { missingTokenTypes } } },
-    );
   }
 
   async findPendingPrice(): Promise<TraceModel[]> {
