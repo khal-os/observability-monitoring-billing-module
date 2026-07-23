@@ -13,15 +13,26 @@ client's env file — nothing in the images, the compose file, or the
 application knows any client:
 
 ```
-one client deployment (8 containers, own network, own volumes):
+one client deployment (9 containers, own network, own volumes):
 ┌──────────────────────────────────────────────────────────────┐
-│ ui (:UI_PORT) ──► api (:API_PORT) ──► mongo (own volume)     │
-│  nginx, proxies      │  sync (pull + price-stamp at write)   │
-│  /api same-origin    ▼                                       │
+│ ui (:UI_PORT) ──► api (:API_PORT) ──────► mongo (own volume) │
+│  nginx, proxies                              ▲               │
+│  /api same-origin   sync-worker ─────────────┘               │
+│                      │  continuous ingestion: watermark loop,│
+│                      │  price-stamp at write (decisions 59-63)│
+│                      ▼                                       │
 │ langwatch (:LANGWATCH_PORT) ── workers                       │
-│   ├─ postgres   ├─ redis   └─ clickhouse                     │
+│   ├─ postgres   ├─ redis   └─ clickhouse ◄── (direct read)   │
 └──────────────────────────────────────────────────────────────┘
 ```
+
+Ingestion is **continuous and automatic**: once the client is onboarded
+(`LANGWATCH_API_KEY` set), the `sync-worker` sidecar reads new traces
+straight from the LangWatch stack's ClickHouse (no API caps), stamps
+prices at write time, and stays ~15–16 min behind live (15-min quiet
+period so incrementally-built traces settle before their immutable price
+stamp — `SYNC_*` knobs in the env contract). Before onboarding the
+worker idles and `make sync` over fixtures is the demo path.
 
 The env file is the whole contract and the client's **deployment state** —
 identity, ports, mongo credentials, LangWatch key + per-instance secrets,
@@ -41,7 +52,7 @@ pipeline holds the same keys as protected variables and writes the env file
 ```
 
 One idempotent command does everything: env file with generated secrets and
-auto-allocated free ports → images (built if missing) → 8-container stack →
+auto-allocated free ports → images (built if missing) → 9-container stack →
 health waits → migrations → **automatic LangWatch onboarding** (registers
 `admin@<name>.com` with a random password — printed in the summary and noted
 in the env file — creates organization + project via the instance's own API,
@@ -73,10 +84,14 @@ docker compose -f compose.module.yml -f compose.langwatch.yml -f compose.mongodb
 
 ## Day-2 operations (client-generic)
 
+Continuous ingestion runs by itself (the `sync-worker` container —
+`make logs` shows its batch lines); the commands below are for manual
+backfills, price registration, and lifecycle:
+
 ```bash
-make sync CLIENT=<name> FROM=2026-07-01 TO=2026-07-22   # idempotent windows
+make sync CLIENT=<name> FROM=2026-07-01 TO=2026-07-22   # manual backfill (idempotent windows)
 make price CLIENT=<name> ARGS='--model ... --token-type ... --price-brl ... --effective-from ...'
-make reprocess CLIENT=<name>   # stamp traces that were pending a price
+make reprocess CLIENT=<name>   # re-stamp pending traces now (price:insert and the worker also do this)
 make logs CLIENT=<name>
 make up CLIENT=<name>          # re-apply the stack (dev form)
 make up-prod CLIENT=<name>     # production form
@@ -88,8 +103,11 @@ Full wipe of one client:
 `docker compose -f compose.module.yml -f compose.langwatch.yml -f compose.mongodb.yml --env-file clients/<name>.env down -v`
 plus deleting `clients/<name>.env` and `demo-data/<name>/`.
 
-Keep sync windows under ~100 traces (QA14 finding: LangWatch's search API
-ignores `pageOffset`, so a larger window silently caps at the newest 100).
+Manual `make sync` uses the direct-ClickHouse source when the client is
+onboarded — no window cap. Only the legacy HTTP path (no ClickHouse
+configured) still needs windows under ~100 traces (QA14 finding:
+LangWatch's search API ignores `pageOffset`, silently capping at the
+newest 100).
 
 ## LangWatch (per client, inside the deployment)
 
