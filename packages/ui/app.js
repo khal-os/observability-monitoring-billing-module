@@ -88,12 +88,17 @@ let loadSeq = 0;
 let lastGoodPage = 1;
 let lastGoodTotalPages = 1;
 
-const load = async () => {
+const load = async (background = false) => {
   const seq = ++loadSeq;
-  errorBox.classList.add('hidden');
-  prevBtn.disabled = true;
-  nextBtn.disabled = true;
-  tbody.innerHTML = '<tr><td colspan="8" class="empty">Carregando…</td></tr>';
+  // Background refreshes (auto-refresh timer) repaint in place: no
+  // "Carregando…" placeholder, no button flicker, errors stay silent —
+  // the next tick recovers.
+  if (!background) {
+    errorBox.classList.add('hidden');
+    prevBtn.disabled = true;
+    nextBtn.disabled = true;
+    tbody.innerHTML = '<tr><td colspan="8" class="empty">Carregando…</td></tr>';
+  }
   try {
     const res = await fetch(
       `${API_BASE}/traces?page=${state.page}&page_size=${PAGE_SIZE}`,
@@ -107,6 +112,7 @@ const load = async () => {
     render(data);
   } catch (err) {
     if (seq !== loadSeq) return;
+    if (background) return;
     state.page = lastGoodPage;
     prevBtn.disabled = false;
     nextBtn.disabled = false;
@@ -365,12 +371,14 @@ let sessionsLoadSeq = 0;
 let sessionsLastGoodPage = 1;
 let sessionsLastGoodTotalPages = 1;
 
-const loadSessions = async () => {
+const loadSessions = async (background = false) => {
   const seq = ++sessionsLoadSeq;
-  errorBox.classList.add('hidden');
-  sessionsPrevBtn.disabled = true;
-  sessionsNextBtn.disabled = true;
-  sessionsBody.innerHTML = '<tr><td colspan="8" class="empty">Carregando…</td></tr>';
+  if (!background) {
+    errorBox.classList.add('hidden');
+    sessionsPrevBtn.disabled = true;
+    sessionsNextBtn.disabled = true;
+    sessionsBody.innerHTML = '<tr><td colspan="8" class="empty">Carregando…</td></tr>';
+  }
   try {
     const res = await fetch(
       `${API_BASE}/sessions?page=${sessionsState.page}&page_size=${PAGE_SIZE}`,
@@ -384,6 +392,7 @@ const loadSessions = async () => {
     renderSessions(data);
   } catch (err) {
     if (seq !== sessionsLoadSeq) return;
+    if (background) return;
     sessionsState.page = sessionsLastGoodPage;
     sessionsPrevBtn.disabled = false;
     sessionsNextBtn.disabled = false;
@@ -691,3 +700,21 @@ fetch('/client.json')
   .catch(() => {});
 
 load();
+
+/* ---------- Auto-refresh ---------- */
+/* The sync-worker ingests continuously, so the ACTIVE list keeps itself
+   fresh: silent background reloads (in-place repaint, no placeholder
+   flicker, errors skipped — the next tick recovers). Paused while the
+   browser tab is hidden. Billing stays manual — monthly aggregates don't
+   move on a 5s scale. */
+const AUTO_REFRESH_MS = 5000;
+
+setInterval(() => {
+  if (document.hidden) return;
+  if (TABS.traces.button.classList.contains('active')) {
+    load(true);
+  } else if (TABS.sessions.button.classList.contains('active')) {
+    // First visit loads via loadOnce; only refresh once that has run.
+    if (!TABS.sessions.loadOnce) loadSessions(true);
+  }
+}, AUTO_REFRESH_MS);
