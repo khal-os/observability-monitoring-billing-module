@@ -11,6 +11,7 @@
     "migrate": "ENVIRONMENT=development tsx src/main/jobs/run-migrations.ts",
     "price:insert": "ENVIRONMENT=development tsx src/main/jobs/insert-price-version.ts",
     "sync": "ENVIRONMENT=development tsx src/main/jobs/run-sync.ts",
+    "sync:loop": "ENVIRONMENT=development tsx src/main/jobs/run-sync-loop.ts",
     "reprocess:pending": "ENVIRONMENT=development tsx src/main/jobs/reprocess-pending.ts",
     "test": "ENVIRONMENT=test jest --passWithNoTests --silent --noStackTrace --collectCoverage=false --runInBand",
     "test:verbose": "ENVIRONMENT=test jest --passWithNoTests",
@@ -27,11 +28,11 @@
     "@shelf/jest-mongodb": "^6.0.2",
     "@types/cors": "^2.8.19",
     "@types/express": "^4.17.1",
-    "@types/swagger-ui-express": "^4.1.6",
     "@types/jest": "^30.0.0",
     "@types/mongodb": "^4.0.6",
     "@types/node": "^25.6.0",
     "@types/supertest": "^7.2.0",
+    "@types/swagger-ui-express": "^4.1.6",
     "git-commit-msg-linter": "^5.0.8",
     "jest": "^30.3.0",
     "supertest": "^7.2.2",
@@ -40,6 +41,7 @@
     "typescript": "^6.0.3"
   },
   "dependencies": {
+    "@clickhouse/client": "^1.23.1",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^4.17.1",

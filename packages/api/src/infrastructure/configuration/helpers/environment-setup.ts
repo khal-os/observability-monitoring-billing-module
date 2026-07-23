@@ -5,6 +5,7 @@ import {
   LangWatchEnvironmentVariables,
   MongoDbEnvironmentVariables,
   ServerEnvironmentVariables,
+  SyncWorkerEnvironmentVariables,
 } from '../interfaces/index.js';
 
 const environmentEnum = {
@@ -20,9 +21,17 @@ export interface EnvironmentVariables
   extends
     ServerEnvironmentVariables,
     MongoDbEnvironmentVariables,
-    LangWatchEnvironmentVariables {
+    LangWatchEnvironmentVariables,
+    SyncWorkerEnvironmentVariables {
   Environment: Environment;
 }
+
+/** Optional positive-integer env string (worker knobs). */
+const optionalIntString = (name: string) =>
+  z
+    .string()
+    .regex(/^\d+$/, `${name} must be a valid integer string`)
+    .optional();
 
 const envSchema = z
   .object({
@@ -47,12 +56,33 @@ const envSchema = z
     MONGO_DB_USER: z.string().optional(),
     LANGWATCH_ENDPOINT: z.string().optional(),
     LANGWATCH_API_KEY: z.string().optional(),
+    LANGWATCH_CLICKHOUSE_URL: z.string().optional(),
+    LANGWATCH_CLICKHOUSE_USER: z.string().optional(),
+    LANGWATCH_CLICKHOUSE_PASSWORD: z.string().optional(),
+    LANGWATCH_CLICKHOUSE_DATABASE: z.string().optional(),
+    LANGWATCH_PROJECT_ID: z.string().optional(),
+    SYNC_INTERVAL_SECONDS: optionalIntString('SYNC_INTERVAL_SECONDS'),
+    SYNC_BATCH_SIZE: optionalIntString('SYNC_BATCH_SIZE'),
+    SYNC_QUIET_PERIOD_SECONDS: optionalIntString('SYNC_QUIET_PERIOD_SECONDS'),
+    REPROCESS_INTERVAL_SECONDS: optionalIntString('REPROCESS_INTERVAL_SECONDS'),
   })
   .transform((env) => ({
     ...env,
     SERVER_PORT: parseInt(env.SERVER_PORT, 10),
     MONGO_DB_PORT: env.MONGO_DB_PORT
       ? parseInt(env.MONGO_DB_PORT, 10)
+      : undefined,
+    SYNC_INTERVAL_SECONDS: env.SYNC_INTERVAL_SECONDS
+      ? parseInt(env.SYNC_INTERVAL_SECONDS, 10)
+      : undefined,
+    SYNC_BATCH_SIZE: env.SYNC_BATCH_SIZE
+      ? parseInt(env.SYNC_BATCH_SIZE, 10)
+      : undefined,
+    SYNC_QUIET_PERIOD_SECONDS: env.SYNC_QUIET_PERIOD_SECONDS
+      ? parseInt(env.SYNC_QUIET_PERIOD_SECONDS, 10)
+      : undefined,
+    REPROCESS_INTERVAL_SECONDS: env.REPROCESS_INTERVAL_SECONDS
+      ? parseInt(env.REPROCESS_INTERVAL_SECONDS, 10)
       : undefined,
   }));
 
@@ -89,4 +119,13 @@ export const environment: EnvironmentVariables = {
   mongoDbUser: safeEnvironment.MONGO_DB_USER,
   langwatchEndpoint: safeEnvironment.LANGWATCH_ENDPOINT,
   langwatchApiKey: safeEnvironment.LANGWATCH_API_KEY,
+  langwatchClickhouseUrl: safeEnvironment.LANGWATCH_CLICKHOUSE_URL,
+  langwatchClickhouseUser: safeEnvironment.LANGWATCH_CLICKHOUSE_USER,
+  langwatchClickhousePassword: safeEnvironment.LANGWATCH_CLICKHOUSE_PASSWORD,
+  langwatchClickhouseDatabase: safeEnvironment.LANGWATCH_CLICKHOUSE_DATABASE,
+  langwatchProjectId: safeEnvironment.LANGWATCH_PROJECT_ID,
+  syncIntervalSeconds: safeEnvironment.SYNC_INTERVAL_SECONDS,
+  syncBatchSize: safeEnvironment.SYNC_BATCH_SIZE,
+  syncQuietPeriodSeconds: safeEnvironment.SYNC_QUIET_PERIOD_SECONDS,
+  reprocessIntervalSeconds: safeEnvironment.REPROCESS_INTERVAL_SECONDS,
 };
