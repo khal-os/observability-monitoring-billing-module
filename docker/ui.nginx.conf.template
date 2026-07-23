@@ -32,6 +32,10 @@ server {
     }
 
     location / {
+        # Always revalidate the static shell (cheap ETag 304s): without
+        # this, heuristic caching keeps an open tab on a STALE app.js
+        # after a ui image update — new behavior seems "not deployed".
+        add_header Cache-Control "no-cache";
         try_files $uri /index.html;
     }
 }
