@@ -6,7 +6,7 @@
 # regenerates secrets on re-run. Idempotent extras that do apply to an
 # existing file: --langwatch-key and --env overrides.
 #
-#   ./scripts/init-client-env.sh <name> [options]
+#   ./scripts/1-init-client-env.sh <name> [options]
 #
 #   --api-port N          host port for the API        (default: first free from 3001)
 #   --langwatch-port N    host port for LangWatch      (default: first free from 5561)
@@ -24,6 +24,7 @@ cd "$(dirname "$0")/.."
 source scripts/deploy-lib.sh
 
 require_name "${1:-}"; shift || true
+banner 1 "env — contrato do cliente"
 
 API_PORT="" LANGWATCH_PORT="" UI_PORT="" MONGO_HOST_PORT="" MONGO_USER="" MONGO_PASS=""
 LANGWATCH_KEY="" IMAGE="platform-api:local"
@@ -71,7 +72,7 @@ else
   step "env: criando ${ENVFILE}"
   info "portas: api ${API_PORT} · ui ${UI_PORT} · langwatch ${LANGWATCH_PORT} · mongo-dev ${MONGO_HOST_PORT}"
   cat > "$ENVFILE" << EOF
-# Gerado por init-client-env.sh em $(date -u +%FT%TZ) — contrato: clients/example.env
+# Gerado por 1-init-client-env.sh em $(date -u +%FT%TZ) — contrato: clients/example.env
 COMPOSE_PROJECT_NAME=${NAME}
 CLIENT_NAME=${NAME}
 

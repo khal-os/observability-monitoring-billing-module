@@ -5,7 +5,7 @@
 # Idempotent: a stack already up is a fast no-op pass. First LangWatch
 # boot runs its own migrations and takes a few minutes.
 #
-#   ./scripts/provision-client-stack.sh <name>
+#   ./scripts/2-provision-client-stack.sh <name>
 #
 # Exits 0 with LangWatch still booting (warns) — onboarding can be
 # re-run later; everything else failing is fatal.
@@ -15,20 +15,21 @@ source scripts/deploy-lib.sh
 
 require_name "${1:-}"
 require_envfile
+banner 2 "provisão — imagens · stack · migrações"
 
 API_PORT="$(get API_PORT)"; LANGWATCH_PORT="$(get LANGWATCH_PORT)"
 
 # ---------- images ----------
 docker image inspect "$(get API_IMAGE)" > /dev/null 2>&1 \
-  || { step "buildando imagens (api + ui)"; quiet make build || die "build falhou"; }
+  || { step "buildando imagens (api + ui)"; live make build || die "build falhou"; }
 docker image inspect platform-ui:local > /dev/null 2>&1 \
-  || { step "buildando imagem da UI"; quiet docker build -f docker/ui.Dockerfile -t platform-ui:local . || die "build da UI falhou"; }
+  || { step "buildando imagem da UI"; live docker build -f docker/ui.Dockerfile -t platform-ui:local . || die "build da UI falhou"; }
 
 # ---------- stack ----------
-# Sem `quiet`: o próprio renderer do docker compose mostra cada contêiner
-# subindo em tempo real (Created → Started → Healthy), como num `up` manual.
+# O renderer do docker compose mostra cada contêiner subindo em tempo real
+# (Created → Started → Healthy), transmitido pelo gutter do `live`.
 step "subindo a stack (9 contêineres)"
-make -s up "CLIENT=${NAME}" || die "compose up falhou"
+live make -s up "CLIENT=${NAME}" || die "compose up falhou"
 
 # ---------- health: api (implies mongo healthy via depends_on) ----------
 check_api() { curl -sf -o /dev/null -m 3 "http://localhost:${API_PORT}/api/v1/docs/openapi.json"; }
@@ -37,8 +38,7 @@ wait_live "aguardando API" "http://localhost:${API_PORT}/api/v1" check_api 30 4 
 
 # ---------- migrations (idempotent) ----------
 step "rodando migrações"
-quiet make migrate "CLIENT=${NAME}" || die "migrações falharam"
-info "migrações aplicadas"
+live make migrate "CLIENT=${NAME}" || die "migrações falharam"
 
 # ---------- health: langwatch (first boot runs its own migrations, be patient) ----------
 check_lw() {

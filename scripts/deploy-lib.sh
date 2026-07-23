@@ -18,8 +18,30 @@ step()  { printf '%s\n' "${CYN}▸${RST} ${B}$*${RST}"; }
 info()  { printf '%s\n' "  ${DIM}$*${RST}"; }
 sub()   { printf '  %s %s\n' "${DIM}·${RST}" "$*"; }
 die()   { printf '%s\n' "${RED}✖ ERRO:${RST} $*" >&2; exit 1; }
-LOG="$(mktemp)"
-quiet() { "$@" > "$LOG" 2>&1 || { tail -15 "$LOG"; return 1; }; }
+
+# Step banner: every step script announces itself the same way, whether
+# run standalone or via the orchestrator — number first, so the sequence
+# is impossible to miss. Call AFTER require_name. Usage: banner <n> <título>
+BANNER_RULE="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+banner() {
+  printf '\n%s\n' "${CYN}${BANNER_RULE}${RST}"
+  printf '%s\n' " ${B}${CYN}[$1/5]${RST} ${B}$2${RST}   ${DIM}cliente: ${NAME}${RST}"
+  printf '%s\n' "${CYN}${BANNER_RULE}${RST}"
+}
+
+# Run a command streaming its output LIVE under the current step — every
+# line shown as it happens behind a dim │ gutter, closed by ✔/✖ + elapsed.
+# Nothing is swallowed: what the tool prints is what the operator watches.
+live() {
+  local t0=$SECONDS rc=0
+  "$@" 2>&1 | sed -u "s/^/  ${DIM}│ /;s/\$/${RST}/" || rc=$?
+  if (( rc == 0 )); then
+    printf '  %s✔%s %s%ds%s\n' "$GRN" "$RST" "$DIM" "$(( SECONDS - t0 ))" "$RST"
+  else
+    printf '  %s✖ falhou%s %s(%ds)%s\n' "$RED" "$RST" "$DIM" "$(( SECONDS - t0 ))" "$RST"
+  fi
+  return $rc
+}
 
 line() { printf '%s\n' "${DIM}──────────────────────────────────────────────────────────────${RST}"; }
 row()  { printf '   %s%-12s%s %s\n' "$B" "$1" "$RST" "$2"; }
@@ -34,7 +56,7 @@ require_name() {
 }
 
 require_envfile() {
-  [[ -f "$ENVFILE" ]] || die "faltando ${ENVFILE} — rode ./scripts/init-client-env.sh ${NAME} primeiro"
+  [[ -f "$ENVFILE" ]] || die "faltando ${ENVFILE} — rode ./scripts/1-init-client-env.sh ${NAME} primeiro"
 }
 
 get() { grep -oP "(?<=^$1=).*" "$ENVFILE" | head -1; }

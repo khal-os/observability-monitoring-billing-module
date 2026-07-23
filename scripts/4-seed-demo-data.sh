@@ -3,7 +3,7 @@
 # STEP 4 — demo data (DEV ONLY): premium-model prices and/or deterministic
 # demo traffic for one client.
 #
-#   ./scripts/seed-demo-data.sh <name> [--prices] [--traces]
+#   ./scripts/4-seed-demo-data.sh <name> [--prices] [--traces]
 #
 #   --prices   register the premium demo model's price versions (make
 #              price runbook, insert-only, idempotent)
@@ -20,6 +20,7 @@ source scripts/deploy-lib.sh
 
 require_name "${1:-}"; shift || true
 require_envfile
+banner 4 "dados demo — preços · tráfego"
 
 DO_PRICES=0 DO_TRACES=0
 while [[ $# -gt 0 ]]; do
@@ -38,20 +39,23 @@ LANGWATCH_PORT="$(get LANGWATCH_PORT)"
 # ---------- prices ----------
 if [[ "$DO_PRICES" -eq 1 ]]; then
   step "demo: registrando preços do modelo premium no banco"
-  quiet ./packages/api/scripts/register-demo-prices.sh "${NAME}" || die "registro de preços falhou"
-  grep -E '^→|já registrado' "$LOG" | sed "s/^→ /  ${DIM}·${RST} /; s/^ *(/  ${DIM}·${RST} (/" || true
+  live ./packages/api/scripts/register-demo-prices.sh "${NAME}" || die "registro de preços falhou"
 fi
 
 # ---------- traces ----------
 if [[ "$DO_TRACES" -eq 1 ]]; then
   KEY_NOW="$(get LANGWATCH_API_KEY)"
-  [[ -n "$KEY_NOW" ]] || die "LangWatch sem API key — rode ./scripts/onboard-langwatch.sh ${NAME} antes"
+  [[ -n "$KEY_NOW" ]] || die "LangWatch sem API key — rode ./scripts/3-onboard-langwatch.sh ${NAME} antes"
 
   step "demo: gerando tráfego determinístico para '${NAME}'"
-  node packages/api/scripts/generate-demo-fixtures.mjs --client "${NAME}" > /dev/null
+  live node packages/api/scripts/generate-demo-fixtures.mjs --client "${NAME}" \
+    || die "geração de fixtures falhou"
 
   step "demo: enviando o tráfego para o LangWatch do cliente"
-  node packages/api/scripts/push-demo-to-langwatch.mjs "${NAME}" | tr '\r' '\n' | grep . | tail -1 | sed 's/^/  /'
+  # tr '\r' '\n': o push reporta progresso com \r; via gutter cada tick
+  # vira uma linha visível em vez de um carriage return perdido.
+  live bash -c "set -o pipefail; node packages/api/scripts/push-demo-to-langwatch.mjs '${NAME}' | tr '\r' '\n' | grep --line-buffered ." \
+    || die "push para o LangWatch falhou"
 
   EXPECTED=$(python3 -c "import json,glob; print(sum(len(json.load(open(f))) for f in glob.glob('demo-data/${NAME}/*.json')))")
   printf '%s' "${CYN}▸${RST} ${B}demo: aguardando indexar ${EXPECTED} traces${RST}"

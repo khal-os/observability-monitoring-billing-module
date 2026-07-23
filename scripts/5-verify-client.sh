@@ -4,13 +4,14 @@
 # operator summary (URLs, LangWatch credentials from the env file,
 # day-2 command cheatsheet). Read-only — safe to run any time.
 #
-#   ./scripts/verify-client.sh <name>
+#   ./scripts/5-verify-client.sh <name>
 
 cd "$(dirname "$0")/.."
 source scripts/deploy-lib.sh
 
 require_name "${1:-}"
 require_envfile
+banner 5 "verificação — saúde · dados · resumo"
 
 API_PORT="$(get API_PORT)"; LANGWATCH_PORT="$(get LANGWATCH_PORT)"
 UI_PORT="$(get UI_PORT)"; UI_PORT="${UI_PORT:-8080}"
@@ -51,7 +52,7 @@ if [[ -n "$(get LANGWATCH_API_KEY)" ]]; then
     row "" "${DIM}acompanhe com: make logs CLIENT=${NAME} (linhas 'Sync: batch')${RST}"
   fi
 else
-  printf '  %s\n' "${YLW}ONBOARDING PENDENTE${RST} — rode ./scripts/onboard-langwatch.sh ${NAME}"
+  printf '  %s\n' "${YLW}ONBOARDING PENDENTE${RST} — rode ./scripts/3-onboard-langwatch.sh ${NAME}"
 fi
 echo
 printf '  %s\n' "${CYN}OPERAÇÃO${RST}"

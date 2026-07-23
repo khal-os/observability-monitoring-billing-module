@@ -8,18 +8,19 @@
 # Postgres, wires it into the env file and re-applies the stack so the
 # real sync (api + sync-worker) goes live.
 #
-#   ./scripts/onboard-langwatch.sh <name>
+#   ./scripts/3-onboard-langwatch.sh <name>
 #
 # Idempotent: an already-onboarded instance (key in Postgres) is reused;
 # a key already in the env file is a no-op. If the automatic flow fails,
 # onboard manually in the LangWatch UI and apply the key with
-# ./scripts/init-client-env.sh <name> --langwatch-key KEY
+# ./scripts/1-init-client-env.sh <name> --langwatch-key KEY
 
 cd "$(dirname "$0")/.."
 source scripts/deploy-lib.sh
 
 require_name "${1:-}"
 require_envfile
+banner 3 "onboarding LangWatch — admin · org · projeto · API key"
 
 LANGWATCH_PORT="$(get LANGWATCH_PORT)"
 
@@ -47,7 +48,7 @@ check_lw() {
   c=$(curl -s -o /dev/null -m 3 -w '%{http_code}' "http://localhost:${LANGWATCH_PORT}/" 2>/dev/null || true)
   [[ "$c" == "200" || "$c" == "302" || "$c" == "307" ]]
 }
-check_lw || die "LangWatch não responde em http://localhost:${LANGWATCH_PORT} — rode ./scripts/provision-client-stack.sh ${NAME} antes"
+check_lw || die "LangWatch não responde em http://localhost:${LANGWATCH_PORT} — rode ./scripts/2-provision-client-stack.sh ${NAME} antes"
 
 lw_project_key() {
   docker exec "${NAME}-langwatch-postgres" psql -U prisma -d mydb -t -A \
@@ -93,7 +94,7 @@ else
   curl -sf -m 20 -c "$JAR" -o /dev/null -X POST "${BASE}/api/auth/sign-in/email" \
     -H 'Content-Type: application/json' -H "Origin: ${BASE}" \
     -d "{\"email\":\"${LW_ADMIN_EMAIL}\",\"password\":\"${LW_ADMIN_PASSWORD}\"}" \
-    || die "sign-in do admin falhou — complete manualmente em ${BASE} e aplique a key com ./scripts/init-client-env.sh ${NAME} --langwatch-key KEY"
+    || die "sign-in do admin falhou — complete manualmente em ${BASE} e aplique a key com ./scripts/1-init-client-env.sh ${NAME} --langwatch-key KEY"
   sub "sessão autenticada"
 
   org=$(curl -s -m 20 -b "$JAR" -X POST "${BASE}/api/trpc/organization.createAndAssign?batch=1" \
@@ -131,4 +132,4 @@ if [[ -n "$PROJECT_ID" ]]; then
 fi
 
 step "API key aplicada — recriando a stack com sync real (api + sync-worker)"
-make -s up "CLIENT=${NAME}"
+live make -s up "CLIENT=${NAME}"

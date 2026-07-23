@@ -13,11 +13,11 @@
 # idempotent and independently re-runnable (run one directly to redo just
 # that step):
 #
-#   1. scripts/init-client-env.sh        env file (secrets, ports, --env overrides)
-#   2. scripts/provision-client-stack.sh images + stack + health + migrations
-#   3. scripts/onboard-langwatch.sh      admin/org/project/API key -> sync live
-#   4. scripts/seed-demo-data.sh         demo prices and/or demo traffic
-#   5. scripts/verify-client.sh          health + totals + operator summary
+#   1. scripts/1-init-client-env.sh        env file (secrets, ports, --env overrides)
+#   2. scripts/2-provision-client-stack.sh images + stack + health + migrations
+#   3. scripts/3-onboard-langwatch.sh      admin/org/project/API key -> sync live
+#   4. scripts/4-seed-demo-data.sh         demo prices and/or demo traffic
+#   5. scripts/5-verify-client.sh          health + totals + operator summary
 #
 #   ./deploy-demo-client.sh <name> [options]
 #
@@ -48,8 +48,13 @@
 
 set -euo pipefail
 cd "$(dirname "$0")"
+source scripts/deploy-lib.sh
 
-NAME="${1:-}"; shift || true
+require_name "${1:-}"; shift || true
+T0=$SECONDS
+
+printf '\n%s\n' "${B}${CYN}◆ deploy demo client${RST} ${B}— ${NAME}${RST}"
+printf '%s\n' "${DIM}  5 passos: 1-env · 2-provisão · 3-onboarding · 4-dados demo · 5-verificação${RST}"
 
 declare -a INIT_ARGS=()
 declare -a SEED_FLAGS=()
@@ -73,16 +78,18 @@ done
 # INIT_ARGS is applied later, so it wins.
 [[ -f "clients/${NAME}.env" ]] || INIT_ARGS=(--env SYNC_QUIET_PERIOD_SECONDS=60 "${INIT_ARGS[@]}")
 
-./scripts/init-client-env.sh "$NAME" "${INIT_ARGS[@]}"
-./scripts/provision-client-stack.sh "$NAME"
-./scripts/onboard-langwatch.sh "$NAME"
+./scripts/1-init-client-env.sh "$NAME" "${INIT_ARGS[@]}"
+./scripts/2-provision-client-stack.sh "$NAME"
+./scripts/3-onboard-langwatch.sh "$NAME"
 
 [[ "$DEMO_PRICES" -eq 1 ]] && SEED_FLAGS+=(--prices)
 [[ "$DEMO_TRACES" -eq 1 ]] && SEED_FLAGS+=(--traces)
 if [[ ${#SEED_FLAGS[@]} -gt 0 ]]; then
-  ./scripts/seed-demo-data.sh "$NAME" "${SEED_FLAGS[@]}"
+  ./scripts/4-seed-demo-data.sh "$NAME" "${SEED_FLAGS[@]}"
 else
-  printf '▸ demo: preços e traces pulados (--no-demo-prices --no-demo-traces)\n'
+  step "demo: preços e traces pulados (--no-demo-prices --no-demo-traces)"
 fi
 
-./scripts/verify-client.sh "$NAME"
+./scripts/5-verify-client.sh "$NAME"
+
+printf '\n%s\n\n' "${GRN}✔${RST} ${B}deploy completo${RST} ${DIM}em $(( SECONDS - T0 ))s${RST}"
