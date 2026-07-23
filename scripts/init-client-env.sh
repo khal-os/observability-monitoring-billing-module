@@ -107,7 +107,7 @@ for override in "${ENV_OVERRIDES[@]}"; do
   if grep -q "^${key}=" "$ENVFILE"; then
     sed -i "s|^${key}=.*|${override}|" "$ENVFILE"
   else
-    printf '%s\n' "$override" >> "$ENVFILE"
+    append_env_line "$override"
   fi
   step "env: ${override}"
 done

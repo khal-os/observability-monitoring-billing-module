@@ -80,7 +80,7 @@ else
     LW_ADMIN_PASSWORD="$STORED_PW"
   else
     LW_ADMIN_PASSWORD="$(openssl rand -base64 18)"
-    printf '# LangWatch admin (gerado pelo deploy): %s / %s\n' "$LW_ADMIN_EMAIL" "$LW_ADMIN_PASSWORD" >> "$ENVFILE"
+    append_env_line "$(printf '# LangWatch admin (gerado pelo deploy): %s / %s' "$LW_ADMIN_EMAIL" "$LW_ADMIN_PASSWORD")"
   fi
 
   reg=$(curl -s -m 20 -X POST "${BASE}/api/trpc/user.register?batch=1" \
