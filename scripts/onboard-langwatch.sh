@@ -24,6 +24,20 @@ require_envfile
 LANGWATCH_PORT="$(get LANGWATCH_PORT)"
 
 if [[ -n "$(get LANGWATCH_API_KEY)" ]]; then
+  # Backfill the project id if this env predates its stamping.
+  if [[ -z "$(get LANGWATCH_PROJECT_ID)" ]]; then
+    PROJECT_ID="$(docker exec "${NAME}-langwatch-postgres" psql -U prisma -d mydb -t -A \
+      -c 'SELECT id FROM mydb."Project" ORDER BY "createdAt" DESC LIMIT 1' 2>/dev/null | head -1 || true)"
+    if [[ -n "$PROJECT_ID" ]]; then
+      if grep -q '^LANGWATCH_PROJECT_ID=' "$ENVFILE"; then
+        sed -i "s|^LANGWATCH_PROJECT_ID=.*|LANGWATCH_PROJECT_ID=${PROJECT_ID}|" "$ENVFILE"
+      else
+        sed -i "/^LANGWATCH_API_KEY=/a LANGWATCH_PROJECT_ID=${PROJECT_ID}" "$ENVFILE"
+      fi
+      step "onboarding: key já presente — project id backfilled (${PROJECT_ID})"
+      exit 0
+    fi
+  fi
   step "onboarding: LANGWATCH_API_KEY já presente no env — nada a fazer"
   exit 0
 fi
@@ -38,6 +52,11 @@ check_lw || die "LangWatch não responde em http://localhost:${LANGWATCH_PORT} �
 lw_project_key() {
   docker exec "${NAME}-langwatch-postgres" psql -U prisma -d mydb -t -A \
     -c 'SELECT "apiKey" FROM mydb."Project" ORDER BY "createdAt" DESC LIMIT 1' 2>/dev/null | head -1
+}
+
+lw_project_id() {
+  docker exec "${NAME}-langwatch-postgres" psql -U prisma -d mydb -t -A \
+    -c 'SELECT id FROM mydb."Project" ORDER BY "createdAt" DESC LIMIT 1' 2>/dev/null | head -1
 }
 
 trpc_ok() { # $1 = tRPC batch response; fails if it carries an error
@@ -98,5 +117,18 @@ else
 fi
 
 sed -i "s|^LANGWATCH_API_KEY=.*|LANGWATCH_API_KEY=${KEY_NOW}|" "$ENVFILE"
+
+# Also stamp the project id — the sync's optional tenant filter. Costless
+# now, protective the day a second project appears on the instance.
+PROJECT_ID="$(lw_project_id || true)"
+if [[ -n "$PROJECT_ID" ]]; then
+  if grep -q '^LANGWATCH_PROJECT_ID=' "$ENVFILE"; then
+    sed -i "s|^LANGWATCH_PROJECT_ID=.*|LANGWATCH_PROJECT_ID=${PROJECT_ID}|" "$ENVFILE"
+  else
+    sed -i "/^LANGWATCH_API_KEY=/a LANGWATCH_PROJECT_ID=${PROJECT_ID}" "$ENVFILE"
+  fi
+  sub "project id aplicado (${PROJECT_ID})"
+fi
+
 step "API key aplicada — recriando a stack com sync real (api + sync-worker)"
 make -s up "CLIENT=${NAME}"
