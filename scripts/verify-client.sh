@@ -46,7 +46,8 @@ if [[ -n "$(get LANGWATCH_API_KEY)" ]]; then
   printf '  %s\n' "${CYN}DADOS${RST}"
   row "traces" "${TOT} ingeridos na plataforma"
   if [[ "$TOT" == "0" ]]; then
-    row "" "${DIM}o sync-worker ingere continuamente (quarentena ~15 min);${RST}"
+    QUIET_S="$(get SYNC_QUIET_PERIOD_SECONDS)"; QUIET_S="${QUIET_S:-900}"
+    row "" "${DIM}o sync-worker ingere continuamente (quarentena ~$(( (QUIET_S + 59) / 60 )) min);${RST}"
     row "" "${DIM}acompanhe com: make logs CLIENT=${NAME} (linhas 'Sync: batch')${RST}"
   fi
 else

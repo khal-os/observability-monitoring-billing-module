@@ -67,6 +67,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Demo default: 1-min quiet period so pushed traffic ingests fast (prod
+# default is 900s — decision 61). Creation-time only (never clobbers an
+# existing env), and an explicit --env SYNC_QUIET_PERIOD_SECONDS=... in
+# INIT_ARGS is applied later, so it wins.
+[[ -f "clients/${NAME}.env" ]] || INIT_ARGS=(--env SYNC_QUIET_PERIOD_SECONDS=60 "${INIT_ARGS[@]}")
+
 ./scripts/init-client-env.sh "$NAME" "${INIT_ARGS[@]}"
 ./scripts/provision-client-stack.sh "$NAME"
 ./scripts/onboard-langwatch.sh "$NAME"

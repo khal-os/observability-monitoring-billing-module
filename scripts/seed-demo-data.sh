@@ -67,6 +67,7 @@ if [[ "$DO_TRACES" -eq 1 ]]; then
   echo " ${INDEXED}/${EXPECTED}"
   [[ "${INDEXED:-0}" -ge "$EXPECTED" ]] || info "(indexação incompleta — o restante indexa em seguida)"
 
-  info "ingestão contínua: o sync-worker ingere após a quarentena (~15-16 min);"
+  QUIET_S="$(get SYNC_QUIET_PERIOD_SECONDS)"; QUIET_S="${QUIET_S:-900}"
+  info "ingestão contínua: o sync-worker ingere após a quarentena (~$(( (QUIET_S + 59) / 60 ))-$(( (QUIET_S + 59) / 60 + 1 )) min);"
   info "para ingerir JÁ: make sync CLIENT=${NAME} FROM=$(date -u -d '14 days ago' +%F) TO=$(date -u -d 'tomorrow' +%F)"
 fi
