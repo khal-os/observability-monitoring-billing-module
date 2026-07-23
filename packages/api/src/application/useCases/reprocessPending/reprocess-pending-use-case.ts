@@ -49,6 +49,21 @@ export class ReprocessPendingToDbUseCase implements ReprocessPendingUseCase {
 
       if (stamp.pricingStatus === 'pending_price') {
         report.stillPending += 1;
+        // Honesty refresh: the stored missing-types list is a snapshot of
+        // the LAST evaluation — as prices get registered one by one, the
+        // list must shrink accordingly instead of forever showing the
+        // ingestion-time snapshot.
+        const stored = trace.pendingPrice?.missingTokenTypes ?? [];
+        const fresh = stamp.missingPriceTokenTypes;
+        const changed =
+          stored.length !== fresh.length ||
+          fresh.some((tokenType) => !stored.includes(tokenType));
+        if (changed) {
+          await this.traceRepository.updatePendingPriceInfo(
+            trace.traceId,
+            fresh,
+          );
+        }
         continue;
       }
 

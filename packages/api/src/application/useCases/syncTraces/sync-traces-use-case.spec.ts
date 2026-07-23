@@ -88,6 +88,8 @@ class TraceRepositoryStub implements TraceRepository {
     return 'skipped';
   }
 
+  async updatePendingPriceInfo(): Promise<void> {}
+
   async findPendingPrice(): Promise<TraceModel[]> {
     return [];
   }

@@ -296,6 +296,41 @@ export const runTraceRepositoryContract = (
       });
     });
 
+    describe('updatePendingPriceInfo()', () => {
+      it('MUST refresh the missing-types list of a STILL-pending trace', async () => {
+        await harness.repository.insertIfAbsent(
+          makePending({
+            traceId: 'trace-pending',
+            pendingPrice: { missingTokenTypes: ['input', 'output'] },
+          }),
+        );
+
+        await harness.repository.updatePendingPriceInfo('trace-pending', [
+          'output',
+        ]);
+
+        const stored = await harness.readTrace('trace-pending');
+
+        expect(stored?.['pricingStatus']).toBe('pending_price');
+        expect(stored?.['pendingPrice']).toEqual({
+          missingTokenTypes: ['output'],
+        });
+      });
+
+      it('MUST NOT resurrect pendingPrice on a stamped trace (invariant 1)', async () => {
+        await harness.repository.insertIfAbsent(makeContractTrace());
+
+        await harness.repository.updatePendingPriceInfo('trace-001', [
+          'input',
+        ]);
+
+        const stored = await harness.readTrace('trace-001');
+
+        expect(stored?.['pricingStatus']).toBe('stamped');
+        expect(stored?.['pendingPrice'] ?? null).toBeNull();
+      });
+    });
+
     describe('findPendingPrice()', () => {
       it('MUST return only pending traces, oldest first', async () => {
         await harness.repository.insertIfAbsent(makeContractTrace());

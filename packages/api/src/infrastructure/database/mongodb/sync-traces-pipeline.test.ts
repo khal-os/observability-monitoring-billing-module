@@ -43,6 +43,7 @@ interface StoredTrace {
   stampedCosts?: StampedTokenCost[];
   totalCostMicrocents?: number;
   tokens?: Record<string, number>;
+  pendingPrice?: { missingTokenTypes: string[] } | null;
 }
 
 const findTrace = async (traceId: string): Promise<StoredTrace | null> =>
@@ -291,6 +292,36 @@ describe('Sync + price stamping (integration)', () => {
           totalBefore,
         );
       }
+    });
+
+    it('MUST shrink the missing-types list as prices arrive, while staying pending (honesty refresh)', async () => {
+      const { sut, reprocess, priceVersionRepository } = makeSut();
+
+      await sut.sync(WINDOW_1);
+
+      // Ingestion snapshot: both used token types lack a price.
+      expect((await findTrace('trace-w1-006'))?.pendingPrice).toEqual({
+        missingTokenTypes: ['input', 'output'],
+      });
+
+      // Only ONE of the two missing prices gets registered…
+      await priceVersionRepository.insertVersion({
+        model: 'meta/llama-4-scout',
+        tokenType: 'input',
+        priceMicrocentsPerMillion: brlToMicrocents('1.00'),
+        effectiveFrom: JUNE_1,
+      });
+
+      const report = await reprocess.reprocess();
+
+      // …so the trace stays pending (never partially stamped, invariant 2)
+      // but the honesty companion now names only what is STILL missing.
+      expect(report.stamped).toBe(0);
+      const pending = await findTrace('trace-w1-006');
+
+      expect(pending?.pricingStatus).toBe('pending_price');
+      expect(pending?.totalCostMicrocents).toBeNull();
+      expect(pending?.pendingPrice).toEqual({ missingTokenTypes: ['output'] });
     });
   });
 
