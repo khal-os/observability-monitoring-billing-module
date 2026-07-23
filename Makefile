@@ -13,8 +13,14 @@
 #   make down CLIENT=claro                      # stop one client (volumes preserved)
 #   make ps                                     # all compose projects on this host
 #
-# Keep sync windows under ~100 traces (QA14: LangWatch search ignores
-# pageOffset — a bigger window silently caps at the newest 100).
+# Continuous ingestion: once LANGWATCH_API_KEY is set in the client env,
+# the sync-worker sidecar (part of the stack) syncs automatically via
+# direct ClickHouse reads — no window cap. `make sync` remains for manual
+# backfills and fixture-backed demos.
+#
+# Keep MANUAL sync windows under ~100 traces ONLY on the HTTP path (QA14:
+# LangWatch search ignores pageOffset — a bigger window silently caps at
+# the newest 100). The ClickHouse path has no such cap.
 
 .DEFAULT_GOAL := help
 
@@ -26,6 +32,7 @@ ENVFILE = clients/$(CLIENT).env
 # truth for these.
 SCRUB = env -u COMPOSE_PROJECT_NAME -u CLIENT_NAME -u API_PORT \
           -u LANGWATCH_PORT -u LANGWATCH_API_KEY -u LANGWATCH_ENDPOINT \
+          -u LANGWATCH_PROJECT_ID \
           -u MONGO_DB_USER -u MONGO_DB_PASSWORD -u API_IMAGE \
           -u LW_NEXTAUTH_SECRET -u LW_API_TOKEN_JWT_SECRET -u LW_CREDENTIALS_SECRET
 COMPOSE_PROD = $(SCRUB) docker compose -f compose.client.yml --env-file $(ENVFILE)

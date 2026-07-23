@@ -74,6 +74,14 @@ services:
       # falls back to the fixture-backed fake client.
       LANGWATCH_ENDPOINT: ${LANGWATCH_API_KEY:+http://langwatch:5560}
       LANGWATCH_API_KEY: ${LANGWATCH_API_KEY:-}
+      # Manual `make sync` runs in THIS service — give it the same direct-
+      # ClickHouse source the sync-worker uses (decision 59), so backfills
+      # skip the ~100-trace search cap. Same onboarding gate as above.
+      LANGWATCH_CLICKHOUSE_URL: ${LANGWATCH_API_KEY:+http://clickhouse:8123}
+      LANGWATCH_CLICKHOUSE_USER: default
+      LANGWATCH_CLICKHOUSE_PASSWORD: langwatch
+      LANGWATCH_CLICKHOUSE_DATABASE: langwatch
+      LANGWATCH_PROJECT_ID: ${LANGWATCH_PROJECT_ID:-}
     ports:
       - "${API_PORT:-3000}:3000"
     depends_on:
@@ -86,6 +94,50 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  # Continuous ingestion (T2): the watermark loop in a sidecar — same image
+  # as the api, different command (the same pattern as langwatch-workers).
+  # Reads LangWatch's OWN ClickHouse (decision 59) and writes to this
+  # client's mongo. Gated like LANGWATCH_ENDPOINT: while LANGWATCH_API_KEY
+  # is empty (pre-onboarding / offline demo), the URL interpolates to empty
+  # and the worker idles — `make sync` over fixtures remains the demo path.
+  sync-worker:
+    image: ${API_IMAGE:-platform-api:local}
+    container_name: ${CLIENT_NAME}-sync-worker
+    command: ["node", "dist/main/jobs/run-sync-loop.js"]
+    init: true # forward SIGTERM to node (the loop finishes its batch first)
+    # One batch must be able to finish before SIGKILL — default 10s is
+    # tight for a 1000-trace batch on a busy host.
+    stop_grace_period: 60s
+    environment:
+      ENVIRONMENT: production
+      SERVER_PORT: "3000" # unused (no server) but required by config validation
+      CLIENT_NAME: ${CLIENT_NAME}
+      MONGO_DB_HOST: mongo
+      MONGO_DB_PORT: "27017"
+      MONGO_DB_NAME: ${CLIENT_NAME}
+      MONGO_DB_USER: ${MONGO_DB_USER:-}
+      MONGO_DB_PASSWORD: ${MONGO_DB_PASSWORD:-}
+      LANGWATCH_CLICKHOUSE_URL: ${LANGWATCH_API_KEY:+http://clickhouse:8123}
+      LANGWATCH_CLICKHOUSE_USER: default
+      LANGWATCH_CLICKHOUSE_PASSWORD: langwatch
+      LANGWATCH_CLICKHOUSE_DATABASE: langwatch
+      # Optional row filter (LangWatch project id) — see clients/example.env.
+      LANGWATCH_PROJECT_ID: ${LANGWATCH_PROJECT_ID:-}
+      SYNC_INTERVAL_SECONDS: ${SYNC_INTERVAL_SECONDS:-60}
+      SYNC_BATCH_SIZE: ${SYNC_BATCH_SIZE:-1000}
+      SYNC_QUIET_PERIOD_SECONDS: ${SYNC_QUIET_PERIOD_SECONDS:-900}
+      REPROCESS_INTERVAL_SECONDS: ${REPROCESS_INTERVAL_SECONDS:-3600}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
     restart: unless-stopped
     deploy:
       resources:
