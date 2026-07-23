@@ -1,0 +1,55 @@
+# THE DATABASE — the client's own MongoDB, plus the couplings it
+# introduces on the module (dependency fragments on api and sync-worker).
+# See compose.module.yml for how the role files assemble into one project
+# (decision 65). An EXTERNAL database (e.g. Atlas) = drop this file from
+# the chain and set MONGO_DB_HOST/PORT/USER/PASSWORD in the client env —
+# the module's defaults point at the in-project `mongo` host only when
+# this file provides it. A different store in the future = a sibling
+# compose.<db>.yml with its own coupling fragments.
+
+services:
+  # ---- couplings onto the module (merged into compose.module.yml) ----
+
+  api:
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  sync-worker:
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  # ---- the database itself ----
+
+  mongo:
+    image: mongo:7
+    container_name: ${CLIENT_NAME}-mongo
+    # Empty values are treated as unset by the mongo entrypoint: with
+    # credentials the server enforces auth, without them it is open — but
+    # only inside the project network either way (no host port published;
+    # use `docker exec -it <client>-mongo mongosh` for direct inserts).
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_DB_USER:-}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_DB_PASSWORD:-}
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      # Authenticates when credentials are configured: a plain ping is
+      # auth-exempt and would stay green even in the broken "credentials
+      # added AFTER an auth-less first boot" state (entrypoint only creates
+      # the root user on an empty volume). ${MONGO_DB_USER:+...} interpolates
+      # at compose time; $$MONGO_INITDB_ROOT_* expand inside the container.
+      test: ["CMD-SHELL", "mongosh --quiet ${MONGO_DB_USER:+-u \"$$MONGO_INITDB_ROOT_USERNAME\" -p \"$$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin} --eval \"db.adminCommand('ping')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+volumes:
+  mongo-data:

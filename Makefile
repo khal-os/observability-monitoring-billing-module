@@ -33,10 +33,16 @@ ENVFILE = clients/$(CLIENT).env
 SCRUB = env -u COMPOSE_PROJECT_NAME -u CLIENT_NAME -u API_PORT \
           -u LANGWATCH_PORT -u LANGWATCH_API_KEY -u LANGWATCH_ENDPOINT \
           -u LANGWATCH_PROJECT_ID \
+          -u MONGO_DB_HOST -u MONGO_DB_PORT \
           -u MONGO_DB_USER -u MONGO_DB_PASSWORD -u API_IMAGE \
           -u LW_NEXTAUTH_SECRET -u LW_API_TOKEN_JWT_SECRET -u LW_CREDENTIALS_SECRET
-COMPOSE_PROD = $(SCRUB) docker compose -f compose.client.yml --env-file $(ENVFILE)
-COMPOSE_DEV  = $(SCRUB) docker compose -f compose.client.yml -f compose.dev.yml --env-file $(ENVFILE)
+# Role files (decision 65): module (api+ui+sync-worker) + connector
+# (LangWatch) + database (mongo) merge into ONE project per client.
+# Couplings live in the file that introduces them, so dropping a role
+# (e.g. external mongo) is a change of THIS list + the client env.
+COMPOSE_FILES = -f compose.module.yml -f compose.langwatch.yml -f compose.mongodb.yml
+COMPOSE_PROD = $(SCRUB) docker compose $(COMPOSE_FILES) --env-file $(ENVFILE)
+COMPOSE_DEV  = $(SCRUB) docker compose $(COMPOSE_FILES) -f compose.dev.yml --env-file $(ENVFILE)
 # One-off jobs run in the PROD form — none of them read demo fixtures, and
 # the dev overlay would auto-create a root-owned demo-data/<client> dir.
 # --no-deps: without it, `run` reconciles the mongo service against THIS

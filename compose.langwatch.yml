@@ -1,0 +1,168 @@
+# THE CONNECTOR — the client's own LangWatch stack, plus the couplings it
+# introduces on the module (env + dependencies fragments on api and
+# sync-worker). See compose.module.yml for how the role files assemble
+# into one project (decision 65). Removing this file from the chain
+# removes LangWatch entirely: the module still composes, the sync-worker
+# idles. A different connector in the future = a sibling
+# compose.<connector>.yml with its own coupling fragments.
+#
+# LangWatch services mirror the OFFICIAL upstream compose.yml (ClickHouse
+# stack — no OpenSearch), with two deliberate deviations: (1) app image
+# pinned to a versioned tag instead of `latest` + pull_policy always;
+# (2) postgres/clickhouse host publications removed. The separate `workers`
+# container is kept as upstream ships it: START_WORKERS=true does NOT work
+# on the production image (its start.sh needs `concurrently`, a dev-only
+# dependency — verified absent in langwatch/langwatch:3.5.0).
+
+x-langwatch-env: &langwatch-env
+  SKIP_ENV_VALIDATION: "true"
+  NODE_ENV: production
+  INSTALL_METHOD: docker
+  DATABASE_URL: postgresql://prisma:prisma@postgres:5432/mydb?schema=mydb
+  CLICKHOUSE_URL: http://default:langwatch@clickhouse:8123/langwatch
+  REDIS_URL: redis://redis:6379
+  LANGWATCH_ENDPOINT: http://langwatch:5560 # in-project callbacks (workers -> app)
+  # These three must all equal the browser-visible URL of THIS instance,
+  # or CLI/session auth fails with "Unauthorized: Invalid credentials".
+  BASE_HOST: http://localhost:${LANGWATCH_PORT:-5560}
+  NEXTAUTH_URL: http://localhost:${LANGWATCH_PORT:-5560}
+  LANGWATCH_API_URL: http://localhost:${LANGWATCH_PORT:-5560}
+  NEXTAUTH_PROVIDER: email # plain email+password signup, no verification step
+  NEXTAUTH_SECRET: ${LW_NEXTAUTH_SECRET}
+  API_TOKEN_JWT_SECRET: ${LW_API_TOKEN_JWT_SECRET}
+  CREDENTIALS_SECRET: ${LW_CREDENTIALS_SECRET}
+
+x-langwatch-deps: &langwatch-deps
+  postgres:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+  clickhouse:
+    condition: service_healthy
+
+services:
+  # ---- couplings onto the module (merged into compose.module.yml) ----
+
+  api:
+    environment:
+      # Internal DNS — server-to-server sync never leaves the project network.
+      # While LANGWATCH_API_KEY is empty (pre-onboarding), the sync factory
+      # falls back to the fixture-backed fake client.
+      LANGWATCH_ENDPOINT: ${LANGWATCH_API_KEY:+http://langwatch:5560}
+      LANGWATCH_API_KEY: ${LANGWATCH_API_KEY:-}
+      # Manual `make sync` runs in the api service — give it the same direct-
+      # ClickHouse source the sync-worker uses (decision 59), so backfills
+      # skip the ~100-trace search cap. Same onboarding gate as above.
+      LANGWATCH_CLICKHOUSE_URL: ${LANGWATCH_API_KEY:+http://clickhouse:8123}
+      LANGWATCH_CLICKHOUSE_USER: default
+      LANGWATCH_CLICKHOUSE_PASSWORD: langwatch
+      LANGWATCH_CLICKHOUSE_DATABASE: langwatch
+      LANGWATCH_PROJECT_ID: ${LANGWATCH_PROJECT_ID:-}
+
+  sync-worker:
+    environment:
+      # Continuous ingestion reads the connector's OWN ClickHouse (decision
+      # 59). Gated by onboarding: while LANGWATCH_API_KEY is empty the URL
+      # interpolates to empty and the worker idles.
+      LANGWATCH_CLICKHOUSE_URL: ${LANGWATCH_API_KEY:+http://clickhouse:8123}
+      LANGWATCH_CLICKHOUSE_USER: default
+      LANGWATCH_CLICKHOUSE_PASSWORD: langwatch
+      LANGWATCH_CLICKHOUSE_DATABASE: langwatch
+      # Optional row filter (LangWatch project id) — see clients/example.env.
+      LANGWATCH_PROJECT_ID: ${LANGWATCH_PROJECT_ID:-}
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+
+  # ---- the LangWatch stack itself ----
+
+  langwatch:
+    image: langwatch/langwatch:3.5.0
+    container_name: ${CLIENT_NAME}-langwatch
+    environment:
+      <<: *langwatch-env
+    ports:
+      - "${LANGWATCH_PORT:-5560}:5560"
+    depends_on:
+      <<: *langwatch-deps
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+
+  langwatch-workers:
+    image: langwatch/langwatch:3.5.0
+    container_name: ${CLIENT_NAME}-langwatch-workers
+    command: ["pnpm", "run", "start:workers"]
+    working_dir: /app/langwatch
+    environment:
+      <<: *langwatch-env
+    depends_on:
+      <<: *langwatch-deps
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1536m # upstream dev compose cap for the workers process
+
+  postgres:
+    image: postgres:16
+    container_name: ${CLIENT_NAME}-langwatch-postgres
+    environment:
+      POSTGRES_DB: mydb
+      POSTGRES_USER: prisma
+      POSTGRES_PASSWORD: prisma
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prisma -d mydb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  redis:
+    image: redis:7-alpine
+    container_name: ${CLIENT_NAME}-langwatch-redis
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512m # upstream raised this from 64m after BGSAVE OOM kills
+
+  clickhouse:
+    image: langwatch/clickhouse-serverless:0.2.0
+    container_name: ${CLIENT_NAME}-langwatch-clickhouse
+    environment:
+      CLICKHOUSE_PASSWORD: langwatch
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8123/ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: "1.0"
+
+volumes:
+  db-data:
+  redis-data:
+  clickhouse-data:

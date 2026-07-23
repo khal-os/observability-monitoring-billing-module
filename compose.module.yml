@@ -1,0 +1,114 @@
+# THE MODULE — the platform's own services: api + ui + sync-worker.
+#
+# One client = one compose PROJECT assembled from role files (decision 65):
+#
+#   compose.module.yml     (this file — always)
+#   compose.langwatch.yml  (the connector: LangWatch stack + its couplings)
+#   compose.mongodb.yml    (the database: mongo + its couplings)
+#   compose.dev.yml        (dev overlay: build blocks + demo fixtures)
+#
+#   docker compose -f compose.module.yml -f compose.langwatch.yml \
+#     -f compose.mongodb.yml --env-file clients/<name>.env up -d
+#
+# (The Makefile wraps this chain; see clients/example.env for the env
+# contract.) All files merge into ONE project — same network, DNS,
+# volumes. Couplings live in the file that introduces them: this file
+# never names a langwatch or mongo service, so swapping a connector or
+# pointing at an external database is a change of FILES + env, not edits
+# here. A future connector/store = a new compose.<name>.yml alongside.
+#
+# This file knows NO client: every client-specific value arrives via the
+# env file. ${CLIENT_NAME:?...} makes a missing env file fail loudly
+# instead of composing a half-named stack.
+
+# Fallback project name = the client slug. Without this, an env file that
+# forgets COMPOSE_PROJECT_NAME would fall back to the DIRECTORY name — and
+# two such clients would silently collapse into one project sharing one
+# mongo volume. COMPOSE_PROJECT_NAME from the env file still takes
+# precedence when set.
+name: ${CLIENT_NAME}
+
+services:
+  api:
+    image: ${API_IMAGE:-platform-api:local}
+    container_name: ${CLIENT_NAME:?set CLIENT_NAME via --env-file (see clients/example.env)}-api
+    init: true # app has no signal handlers; let PID 1 forward SIGTERM
+    environment:
+      ENVIRONMENT: production
+      SERVER_PORT: "3000"
+      CLIENT_NAME: ${CLIENT_NAME} # brands the OpenAPI docs of this instance
+      # Host defaults to the in-project mongo (compose.mongodb.yml); an
+      # external database = drop that file and set these in the env file.
+      MONGO_DB_HOST: ${MONGO_DB_HOST:-mongo}
+      MONGO_DB_PORT: ${MONGO_DB_PORT:-27017}
+      MONGO_DB_NAME: ${CLIENT_NAME}
+      MONGO_DB_USER: ${MONGO_DB_USER:-}
+      MONGO_DB_PASSWORD: ${MONGO_DB_PASSWORD:-}
+    ports:
+      - "${API_PORT:-3000}:3000"
+    healthcheck:
+      # openapi.json is built in memory at startup — proves the process is up.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/v1/docs/openapi.json"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  # Continuous ingestion (T2): the watermark loop in a sidecar — same image
+  # as the api, different command. Reads the connector's store (fragments
+  # in compose.langwatch.yml supply the source env + dependency) and writes
+  # to this client's mongo. With no connector configured the worker idles —
+  # `make sync` over fixtures remains the offline-demo path.
+  sync-worker:
+    image: ${API_IMAGE:-platform-api:local}
+    container_name: ${CLIENT_NAME}-sync-worker
+    command: ["node", "dist/main/jobs/run-sync-loop.js"]
+    init: true # forward SIGTERM to node (the loop finishes its batch first)
+    # One batch must be able to finish before SIGKILL — default 10s is
+    # tight for a 1000-trace batch on a busy host.
+    stop_grace_period: 60s
+    environment:
+      ENVIRONMENT: production
+      SERVER_PORT: "3000" # unused (no server) but required by config validation
+      CLIENT_NAME: ${CLIENT_NAME}
+      MONGO_DB_HOST: ${MONGO_DB_HOST:-mongo}
+      MONGO_DB_PORT: ${MONGO_DB_PORT:-27017}
+      MONGO_DB_NAME: ${CLIENT_NAME}
+      MONGO_DB_USER: ${MONGO_DB_USER:-}
+      MONGO_DB_PASSWORD: ${MONGO_DB_PASSWORD:-}
+      SYNC_INTERVAL_SECONDS: ${SYNC_INTERVAL_SECONDS:-60}
+      SYNC_BATCH_SIZE: ${SYNC_BATCH_SIZE:-1000}
+      SYNC_QUIET_PERIOD_SECONDS: ${SYNC_QUIET_PERIOD_SECONDS:-900}
+      REPROCESS_INTERVAL_SECONDS: ${REPROCESS_INTERVAL_SECONDS:-3600}
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  ui:
+    image: ${UI_IMAGE:-platform-ui:local}
+    container_name: ${CLIENT_NAME}-ui
+    environment:
+      CLIENT_NAME: ${CLIENT_NAME} # substituted into the nginx template (/client.json)
+    ports:
+      - "${UI_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:80/ > /dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 64m

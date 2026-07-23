@@ -8,7 +8,7 @@ live in [docs/produto/](docs/produto/) (see `CLAUDE.md` for the invariants).
 ## Deployment model (single-tenant by construction)
 
 **One client = one compose project, fully self-contained.** The same
-[compose.client.yml](compose.client.yml) is applied once per client with that
+the compose role files ([module](compose.module.yml) + [langwatch](compose.langwatch.yml) + [mongodb](compose.mongodb.yml)) are applied once per client with that
 client's env file — nothing in the images, the compose file, or the
 application knows any client:
 
@@ -65,7 +65,7 @@ the raw contract, driven by CI: materialize the client's env file from the
 protected variable store, then apply the production form —
 
 ```bash
-docker compose -f compose.client.yml --env-file <client>.env up -d
+docker compose -f compose.module.yml -f compose.langwatch.yml -f compose.mongodb.yml --env-file <client>.env up -d
 ```
 
 (no `compose.dev.yml`, prebuilt registry images via `API_IMAGE`/`UI_IMAGE`).
@@ -85,7 +85,7 @@ make ps
 ```
 
 Full wipe of one client:
-`docker compose -f compose.client.yml --env-file clients/<name>.env down -v`
+`docker compose -f compose.module.yml -f compose.langwatch.yml -f compose.mongodb.yml --env-file clients/<name>.env down -v`
 plus deleting `clients/<name>.env` and `demo-data/<name>/`.
 
 Keep sync windows under ~100 traces (QA14 finding: LangWatch's search API

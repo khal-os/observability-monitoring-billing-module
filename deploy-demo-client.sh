@@ -2,7 +2,7 @@
 #
 # ============================================================================
 # LOCAL/DEV TOOL ONLY — NEVER RUN IN PRODUCTION.
-# Production deploys apply compose.client.yml directly with an env file
+# Production deploys apply the compose role files (module+langwatch+mongodb) with an env file
 # materialized from the CI/secret store (see README). This script exists to
 # spin up DEMO clients on a workstation: it self-onboards LangWatch, mints
 # secrets locally and injects fake traffic — all things a production deploy
@@ -393,5 +393,5 @@ printf '  %s\n' "${CYN}OPERAÇÃO${RST}"
 row "sync" "make sync CLIENT=${NAME} FROM=YYYY-MM-DD TO=YYYY-MM-DD   ${DIM}(janelas < 100 traces)${RST}"
 row "logs"     "make logs CLIENT=${NAME}"
 row "parar"    "make down CLIENT=${NAME}   ${DIM}(dados preservados)${RST}"
-row "apagar"   "docker compose -f compose.client.yml --env-file ${ENVFILE} down -v"
+row "apagar"   "docker compose -f compose.module.yml -f compose.langwatch.yml -f compose.mongodb.yml --env-file ${ENVFILE} down -v"
 line
