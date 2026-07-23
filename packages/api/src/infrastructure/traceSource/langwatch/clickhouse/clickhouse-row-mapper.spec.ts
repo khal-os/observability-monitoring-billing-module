@@ -176,6 +176,41 @@ describe('mapSummaryTrace', () => {
     expect(trace.spans[0]?.errorMessage).toBe('agent exploded');
   });
 
+  it('MUST read REST-collector metadata (metadata.* prefixed keys)', () => {
+    // Collector-pushed traces (demo seed) store user metadata PREFIXED —
+    // metadata.agent, metadata.channel, ... — unlike OTel traces (bare
+    // keys). Regression: the seeded demo landed with agent null.
+    const trace = mapSummaryTrace(
+      makeSummary({
+        attributes: {
+          'metadata.agent': 'agent-atendimento',
+          'metadata.agent.version': '1.4.2',
+          'metadata.agent.instance': 'atendimento-7d9f4b',
+          'metadata.channel': 'whatsapp',
+          'metadata.channel.version': '2.1',
+          'metadata.domain': 'varejo',
+          'metadata.subdomain': 'cobranca',
+          'langwatch.thread.id': 'sess-0001',
+        },
+      }),
+      [],
+    );
+
+    expect(trace.agent).toEqual({
+      id: 'agent-atendimento',
+      version: '1.4.2',
+      instance: 'atendimento-7d9f4b',
+    });
+    expect(trace.channel).toEqual({
+      type: 'whatsapp',
+      version: '2.1',
+      instance: undefined,
+    });
+    expect(trace.domain).toBe('varejo');
+    expect(trace.subdomain).toBe('cobranca');
+    expect(trace.sessionId).toBe('sess-0001');
+  });
+
   it('MUST read trace metadata fallbacks from the root span resources', () => {
     const trace = mapSummaryTrace(
       makeSummary({

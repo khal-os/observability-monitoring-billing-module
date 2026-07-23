@@ -175,7 +175,19 @@ export const mapSummaryTrace = (
   // keys (service.version, service.instance.id, ...) only exist on span
   // attributes (the SELECT folds ResourceAttributes into each span row) —
   // merge the root span's under the summary's, summary wins on conflicts.
-  const metadata = { ...rootRow?.attributes, ...summary.attributes };
+  const merged = { ...rootRow?.attributes, ...summary.attributes };
+
+  // REST-collector traces store user metadata PREFIXED (metadata.agent,
+  // metadata.channel, ...) while OTel traces use bare keys — the HTTP API
+  // strips the prefix when serving. Mirror that: expose each metadata.*
+  // entry under its bare name, explicit metadata winning over bare keys.
+  const metadata: Record<string, string> = { ...merged };
+
+  for (const [key, value] of Object.entries(merged)) {
+    if (key.startsWith('metadata.')) {
+      metadata[key.slice('metadata.'.length)] = value;
+    }
+  }
 
   const agentId =
     attributeString(metadata, 'agent') ??
