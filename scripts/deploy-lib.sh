@@ -46,6 +46,58 @@ live() {
 line() { printf '%s\n' "${DIM}──────────────────────────────────────────────────────────────${RST}"; }
 row()  { printf '   %s%-12s%s %s\n' "$B" "$1" "$RST" "$2"; }
 
+# ---------- summary sections ----------
+# Each step closes by printing ITS slice of the final summary (the full
+# picture stays in 5-verify-client.sh): env → ACESSOS · provisão →
+# OPERAÇÃO · onboarding → CREDENCIAIS · seed → DADOS.
+
+summary_access() {
+  local ui_port; ui_port="$(get UI_PORT)"; ui_port="${ui_port:-8080}"
+  echo
+  printf '  %s\n' "${CYN}ACESSOS${RST}"
+  row "UI"        "http://localhost:${ui_port}"
+  row "API"       "http://localhost:$(get API_PORT)/api/v1"
+  row "API docs"  "http://localhost:$(get API_PORT)/api/v1/docs/"
+  row "LangWatch" "http://localhost:$(get LANGWATCH_PORT)"
+  row "Mongo dev" "mongodb://localhost:$(get MONGO_HOST_PORT)/?directConnection=true   ${DIM}(db: ${NAME})${RST}"
+}
+
+summary_credentials() {
+  local email="admin@${NAME}.com" password
+  password="$(grep -oP "(?<=^# LangWatch admin \(gerado pelo deploy\): admin@${NAME}.com / ).*" "$ENVFILE" | head -1 || true)"
+  echo
+  printf '  %s   %s\n' "${CYN}CREDENCIAIS LANGWATCH${RST}" "${YLW}⚠ guarde — a senha não é recuperável${RST}"
+  row "login" "${email}"
+  if [[ -n "$password" ]]; then
+    row "senha" "${B}${password}${RST}   ${DIM}(também em ${ENVFILE})${RST}"
+  else
+    row "senha" "${DIM}(não registrada em ${ENVFILE} — onboarding manual ou comentário removido)${RST}"
+  fi
+}
+
+summary_data() {
+  local total
+  total=$(curl -s -m 8 "http://localhost:$(get API_PORT)/api/v1/traces?page=1&page_size=1" \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["total"])' 2>/dev/null || echo '?')
+  echo
+  printf '  %s\n' "${CYN}DADOS${RST}"
+  row "traces" "${total} ingeridos na plataforma"
+  if [[ "$total" == "0" ]]; then
+    local quiet_s; quiet_s="$(get SYNC_QUIET_PERIOD_SECONDS)"; quiet_s="${quiet_s:-900}"
+    row "" "${DIM}o sync-worker ingere continuamente (quarentena ~$(( (quiet_s + 59) / 60 )) min);${RST}"
+    row "" "${DIM}acompanhe com: make logs CLIENT=${NAME} (linhas 'Sync: batch')${RST}"
+  fi
+}
+
+summary_operation() {
+  echo
+  printf '  %s\n' "${CYN}OPERAÇÃO${RST}"
+  row "logs"     "make logs CLIENT=${NAME}   ${DIM}(sync-worker: linhas 'Sync: batch')${RST}"
+  row "backfill" "make sync CLIENT=${NAME} FROM=YYYY-MM-DD TO=YYYY-MM-DD   ${DIM}(manual/opcional)${RST}"
+  row "parar"    "make down CLIENT=${NAME}   ${DIM}(dados preservados)${RST}"
+  row "apagar"   "docker compose -f compose.module.yml -f compose.langwatch.yml -f compose.mongodb.yml --env-file ${ENVFILE} down -v"
+}
+
 # ---------- client name + env file ----------
 # require_name <name-arg>: validates the slug and sets NAME/ENVFILE.
 require_name() {

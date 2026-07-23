@@ -36,10 +36,12 @@ if [[ -n "$(get LANGWATCH_API_KEY)" ]]; then
         sed -i "/^LANGWATCH_API_KEY=/a LANGWATCH_PROJECT_ID=${PROJECT_ID}" "$ENVFILE"
       fi
       step "onboarding: key já presente — project id backfilled (${PROJECT_ID})"
+      summary_credentials
       exit 0
     fi
   fi
   step "onboarding: LANGWATCH_API_KEY já presente no env — nada a fazer"
+  summary_credentials
   exit 0
 fi
 
@@ -134,3 +136,5 @@ fi
 step "API key aplicada — recriando a stack com sync real (api + sync-worker)"
 # Direto no terminal (sem `live`): preserva o renderer nativo animado do compose.
 make -s up "CLIENT=${NAME}"
+
+summary_credentials

@@ -91,6 +91,13 @@ LW_CREDENTIALS_SECRET=$(openssl rand -base64 32)
 
 API_IMAGE=${IMAGE}
 
+# Sync-worker DEMO knobs — fast feedback for demo stacks. Production
+# defaults are 60/1000/900/3600 (see clients/example.env, decision 61).
+SYNC_INTERVAL_SECONDS=5
+SYNC_BATCH_SIZE=100
+SYNC_QUIET_PERIOD_SECONDS=5
+REPROCESS_INTERVAL_SECONDS=60
+
 # Dev-only: host port for Compass/mongosh (compose.dev.yml, localhost-bound)
 MONGO_HOST_PORT=${MONGO_HOST_PORT}
 EOF
@@ -112,3 +119,5 @@ for override in "${ENV_OVERRIDES[@]}"; do
   fi
   step "env: ${override}"
 done
+
+summary_access

@@ -72,12 +72,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Demo default: 1-min quiet period so pushed traffic ingests fast (prod
-# default is 900s — decision 61). Creation-time only (never clobbers an
-# existing env), and an explicit --env SYNC_QUIET_PERIOD_SECONDS=... in
-# INIT_ARGS is applied later, so it wins.
-[[ -f "clients/${NAME}.env" ]] || INIT_ARGS=(--env SYNC_QUIET_PERIOD_SECONDS=60 "${INIT_ARGS[@]}")
-
+# Demo sync knobs (5s interval/quarantine etc.) are written by
+# 1-init-client-env.sh at env creation; --env overrides them per flag.
 ./scripts/1-init-client-env.sh "$NAME" "${INIT_ARGS[@]}"
 ./scripts/2-provision-client-stack.sh "$NAME"
 ./scripts/3-onboard-langwatch.sh "$NAME"

@@ -72,6 +72,24 @@ if [[ "$DO_TRACES" -eq 1 ]]; then
   [[ "${INDEXED:-0}" -ge "$EXPECTED" ]] || info "(indexação incompleta — o restante indexa em seguida)"
 
   QUIET_S="$(get SYNC_QUIET_PERIOD_SECONDS)"; QUIET_S="${QUIET_S:-900}"
-  info "ingestão contínua: o sync-worker ingere após a quarentena (~$(( (QUIET_S + 59) / 60 ))-$(( (QUIET_S + 59) / 60 + 1 )) min);"
-  info "para ingerir JÁ: make sync CLIENT=${NAME} FROM=$(date -u -d '14 days ago' +%F) TO=$(date -u -d 'tomorrow' +%F)"
+
+  # With a short demo quarantine, watch the worker ingest live instead of
+  # leaving a "come back later" note (bounded: quarantine + a few cycles).
+  if (( QUIET_S <= 60 )); then
+    INTERVAL_S="$(get SYNC_INTERVAL_SECONDS)"; INTERVAL_S="${INTERVAL_S:-60}"
+    DEADLINE=$(( SECONDS + QUIET_S + INTERVAL_S * 3 + 30 ))
+    printf '%s' "${CYN}▸${RST} ${B}demo: aguardando o sync-worker ingerir (quarentena ${QUIET_S}s)${RST}"
+    while (( SECONDS < DEADLINE )); do
+      TOT=$(curl -s -m 5 "http://localhost:$(get API_PORT)/api/v1/traces?page=1&page_size=1" \
+        | python3 -c 'import json,sys; print(json.load(sys.stdin)["total"])' 2>/dev/null || echo 0)
+      [[ "${TOT:-0}" -ge "$EXPECTED" ]] && break
+      echo -n "."; sleep 3
+    done
+    echo " ${TOT:-0}/${EXPECTED}"
+  else
+    info "ingestão contínua: o sync-worker ingere após a quarentena (~$(( (QUIET_S + 59) / 60 ))-$(( (QUIET_S + 59) / 60 + 1 )) min);"
+    info "para ingerir JÁ: make sync CLIENT=${NAME} FROM=$(date -u -d '14 days ago' +%F) TO=$(date -u -d 'tomorrow' +%F)"
+  fi
 fi
+
+summary_data

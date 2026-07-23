@@ -51,3 +51,5 @@ if ! wait_live "aguardando LangWatch (primeiro boot roda migrações — paciên
      "http://localhost:${LANGWATCH_PORT}" check_lw 60 5; then
   info "${YLW}LangWatch AINDA SUBINDO — re-rode o onboarding depois (make logs CLIENT=${NAME})${RST}"
 fi
+
+summary_operation
