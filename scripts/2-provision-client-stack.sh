@@ -26,10 +26,11 @@ docker image inspect platform-ui:local > /dev/null 2>&1 \
   || { step "buildando imagem da UI"; live docker build -f docker/ui.Dockerfile -t platform-ui:local . || die "build da UI falhou"; }
 
 # ---------- stack ----------
-# O renderer do docker compose mostra cada contêiner subindo em tempo real
-# (Created → Started → Healthy), transmitido pelo gutter do `live`.
+# SEM `live` de propósito: atrás de um pipe o compose degrada para linhas
+# planas — direto no terminal ele mantém o renderer nativo animado
+# (spinner, Created → Started → Healthy in-place).
 step "subindo a stack (9 contêineres)"
-live make -s up "CLIENT=${NAME}" || die "compose up falhou"
+make -s up "CLIENT=${NAME}" || die "compose up falhou"
 
 # ---------- health: api (implies mongo healthy via depends_on) ----------
 check_api() { curl -sf -o /dev/null -m 3 "http://localhost:${API_PORT}/api/v1/docs/openapi.json"; }

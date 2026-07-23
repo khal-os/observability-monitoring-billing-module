@@ -132,4 +132,5 @@ if [[ -n "$PROJECT_ID" ]]; then
 fi
 
 step "API key aplicada — recriando a stack com sync real (api + sync-worker)"
-live make -s up "CLIENT=${NAME}"
+# Direto no terminal (sem `live`): preserva o renderer nativo animado do compose.
+make -s up "CLIENT=${NAME}"
