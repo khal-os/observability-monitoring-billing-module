@@ -124,19 +124,7 @@ const load = async (background = false) => {
 
 const goToPage = (page) => {
   state.page = Math.max(1, page);
-  /* Deployment identity: /client.json is served by this stack's nginx with the
-   client name from the env. Cosmetic — absence (e.g. serving the files
-   outside a deployment) just leaves the badge hidden. */
-fetch('/client.json')
-  .then((res) => (res.ok ? res.json() : null))
-  .then((data) => {
-    if (!data?.client) return;
-    document.getElementById('client-name').textContent = data.client;
-    document.title = `${data.client} — Plataforma`;
-  })
-  .catch(() => {});
-
-load();
+  load();
 };
 
 prevBtn.addEventListener('click', () => goToPage(state.page - 1));

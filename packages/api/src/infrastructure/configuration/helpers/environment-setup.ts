@@ -10,7 +10,6 @@ import {
 
 const environmentEnum = {
   PRODUCTION: 'production',
-  STAGING: 'staging',
   TEST: 'test',
   DEVELOPMENT: 'development',
 } as const;
@@ -37,7 +36,6 @@ const envSchema = z
   .object({
     ENVIRONMENT: z.enum([
       environmentEnum.PRODUCTION,
-      environmentEnum.STAGING,
       environmentEnum.TEST,
       environmentEnum.DEVELOPMENT,
     ] as const),
