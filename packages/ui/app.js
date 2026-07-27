@@ -702,7 +702,7 @@ fetch('/client.json')
 load();
 
 /* ---------- Auto-refresh ---------- */
-/* The sync-worker ingests continuously, so the ACTIVE list keeps itself
+/* The trace-ingestion-worker ingests continuously, so the ACTIVE list keeps itself
    fresh: silent background reloads (in-place repaint, no placeholder
    flicker, errors skipped — the next tick recovers). Paused while the
    browser tab is hidden. Billing stays manual — monthly aggregates don't

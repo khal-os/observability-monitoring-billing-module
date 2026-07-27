@@ -6,7 +6,7 @@ import {
 import { makeDatabase } from '../factories/database-factory.js';
 
 /**
- * T2 continuous form — the sync-worker sidecar's entry point. An infinite
+ * T2 continuous form — the trace-ingestion-worker sidecar's entry point. An infinite
  * watermark loop, NOT a cron: a cycle drains the backlog in bounded
  * batches, then sleeps; by construction two cycles can never overlap.
  *

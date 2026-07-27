@@ -1,6 +1,6 @@
 # DEV-ONLY override — never part of a production deployment:
 #
-#   docker compose -f compose.module.yml -f compose.langwatch.yml -f compose.mongodb.yml -f compose.dev.yml --env-file clients/<name>.env up -d
+#   docker compose -f compose.module.yml -f compose.connector.yml -f compose.mongodb.yml -f compose.dev.yml --env-file clients/<name>.env up -d
 #   (or: make up CLIENT=<name>)
 #
 # Adds to the api service:

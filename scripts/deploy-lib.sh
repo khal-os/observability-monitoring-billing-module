@@ -84,7 +84,7 @@ summary_data() {
   row "traces" "${total} ingeridos na plataforma"
   if [[ "$total" == "0" ]]; then
     local quiet_s; quiet_s="$(get SYNC_QUIET_PERIOD_SECONDS)"; quiet_s="${quiet_s:-900}"
-    row "" "${DIM}o sync-worker ingere continuamente (quarentena ~$(( (quiet_s + 59) / 60 )) min);${RST}"
+    row "" "${DIM}o trace-ingestion-worker ingere continuamente (quarentena ~$(( (quiet_s + 59) / 60 )) min);${RST}"
     row "" "${DIM}acompanhe com: make logs CLIENT=${NAME} (linhas 'Sync: batch')${RST}"
   fi
 }
@@ -92,10 +92,10 @@ summary_data() {
 summary_operation() {
   echo
   printf '  %s\n' "${CYN}OPERAÇÃO${RST}"
-  row "logs"     "make logs CLIENT=${NAME}   ${DIM}(sync-worker: linhas 'Sync: batch')${RST}"
+  row "logs"     "make logs CLIENT=${NAME}   ${DIM}(trace-ingestion-worker: linhas 'Sync: batch')${RST}"
   row "backfill" "make sync CLIENT=${NAME} FROM=YYYY-MM-DD TO=YYYY-MM-DD   ${DIM}(manual/opcional)${RST}"
   row "parar"    "make down CLIENT=${NAME}   ${DIM}(dados preservados)${RST}"
-  row "apagar"   "docker compose -f compose.module.yml -f compose.langwatch.yml -f compose.mongodb.yml --env-file ${ENVFILE} down -v"
+  row "apagar"   "docker compose -f compose.module.yml -f compose.connector.yml -f compose.mongodb.yml --env-file ${ENVFILE} down -v"
 }
 
 # ---------- client name + env file ----------
@@ -116,7 +116,7 @@ get() { grep -oP "(?<=^$1=).*" "$ENVFILE" | head -1; }
 # Append a line to the env file, healing a missing trailing newline first —
 # appending onto a file whose last line lacks \n would CONCATENATE onto it
 # (seen in the wild: REPROCESS_INTERVAL_SECONDS=3600# LangWatch admin ...,
-# which crash-looped the sync-worker on config validation).
+# which crash-looped the trace-ingestion-worker on config validation).
 append_env_line() {
   [[ -s "$ENVFILE" && -n "$(tail -c1 "$ENVFILE")" ]] && echo >> "$ENVFILE"
   printf '%s\n' "$1" >> "$ENVFILE"

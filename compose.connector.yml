@@ -1,10 +1,15 @@
-# THE CONNECTOR — the client's own LangWatch stack, plus the couplings it
-# introduces on the module (env + dependencies fragments on api and
-# sync-worker). See compose.module.yml for how the role files assemble
-# into one project (decision 65). Removing this file from the chain
-# removes LangWatch entirely: the module still composes, the sync-worker
-# idles. A different connector in the future = a sibling
-# compose.<connector>.yml with its own coupling fragments.
+# THE CONNECTOR — the client's own LangWatch stack, its trace ingestor
+# (the trace-ingestion-worker), plus the couplings it introduces on the
+# module (env fragment on api). See compose.module.yml for how the role
+# files assemble into one project (decision 65). The worker lives HERE,
+# not in the module: it exists to drain THIS connector's ClickHouse, so
+# its horizontal-scaling granularity is the LangWatch stack's — another
+# LangWatch instance means another ingestor, and removing this file
+# removes both (the module still composes; `make sync` over fixtures
+# remains the offline-demo path). The file is named for the ROLE, not
+# the vendor: a different connector in the future = a different
+# compose.connector.yml filling the same slot in the chain, with its
+# own ingestor + coupling fragments.
 #
 # LangWatch services mirror the OFFICIAL upstream compose.yml (ClickHouse
 # stack — no OpenSearch), with two deliberate deviations: (1) app image
@@ -51,7 +56,7 @@ services:
       LANGWATCH_ENDPOINT: ${LANGWATCH_API_KEY:+http://langwatch:5560}
       LANGWATCH_API_KEY: ${LANGWATCH_API_KEY:-}
       # Manual `make sync` runs in the api service — give it the same direct-
-      # ClickHouse source the sync-worker uses (decision 59), so backfills
+      # ClickHouse source the trace-ingestion-worker uses (decision 59), so backfills
       # skip the ~100-trace search cap. Same onboarding gate as above.
       LANGWATCH_CLICKHOUSE_URL: ${LANGWATCH_API_KEY:+http://clickhouse:8123}
       LANGWATCH_CLICKHOUSE_USER: default
@@ -59,11 +64,41 @@ services:
       LANGWATCH_CLICKHOUSE_DATABASE: langwatch
       LANGWATCH_PROJECT_ID: ${LANGWATCH_PROJECT_ID:-}
 
-  sync-worker:
+  # ---- the connector's ingestor (module image, connector lifecycle) ----
+
+  # Continuous ingestion (T2): the watermark loop in a sidecar — same image
+  # as the api, different command. Reads this connector's OWN ClickHouse
+  # (decision 59) and writes to the client's mongo. Gated by onboarding:
+  # while LANGWATCH_API_KEY is empty the ClickHouse URL interpolates to
+  # empty and the worker idles.
+  #
+  # No depends_on for mongo here — this file must not name a service
+  # another optional role file provides (an external database drops
+  # compose.mongodb.yml from the chain, and compose errors on a dependency
+  # to an undefined service). Boot ordering is covered anyway: the mongo
+  # driver waits up to 30s of server selection on connect, and
+  # `restart: unless-stopped` retries the pathological case.
+  trace-ingestion-worker:
+    image: ${API_IMAGE:-platform-api:local}
+    container_name: ${CLIENT_NAME}-trace-ingestion-worker
+    command: ["node", "dist/main/jobs/run-sync-loop.js"]
+    init: true # forward SIGTERM to node (the loop finishes its batch first)
+    # One batch must be able to finish before SIGKILL — default 10s is
+    # tight for a 1000-trace batch on a busy host.
+    stop_grace_period: 60s
     environment:
-      # Continuous ingestion reads the connector's OWN ClickHouse (decision
-      # 59). Gated by onboarding: while LANGWATCH_API_KEY is empty the URL
-      # interpolates to empty and the worker idles.
+      ENVIRONMENT: production
+      SERVER_PORT: "3000" # unused (no server) but required by config validation
+      CLIENT_NAME: ${CLIENT_NAME}
+      MONGO_DB_HOST: ${MONGO_DB_HOST:-mongo}
+      MONGO_DB_PORT: ${MONGO_DB_PORT:-27017}
+      MONGO_DB_NAME: ${CLIENT_NAME}
+      MONGO_DB_USER: ${MONGO_DB_USER:-}
+      MONGO_DB_PASSWORD: ${MONGO_DB_PASSWORD:-}
+      SYNC_INTERVAL_SECONDS: ${SYNC_INTERVAL_SECONDS:-60}
+      SYNC_BATCH_SIZE: ${SYNC_BATCH_SIZE:-1000}
+      SYNC_QUIET_PERIOD_SECONDS: ${SYNC_QUIET_PERIOD_SECONDS:-900}
+      REPROCESS_INTERVAL_SECONDS: ${REPROCESS_INTERVAL_SECONDS:-3600}
       LANGWATCH_CLICKHOUSE_URL: ${LANGWATCH_API_KEY:+http://clickhouse:8123}
       LANGWATCH_CLICKHOUSE_USER: default
       LANGWATCH_CLICKHOUSE_PASSWORD: langwatch
@@ -73,6 +108,11 @@ services:
     depends_on:
       clickhouse:
         condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512m
 
   # ---- the LangWatch stack itself ----
 

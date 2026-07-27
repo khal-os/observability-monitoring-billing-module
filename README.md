@@ -8,7 +8,7 @@ live in [docs/produto/](docs/produto/) (see `CLAUDE.md` for the invariants).
 ## Deployment model (single-tenant by construction)
 
 **One client = one compose project, fully self-contained.** The same
-the compose role files ([module](compose.module.yml) + [langwatch](compose.langwatch.yml) + [mongodb](compose.mongodb.yml)) are applied once per client with that
+the compose role files ([module](compose.module.yml) + [langwatch](compose.connector.yml) + [mongodb](compose.mongodb.yml)) are applied once per client with that
 client's env file — nothing in the images, the compose file, or the
 application knows any client:
 
@@ -17,7 +17,7 @@ one client deployment (9 containers, own network, own volumes):
 ┌──────────────────────────────────────────────────────────────┐
 │ ui (:UI_PORT) ──► api (:API_PORT) ──────► mongo (own volume) │
 │  nginx, proxies                              ▲               │
-│  /api same-origin   sync-worker ─────────────┘               │
+│  /api same-origin   trace-ingestion-worker ─────────────┘               │
 │                      │  continuous ingestion: watermark loop,│
 │                      │  price-stamp at write (decisions 59-63)│
 │                      ▼                                       │
@@ -27,7 +27,7 @@ one client deployment (9 containers, own network, own volumes):
 ```
 
 Ingestion is **continuous and automatic**: once the client is onboarded
-(`LANGWATCH_API_KEY` set), the `sync-worker` sidecar reads new traces
+(`LANGWATCH_API_KEY` set), the `trace-ingestion-worker` sidecar reads new traces
 straight from the LangWatch stack's ClickHouse (no API caps), stamps
 prices at write time, and stays ~15–16 min behind live (15-min quiet
 period so incrementally-built traces settle before their immutable price
@@ -76,7 +76,7 @@ the raw contract, driven by CI: materialize the client's env file from the
 protected variable store, then apply the production form —
 
 ```bash
-docker compose -f compose.module.yml -f compose.langwatch.yml -f compose.mongodb.yml --env-file <client>.env up -d
+docker compose -f compose.module.yml -f compose.connector.yml -f compose.mongodb.yml --env-file <client>.env up -d
 ```
 
 (no `compose.dev.yml`, prebuilt registry images via `API_IMAGE`/`UI_IMAGE`).
@@ -84,7 +84,7 @@ docker compose -f compose.module.yml -f compose.langwatch.yml -f compose.mongodb
 
 ## Day-2 operations (client-generic)
 
-Continuous ingestion runs by itself (the `sync-worker` container —
+Continuous ingestion runs by itself (the `trace-ingestion-worker` container —
 `make logs` shows its batch lines); the commands below are for manual
 backfills, price registration, and lifecycle:
 
@@ -100,7 +100,7 @@ make ps
 ```
 
 Full wipe of one client:
-`docker compose -f compose.module.yml -f compose.langwatch.yml -f compose.mongodb.yml --env-file clients/<name>.env down -v`
+`docker compose -f compose.module.yml -f compose.connector.yml -f compose.mongodb.yml --env-file clients/<name>.env down -v`
 plus deleting `clients/<name>.env` and `demo-data/<name>/`.
 
 Manual `make sync` uses the direct-ClickHouse source when the client is

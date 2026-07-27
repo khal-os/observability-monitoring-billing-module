@@ -10,7 +10,7 @@
 #   --traces   generate deterministic fixtures for this client and push
 #              them into its LangWatch (requires onboarding)
 #
-# No flag = both. Ingestion into the platform store is the sync-worker's
+# No flag = both. Ingestion into the platform store is the trace-ingestion-worker's
 # job: pushed traces are indexed by LangWatch and picked up by the worker
 # after the quiet period (~15-16 min). For instant ingestion use a manual
 # backfill: make sync CLIENT=<name> FROM=... TO=...
@@ -78,7 +78,7 @@ if [[ "$DO_TRACES" -eq 1 ]]; then
   if (( QUIET_S <= 60 )); then
     INTERVAL_S="$(get SYNC_INTERVAL_SECONDS)"; INTERVAL_S="${INTERVAL_S:-60}"
     DEADLINE=$(( SECONDS + QUIET_S + INTERVAL_S * 3 + 30 ))
-    printf '%s' "${CYN}▸${RST} ${B}demo: aguardando o sync-worker ingerir (quarentena ${QUIET_S}s)${RST}"
+    printf '%s' "${CYN}▸${RST} ${B}demo: aguardando o trace-ingestion-worker ingerir (quarentena ${QUIET_S}s)${RST}"
     while (( SECONDS < DEADLINE )); do
       TOT=$(curl -s -m 5 "http://localhost:$(get API_PORT)/api/v1/traces?page=1&page_size=1" \
         | python3 -c 'import json,sys; print(json.load(sys.stdin)["total"])' 2>/dev/null || echo 0)
@@ -87,7 +87,7 @@ if [[ "$DO_TRACES" -eq 1 ]]; then
     done
     echo " ${TOT:-0}/${EXPECTED}"
   else
-    info "ingestão contínua: o sync-worker ingere após a quarentena (~$(( (QUIET_S + 59) / 60 ))-$(( (QUIET_S + 59) / 60 + 1 )) min);"
+    info "ingestão contínua: o trace-ingestion-worker ingere após a quarentena (~$(( (QUIET_S + 59) / 60 ))-$(( (QUIET_S + 59) / 60 + 1 )) min);"
     info "para ingerir JÁ: make sync CLIENT=${NAME} FROM=$(date -u -d '14 days ago' +%F) TO=$(date -u -d 'tomorrow' +%F)"
   fi
 fi

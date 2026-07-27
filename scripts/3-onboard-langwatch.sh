@@ -6,7 +6,7 @@
 # the password of a created user), creates organization + project via the
 # instance's own tRPC API, extracts the project API key from LangWatch's
 # Postgres, wires it into the env file and re-applies the stack so the
-# real sync (api + sync-worker) goes live.
+# real sync (api + trace-ingestion-worker) goes live.
 #
 #   ./scripts/3-onboard-langwatch.sh <name>
 #
@@ -133,7 +133,7 @@ if [[ -n "$PROJECT_ID" ]]; then
   sub "project id aplicado (${PROJECT_ID})"
 fi
 
-step "API key aplicada — recriando a stack com sync real (api + sync-worker)"
+step "API key aplicada — recriando a stack com sync real (api + trace-ingestion-worker)"
 # Direto no terminal (sem `live`): preserva o renderer nativo animado do compose.
 make -s up "CLIENT=${NAME}"
 

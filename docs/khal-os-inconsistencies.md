@@ -2,7 +2,7 @@
 
 **Data:** 27/07/2026
 **Fonte comparada:** site de documentação Khal OS (`khal-os-docs_2.html` — Geral, Plataforma, App/Module/Connector/Agent Register, Auth System, ADRs 1–77)
-**Código auditado:** este repositório (`packages/api`, stack LangWatch de `compose.langwatch.yml`)
+**Código auditado:** este repositório (`packages/api`, stack LangWatch de `compose.connector.yml`)
 
 ## Enquadramento
 
@@ -108,7 +108,7 @@ SOP-M1 registra com id `tracing`: `PUT .../v0.1/modules/tracing -d @module-manif
 test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/v1/docs/openapi.json"]
 ```
 
-Prova que o processo subiu; não prova que o Mongo responde nem que o sync-worker está vivo.
+Prova que o processo subiu; não prova que o Mongo responde nem que o trace-ingestion-worker está vivo.
 
 **Ação:** health endpoint real + `module-manifest.json` versionado no repo. O manifesto serve como resposta ao MO5.
 

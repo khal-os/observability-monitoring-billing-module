@@ -40,9 +40,9 @@
 #   --no-demo-prices      skip price registration — traces then land as
 #                         pending_price until prices are registered
 #                         (make price) and reprocessed (price:insert also
-#                         reprocesses; the sync-worker sweeps hourly)
+#                         reprocesses; the trace-ingestion-worker sweeps hourly)
 #
-# Ingestion is continuous (sync-worker): pushed demo traces enter the
+# Ingestion is continuous (trace-ingestion-worker): pushed demo traces enter the
 # platform after the ~15-min quiet period; `make sync` remains for
 # instant manual backfills.
 

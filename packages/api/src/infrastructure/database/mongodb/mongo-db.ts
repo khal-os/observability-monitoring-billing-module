@@ -3,7 +3,7 @@ import { setupMongoDbClient } from './helpers/mongodb-connection-setup.js';
 import { MongoDbEnvironmentVariables } from '../../configuration/interfaces/mongodb-environment-variables.js';
 
 // PER-PROCESS singleton: one shared client per Node process (api server,
-// each job, the sync-worker are separate processes — so separate
+// each job, the trace-ingestion-worker are separate processes — so separate
 // connections). The Database PORT (infrastructure/interfaces) is satisfied
 // by the composition root's factory wrapping this static form; lifecycle
 // (connect/disconnect) is called ONLY by entry points whose process owns

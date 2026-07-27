@@ -14,9 +14,9 @@
 #   make ps                                     # all compose projects on this host
 #
 # Continuous ingestion: once LANGWATCH_API_KEY is set in the client env,
-# the sync-worker sidecar (part of the stack) syncs automatically via
-# direct ClickHouse reads — no window cap. `make sync` remains for manual
-# backfills and fixture-backed demos.
+# the trace-ingestion-worker sidecar (part of the stack) syncs
+# automatically via direct ClickHouse reads — no window cap. `make sync`
+# remains for manual backfills and fixture-backed demos.
 #
 # Keep MANUAL sync windows under ~100 traces ONLY on the HTTP path (QA14:
 # LangWatch search ignores pageOffset — a bigger window silently caps at
@@ -36,11 +36,11 @@ SCRUB = env -u COMPOSE_PROJECT_NAME -u CLIENT_NAME -u API_PORT \
           -u MONGO_DB_HOST -u MONGO_DB_PORT \
           -u MONGO_DB_USER -u MONGO_DB_PASSWORD -u API_IMAGE \
           -u LW_NEXTAUTH_SECRET -u LW_API_TOKEN_JWT_SECRET -u LW_CREDENTIALS_SECRET
-# Role files (decision 65): module (api+ui+sync-worker) + connector
-# (LangWatch) + database (mongo) merge into ONE project per client.
-# Couplings live in the file that introduces them, so dropping a role
-# (e.g. external mongo) is a change of THIS list + the client env.
-COMPOSE_FILES = -f compose.module.yml -f compose.langwatch.yml -f compose.mongodb.yml
+# Role files (decision 65): module (api+ui) + connector (LangWatch +
+# trace-ingestion-worker) + database (mongo) merge into ONE project per
+# client. Couplings live in the file that introduces them, so dropping a
+# role (e.g. external mongo) is a change of THIS list + the client env.
+COMPOSE_FILES = -f compose.module.yml -f compose.connector.yml -f compose.mongodb.yml
 COMPOSE_PROD = $(SCRUB) docker compose $(COMPOSE_FILES) --env-file $(ENVFILE)
 COMPOSE_DEV  = $(SCRUB) docker compose $(COMPOSE_FILES) -f compose.dev.yml --env-file $(ENVFILE)
 # One-off jobs run in the PROD form — none of them read demo fixtures, and
@@ -67,12 +67,17 @@ build:
 	docker build -f docker/api.Dockerfile -t platform-api:local .
 	docker build -f docker/ui.Dockerfile -t platform-ui:local .
 
+# --remove-orphans: a renamed service (e.g. sync-worker →
+# trace-ingestion-worker) would otherwise leave the old container running
+# alongside the new one — two ingestors racing the same watermark cursor.
+# All containers of a project come from the role files, so orphans are
+# always leftovers, never wanted.
 up: require-client
 	@mkdir -p demo-data/$(CLIENT) # user-owned before docker can root-create it via the bind mount
-	$(COMPOSE_DEV) up -d
+	$(COMPOSE_DEV) up -d --remove-orphans
 
 up-prod: require-client
-	$(COMPOSE_PROD) up -d
+	$(COMPOSE_PROD) up -d --remove-orphans
 
 down: require-client
 	$(COMPOSE_PROD) down
