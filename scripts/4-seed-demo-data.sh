@@ -71,12 +71,12 @@ if [[ "$DO_TRACES" -eq 1 ]]; then
   echo " ${INDEXED}/${EXPECTED}"
   [[ "${INDEXED:-0}" -ge "$EXPECTED" ]] || info "(indexação incompleta — o restante indexa em seguida)"
 
-  QUIET_S="$(get SYNC_QUIET_PERIOD_SECONDS)"; QUIET_S="${QUIET_S:-900}"
+  QUIET_S="$(get TRACE_INGESTION_QUIET_PERIOD_SECONDS)"; QUIET_S="${QUIET_S:-900}"
 
   # With a short demo quarantine, watch the worker ingest live instead of
   # leaving a "come back later" note (bounded: quarantine + a few cycles).
   if (( QUIET_S <= 60 )); then
-    INTERVAL_S="$(get SYNC_INTERVAL_SECONDS)"; INTERVAL_S="${INTERVAL_S:-60}"
+    INTERVAL_S="$(get TRACE_INGESTION_INTERVAL_SECONDS)"; INTERVAL_S="${INTERVAL_S:-60}"
     DEADLINE=$(( SECONDS + QUIET_S + INTERVAL_S * 3 + 30 ))
     printf '%s' "${CYN}▸${RST} ${B}demo: aguardando o trace-ingestion-worker ingerir (quarentena ${QUIET_S}s)${RST}"
     while (( SECONDS < DEADLINE )); do

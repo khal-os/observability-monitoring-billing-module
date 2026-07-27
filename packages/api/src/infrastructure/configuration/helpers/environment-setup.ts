@@ -5,7 +5,7 @@ import {
   LangWatchEnvironmentVariables,
   MongoDbEnvironmentVariables,
   ServerEnvironmentVariables,
-  SyncWorkerEnvironmentVariables,
+  TraceIngestionWorkerEnvironmentVariables,
 } from '../interfaces/index.js';
 
 const environmentEnum = {
@@ -22,7 +22,7 @@ export interface EnvironmentVariables
     ServerEnvironmentVariables,
     MongoDbEnvironmentVariables,
     LangWatchEnvironmentVariables,
-    SyncWorkerEnvironmentVariables {
+    TraceIngestionWorkerEnvironmentVariables {
   Environment: Environment;
 }
 
@@ -61,9 +61,9 @@ const envSchema = z
     LANGWATCH_CLICKHOUSE_PASSWORD: z.string().optional(),
     LANGWATCH_CLICKHOUSE_DATABASE: z.string().optional(),
     LANGWATCH_PROJECT_ID: z.string().optional(),
-    SYNC_INTERVAL_SECONDS: optionalIntString('SYNC_INTERVAL_SECONDS'),
-    SYNC_BATCH_SIZE: optionalIntString('SYNC_BATCH_SIZE'),
-    SYNC_QUIET_PERIOD_SECONDS: optionalIntString('SYNC_QUIET_PERIOD_SECONDS'),
+    TRACE_INGESTION_INTERVAL_SECONDS: optionalIntString('TRACE_INGESTION_INTERVAL_SECONDS'),
+    TRACE_INGESTION_BATCH_SIZE: optionalIntString('TRACE_INGESTION_BATCH_SIZE'),
+    TRACE_INGESTION_QUIET_PERIOD_SECONDS: optionalIntString('TRACE_INGESTION_QUIET_PERIOD_SECONDS'),
     REPROCESS_INTERVAL_SECONDS: optionalIntString('REPROCESS_INTERVAL_SECONDS'),
   })
   .transform((env) => ({
@@ -72,14 +72,14 @@ const envSchema = z
     MONGO_DB_PORT: env.MONGO_DB_PORT
       ? parseInt(env.MONGO_DB_PORT, 10)
       : undefined,
-    SYNC_INTERVAL_SECONDS: env.SYNC_INTERVAL_SECONDS
-      ? parseInt(env.SYNC_INTERVAL_SECONDS, 10)
+    TRACE_INGESTION_INTERVAL_SECONDS: env.TRACE_INGESTION_INTERVAL_SECONDS
+      ? parseInt(env.TRACE_INGESTION_INTERVAL_SECONDS, 10)
       : undefined,
-    SYNC_BATCH_SIZE: env.SYNC_BATCH_SIZE
-      ? parseInt(env.SYNC_BATCH_SIZE, 10)
+    TRACE_INGESTION_BATCH_SIZE: env.TRACE_INGESTION_BATCH_SIZE
+      ? parseInt(env.TRACE_INGESTION_BATCH_SIZE, 10)
       : undefined,
-    SYNC_QUIET_PERIOD_SECONDS: env.SYNC_QUIET_PERIOD_SECONDS
-      ? parseInt(env.SYNC_QUIET_PERIOD_SECONDS, 10)
+    TRACE_INGESTION_QUIET_PERIOD_SECONDS: env.TRACE_INGESTION_QUIET_PERIOD_SECONDS
+      ? parseInt(env.TRACE_INGESTION_QUIET_PERIOD_SECONDS, 10)
       : undefined,
     REPROCESS_INTERVAL_SECONDS: env.REPROCESS_INTERVAL_SECONDS
       ? parseInt(env.REPROCESS_INTERVAL_SECONDS, 10)
@@ -124,8 +124,8 @@ export const environment: EnvironmentVariables = {
   langwatchClickhousePassword: safeEnvironment.LANGWATCH_CLICKHOUSE_PASSWORD,
   langwatchClickhouseDatabase: safeEnvironment.LANGWATCH_CLICKHOUSE_DATABASE,
   langwatchProjectId: safeEnvironment.LANGWATCH_PROJECT_ID,
-  syncIntervalSeconds: safeEnvironment.SYNC_INTERVAL_SECONDS,
-  syncBatchSize: safeEnvironment.SYNC_BATCH_SIZE,
-  syncQuietPeriodSeconds: safeEnvironment.SYNC_QUIET_PERIOD_SECONDS,
+  traceIngestionIntervalSeconds: safeEnvironment.TRACE_INGESTION_INTERVAL_SECONDS,
+  traceIngestionBatchSize: safeEnvironment.TRACE_INGESTION_BATCH_SIZE,
+  traceIngestionQuietPeriodSeconds: safeEnvironment.TRACE_INGESTION_QUIET_PERIOD_SECONDS,
   reprocessIntervalSeconds: safeEnvironment.REPROCESS_INTERVAL_SECONDS,
 };

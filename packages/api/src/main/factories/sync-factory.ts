@@ -10,7 +10,7 @@ import { MongoDbTraceRepository } from '../../infrastructure/database/mongodb/tr
 import { MongoDbSyncStateRepository } from '../../infrastructure/database/mongodb/syncState/mongodb-sync-state-repository.js';
 import { config } from '../../infrastructure/index.js';
 
-const SYNC_DEFAULTS = {
+const INGESTION_DEFAULTS = {
   intervalSeconds: 60,
   batchSize: 1000,
   quietPeriodSeconds: 900, // decision 61: 15 min
@@ -56,12 +56,12 @@ export const makeReprocessPendingUseCase = (): ReprocessPendingToDbUseCase =>
     traceRepository: new MongoDbTraceRepository(),
   });
 
-export const syncWorkerSettings = {
+export const traceIngestionWorkerSettings = {
   intervalMs:
-    (config.syncIntervalSeconds ?? SYNC_DEFAULTS.intervalSeconds) * 1000,
+    (config.traceIngestionIntervalSeconds ?? INGESTION_DEFAULTS.intervalSeconds) * 1000,
   reprocessIntervalMs:
     (config.reprocessIntervalSeconds ??
-      SYNC_DEFAULTS.reprocessIntervalSeconds) * 1000,
+      INGESTION_DEFAULTS.reprocessIntervalSeconds) * 1000,
 } as const;
 
 /**
@@ -86,9 +86,9 @@ export const makeSyncBatchesUseCase = ():
       syncStateRepository: new MongoDbSyncStateRepository(),
       priceVersionRepository: new MongoDbPriceVersionRepository(),
       traceRepository: new MongoDbTraceRepository(),
-      batchSize: config.syncBatchSize ?? SYNC_DEFAULTS.batchSize,
+      batchSize: config.traceIngestionBatchSize ?? INGESTION_DEFAULTS.batchSize,
       quietPeriodMs:
-        (config.syncQuietPeriodSeconds ?? SYNC_DEFAULTS.quietPeriodSeconds) *
+        (config.traceIngestionQuietPeriodSeconds ?? INGESTION_DEFAULTS.quietPeriodSeconds) *
         1000,
     }),
   };

@@ -1,7 +1,7 @@
 import {
   makeReprocessPendingUseCase,
   makeSyncBatchesUseCase,
-  syncWorkerSettings,
+  traceIngestionWorkerSettings,
 } from '../factories/sync-factory.js';
 import { makeDatabase } from '../factories/database-factory.js';
 
@@ -26,7 +26,7 @@ let stopping = false;
 let wake: (() => void) | undefined;
 
 const requestStop = (signal: string): void => {
-  console.log(`Sync worker: ${signal} received — finishing current batch.`);
+  console.log(`Trace ingestion worker: ${signal} received — finishing current batch.`);
   stopping = true;
   wake?.();
 };
@@ -59,7 +59,7 @@ try {
     // Pre-onboarding / offline-demo stack: no ClickHouse source to page.
     // Idle instead of exiting — an exit would just crash-loop the service.
     console.log(
-      'Sync worker: continuous-sync source not configured (see clients/example.env) — idling. ' +
+      'Trace ingestion worker: continuous-sync source not configured (see clients/example.env) — idling. ' +
         'Fixture-backed demos keep using `make sync`.',
     );
 
@@ -74,8 +74,8 @@ try {
   await batchSync.source.assertCompatibleSchema();
 
   console.log(
-    `Sync worker: started (interval ${syncWorkerSettings.intervalMs / 1000}s, ` +
-      `reprocess every ${syncWorkerSettings.reprocessIntervalMs / 1000}s).`,
+    `Trace ingestion worker: started (interval ${traceIngestionWorkerSettings.intervalMs / 1000}s, ` +
+      `reprocess every ${traceIngestionWorkerSettings.reprocessIntervalMs / 1000}s).`,
   );
 
   let backoffMs = TRANSIENT_BACKOFF_BASE_MS;
@@ -99,14 +99,14 @@ try {
       // the price-insert job; this is the backstop cadence).
       if (
         !stopping &&
-        Date.now() - lastReprocessAt >= syncWorkerSettings.reprocessIntervalMs
+        Date.now() - lastReprocessAt >= traceIngestionWorkerSettings.reprocessIntervalMs
       ) {
         await makeReprocessPendingUseCase().reprocess();
         lastReprocessAt = Date.now();
       }
     } catch (error) {
       console.error(
-        `Sync worker: cycle failed (retrying in ${backoffMs / 1000}s): ` +
+        `Trace ingestion worker: cycle failed (retrying in ${backoffMs / 1000}s): ` +
           `${String(error)}`,
       );
       await sleep(backoffMs);
@@ -115,11 +115,11 @@ try {
     }
 
     if (!stopping) {
-      await sleep(syncWorkerSettings.intervalMs);
+      await sleep(traceIngestionWorkerSettings.intervalMs);
     }
   }
 
-  console.log('Sync worker: stopped cleanly.');
+  console.log('Trace ingestion worker: stopped cleanly.');
 } finally {
   await database.disconnect();
 }

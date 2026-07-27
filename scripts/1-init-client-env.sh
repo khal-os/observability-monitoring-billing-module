@@ -17,7 +17,7 @@
 #   --langwatch-key KEY   LangWatch project API key (can be applied later by re-running)
 #   --image REF           API image reference          (default: platform-api:local)
 #   --env KEY=VALUE       set/override ANY contract var (repeatable) — e.g.
-#                         --env SYNC_QUIET_PERIOD_SECONDS=60 --env SYNC_BATCH_SIZE=200
+#                         --env TRACE_INGESTION_QUIET_PERIOD_SECONDS=60 --env TRACE_INGESTION_BATCH_SIZE=200
 #                         (see clients/example.env for the full contract)
 
 cd "$(dirname "$0")/.."
@@ -93,9 +93,9 @@ API_IMAGE=${IMAGE}
 
 # Sync-worker DEMO knobs — fast feedback for demo stacks. Production
 # defaults are 60/1000/900/3600 (see clients/example.env, decision 61).
-SYNC_INTERVAL_SECONDS=5
-SYNC_BATCH_SIZE=100
-SYNC_QUIET_PERIOD_SECONDS=5
+TRACE_INGESTION_INTERVAL_SECONDS=5
+TRACE_INGESTION_BATCH_SIZE=100
+TRACE_INGESTION_QUIET_PERIOD_SECONDS=5
 REPROCESS_INTERVAL_SECONDS=60
 
 # Dev-only: host port for Compass/mongosh (compose.dev.yml, localhost-bound)

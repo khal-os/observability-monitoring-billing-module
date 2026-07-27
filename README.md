@@ -31,7 +31,7 @@ Ingestion is **continuous and automatic**: once the client is onboarded
 straight from the LangWatch stack's ClickHouse (no API caps), stamps
 prices at write time, and stays ~15–16 min behind live (15-min quiet
 period so incrementally-built traces settle before their immutable price
-stamp — `SYNC_*` knobs in the env contract). Before onboarding the
+stamp — `TRACE_INGESTION_*` knobs in the env contract). Before onboarding the
 worker idles and `make sync` over fixtures is the demo path.
 
 The env file is the whole contract and the client's **deployment state** —

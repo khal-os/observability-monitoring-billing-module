@@ -81,7 +81,7 @@ services:
   trace-ingestion-worker:
     image: ${API_IMAGE:-platform-api:local}
     container_name: ${CLIENT_NAME}-trace-ingestion-worker
-    command: ["node", "dist/main/jobs/run-sync-loop.js"]
+    command: ["node", "dist/main/jobs/run-trace-ingestion-loop.js"]
     init: true # forward SIGTERM to node (the loop finishes its batch first)
     # One batch must be able to finish before SIGKILL — default 10s is
     # tight for a 1000-trace batch on a busy host.
@@ -95,9 +95,9 @@ services:
       MONGO_DB_NAME: ${CLIENT_NAME}
       MONGO_DB_USER: ${MONGO_DB_USER:-}
       MONGO_DB_PASSWORD: ${MONGO_DB_PASSWORD:-}
-      SYNC_INTERVAL_SECONDS: ${SYNC_INTERVAL_SECONDS:-60}
-      SYNC_BATCH_SIZE: ${SYNC_BATCH_SIZE:-1000}
-      SYNC_QUIET_PERIOD_SECONDS: ${SYNC_QUIET_PERIOD_SECONDS:-900}
+      TRACE_INGESTION_INTERVAL_SECONDS: ${TRACE_INGESTION_INTERVAL_SECONDS:-60}
+      TRACE_INGESTION_BATCH_SIZE: ${TRACE_INGESTION_BATCH_SIZE:-1000}
+      TRACE_INGESTION_QUIET_PERIOD_SECONDS: ${TRACE_INGESTION_QUIET_PERIOD_SECONDS:-900}
       REPROCESS_INTERVAL_SECONDS: ${REPROCESS_INTERVAL_SECONDS:-3600}
       LANGWATCH_CLICKHOUSE_URL: ${LANGWATCH_API_KEY:+http://clickhouse:8123}
       LANGWATCH_CLICKHOUSE_USER: default

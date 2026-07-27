@@ -11,7 +11,7 @@
     "migrate": "ENVIRONMENT=development tsx src/main/jobs/run-migrations.ts",
     "price:insert": "ENVIRONMENT=development tsx src/main/jobs/insert-price-version.ts",
     "sync": "ENVIRONMENT=development tsx src/main/jobs/run-sync.ts",
-    "sync:loop": "ENVIRONMENT=development tsx src/main/jobs/run-sync-loop.ts",
+    "ingestion:loop": "ENVIRONMENT=development tsx src/main/jobs/run-trace-ingestion-loop.ts",
     "reprocess:pending": "ENVIRONMENT=development tsx src/main/jobs/reprocess-pending.ts",
     "test": "ENVIRONMENT=test jest --passWithNoTests --silent --noStackTrace --collectCoverage=false --runInBand",
     "test:verbose": "ENVIRONMENT=test jest --passWithNoTests",

@@ -83,7 +83,7 @@ summary_data() {
   printf '  %s\n' "${CYN}DADOS${RST}"
   row "traces" "${total} ingeridos na plataforma"
   if [[ "$total" == "0" ]]; then
-    local quiet_s; quiet_s="$(get SYNC_QUIET_PERIOD_SECONDS)"; quiet_s="${quiet_s:-900}"
+    local quiet_s; quiet_s="$(get TRACE_INGESTION_QUIET_PERIOD_SECONDS)"; quiet_s="${quiet_s:-900}"
     row "" "${DIM}o trace-ingestion-worker ingere continuamente (quarentena ~$(( (quiet_s + 59) / 60 )) min);${RST}"
     row "" "${DIM}acompanhe com: make logs CLIENT=${NAME} (linhas 'Sync: batch')${RST}"
   fi

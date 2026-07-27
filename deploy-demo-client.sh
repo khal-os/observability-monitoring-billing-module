@@ -31,7 +31,7 @@
 #                         applied later by re-running with this flag)
 #   --image REF           API image reference          (default: platform-api:local)
 #   --env KEY=VALUE       set/override ANY contract var (repeatable) — e.g.
-#                         --env SYNC_QUIET_PERIOD_SECONDS=60
+#                         --env TRACE_INGESTION_QUIET_PERIOD_SECONDS=60
 #   --demo-traces         push demo traces into LangWatch (default)
 #   --no-demo-traces      skip the demo traces only — LangWatch still boots
 #                         and is fully onboarded (admin, org, project, API
