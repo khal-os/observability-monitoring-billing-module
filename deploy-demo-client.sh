@@ -36,7 +36,9 @@
 #   --no-demo-traces      skip the demo traces only — LangWatch still boots
 #                         and is fully onboarded (admin, org, project, API
 #                         key wired, real sync enabled)
-#   --demo-prices         register the premium demo model's prices (default)
+#   --demo-prices         seed the PoC price table (make seed-prices, decision
+#                         74) and register the premium demo model's prices
+#                         (default)
 #   --no-demo-prices      skip price registration — traces then land as
 #                         pending_price until prices are registered
 #                         (make price) and reprocessed (price:insert also

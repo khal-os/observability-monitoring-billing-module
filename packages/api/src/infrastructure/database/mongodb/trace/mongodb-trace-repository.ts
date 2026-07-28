@@ -8,10 +8,6 @@ import { deriveUnclassified } from '../../../../application/useCases/syncTraces/
 import { MongoDb } from '../mongo-db.js';
 
 export const TRACES_COLLECTION = 'traces';
-/** Legacy names — earlier layouts kept spans (until migration 006) and
- * content (until migration 008) in their own collections. Migration-only. */
-export const LEGACY_SPANS_COLLECTION = 'spans';
-export const LEGACY_TRACE_CONTENTS_COLLECTION = 'trace_contents';
 
 /**
  * Storage convention: OPTIONAL FIELDS ARE STORED AS NULL, never absent —

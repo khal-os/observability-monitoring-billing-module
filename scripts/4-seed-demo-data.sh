@@ -38,6 +38,9 @@ LANGWATCH_PORT="$(get LANGWATCH_PORT)"
 
 # ---------- prices ----------
 if [[ "$DO_PRICES" -eq 1 ]]; then
+  step "demo: semeando a tabela de preços PoC (decisão 74 — antes migração 002)"
+  live make seed-prices "CLIENT=${NAME}" || die "seed de preços PoC falhou"
+
   step "demo: registrando preços do modelo premium no banco"
   live ./packages/api/scripts/register-demo-prices.sh "${NAME}" || die "registro de preços falhou"
 fi

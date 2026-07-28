@@ -1,25 +1,14 @@
 import { Migration } from '../helpers/migration-runner.js';
 import { priceVersionIndexes } from './001-price-version-indexes.js';
-import { seedPriceVersions } from './002-seed-price-versions.js';
 import { traceIndexes } from './003-trace-indexes.js';
-import { agentChannelBlocks } from './004-agent-channel-blocks.js';
-import { nullOptionals } from './005-null-optionals.js';
-import { embedSpans } from './006-embed-spans.js';
-import { mergeSpanContents } from './007-merge-span-contents.js';
-import { mergeContentIntoTraces } from './008-merge-content-into-traces.js';
-import { consolidateDerivedFields } from './009-consolidate-derived-fields.js';
-import { nullPendingPrice } from './010-null-pending-price.js';
 
-/** Ordered list — the runner applies each exactly once, in this order. */
-export const migrations: Migration[] = [
-  priceVersionIndexes,
-  seedPriceVersions,
-  traceIndexes,
-  agentChannelBlocks,
-  nullOptionals,
-  embedSpans,
-  mergeSpanContents,
-  mergeContentIntoTraces,
-  consolidateDerivedFields,
-  nullPendingPrice,
-];
+/**
+ * Ordered list — the runner applies each exactly once, in this order.
+ *
+ * Decision 74: the chain carries ONLY deterministic bootstrap (indexes).
+ * Data seeds are explicit dev-only jobs (`make seed-prices`); structural
+ * rewrites and null-backfills of earlier layouts were pruned — deployments
+ * start fresh, there is no pre-convention data to migrate. Historical ids
+ * (002, 004–011) stay retired: never reuse them for new migrations.
+ */
+export const migrations: Migration[] = [priceVersionIndexes, traceIndexes];

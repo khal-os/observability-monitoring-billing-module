@@ -4,6 +4,7 @@ import {
   runMigrations,
 } from '../../../../../infrastructure/database/mongodb/helpers/migration-runner.js';
 import { migrations } from '../../../../../infrastructure/database/mongodb/migrations/index.js';
+import { seedPocPrices } from '../../../../../infrastructure/database/mongodb/priceVersion/poc-price-seed.js';
 import { PRICE_VERSIONS_COLLECTION } from '../../../../../infrastructure/database/mongodb/priceVersion/mongodb-price-version-repository.js';
 import { TRACES_COLLECTION } from '../../../../../infrastructure/database/mongodb/trace/mongodb-trace-repository.js';
 import { makeSyncTracesUseCase } from '../../../../factories/sync-factory.js';
@@ -45,11 +46,14 @@ export const routeDbHarness = {
     }
 
     await runMigrations(MongoDb.getClient().db(), migrations);
+    // Prices are no longer seeded by the migration chain (decision 74) —
+    // the harness seeds them explicitly, like `make seed-prices` does in dev.
+    await seedPocPrices(MongoDb.getClient().db());
   },
 
   /**
    * The pristine fixture state every route suite starts from: clean store,
-   * migrations (incl. the PoC price seed), then the two June sync windows
+   * migrations + the PoC price seed, then the two June sync windows
    * ingested through the real pipeline (fixture-backed source client).
    */
   ingestJuneFixtures: async (): Promise<void> => {

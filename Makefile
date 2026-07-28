@@ -6,6 +6,7 @@
 #   make up CLIENT=hapvida                      # dev form (build block + demo fixtures)
 #   make up-prod CLIENT=hapvida                 # production form (image ref only)
 #   make migrate CLIENT=hapvida
+#   make seed-prices CLIENT=hapvida             # DEV ONLY: PoC demo price table
 #   make sync CLIENT=claro FROM=2026-07-01 TO=2026-07-22
 #   make price CLIENT=vivo ARGS='--model ... --token-type ... --price-brl ... --effective-from ...'
 #   make logs CLIENT=vivo
@@ -54,7 +55,7 @@ JOB = $(COMPOSE_PROD) run --rm --no-deps api node
 # form exactly when generated fixtures exist, the prod form otherwise.
 SYNC_COMPOSE = $(if $(wildcard demo-data/$(CLIENT)/*.json),$(COMPOSE_DEV),$(COMPOSE_PROD))
 
-.PHONY: help build up up-prod down logs ps migrate sync price reprocess register require-client
+.PHONY: help build up up-prod down logs ps migrate seed-prices sync price reprocess register require-client
 
 help:
 	@grep -E '^#( |$$)' Makefile | sed 's/^# \?//'
@@ -92,6 +93,14 @@ ps:
 
 migrate: require-client
 	$(JOB) dist/main/jobs/run-migrations.js
+
+# DEV ONLY (decision 74): seeds the PoC demo price table (formerly migration
+# 002). Gated on the same dev discriminator as `make sync` (demo-data/
+# fixtures present) — prod prices are registered exclusively via `make price`
+# (invariant 9).
+seed-prices: require-client
+	@test -n "$(wildcard demo-data/$(CLIENT)/*.json)" || { echo "seed-prices é DEV ONLY — '$(CLIENT)' não tem demo-data/ (preços de produção: make price)"; exit 1; }
+	$(JOB) dist/main/jobs/seed-poc-prices.js
 
 sync: require-client
 	@test -n "$(FROM)" -a -n "$(TO)" || { echo "usage: make sync CLIENT=<name> FROM=YYYY-MM-DD TO=YYYY-MM-DD"; exit 1; }

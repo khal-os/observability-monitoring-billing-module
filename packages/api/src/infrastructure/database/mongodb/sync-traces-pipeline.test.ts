@@ -13,6 +13,7 @@ import {
   MongoDbPriceVersionRepository,
   PRICE_VERSIONS_COLLECTION,
 } from './priceVersion/mongodb-price-version-repository.js';
+import { seedPocPrices } from './priceVersion/poc-price-seed.js';
 import {
   MongoDbTraceRepository,
   TRACES_COLLECTION,
@@ -84,6 +85,9 @@ describe('Sync + price stamping (integration)', () => {
     }
 
     await runMigrations(MongoDb.getClient().db(), migrations);
+    // Prices are no longer seeded by the migration chain (decision 74) —
+    // seed them explicitly, like `make seed-prices` does in dev.
+    await seedPocPrices(MongoDb.getClient().db());
   });
 
   afterAll(async () => {
