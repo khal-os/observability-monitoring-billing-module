@@ -241,4 +241,128 @@ describe('mapSummaryTrace', () => {
     expect(trace.channel.type).toBe('unknown');
     expect(trace.model).toBeUndefined();
   });
+
+  it('MUST read userId with the fallback chain user_id ∥ langwatch.user.id ∥ user.id (decision 70)', () => {
+    const withAll = mapSummaryTrace(
+      makeSummary({
+        attributes: {
+          'user_id': 'u-canonical',
+          'langwatch.user.id': 'u-reserved',
+          'user.id': 'u-native',
+        },
+      }),
+      [],
+    );
+    const withReserved = mapSummaryTrace(
+      makeSummary({
+        attributes: { 'langwatch.user.id': 'u-reserved', 'user.id': 'u-native' },
+      }),
+      [],
+    );
+    const withNative = mapSummaryTrace(
+      makeSummary({ attributes: { 'user.id': 'u-native' } }),
+      [],
+    );
+    const without = mapSummaryTrace(makeSummary(), []);
+
+    expect(withAll.userId).toBe('u-canonical');
+    expect(withReserved.userId).toBe('u-reserved');
+    expect(withNative.userId).toBe('u-native');
+    expect(without.userId).toBeUndefined();
+  });
+
+  it('MUST read environment from deployment.environment (∥ .name)', () => {
+    const semconvOld = mapSummaryTrace(
+      makeSummary({ attributes: { 'deployment.environment': 'prod' } }),
+      [],
+    );
+    const semconvNew = mapSummaryTrace(
+      makeSummary({ attributes: { 'deployment.environment.name': 'staging' } }),
+      [],
+    );
+
+    expect(semconvOld.environment).toBe('prod');
+    expect(semconvNew.environment).toBe('staging');
+    expect(mapSummaryTrace(makeSummary(), []).environment).toBeUndefined();
+  });
+
+  it('MUST build the experiment block only when ab.experiment AND ab.variant are present', () => {
+    const full = mapSummaryTrace(
+      makeSummary({
+        attributes: {
+          'ab.experiment': 'assistant-tone',
+          'ab.variant': 'B',
+          'ab.variant_version': '2',
+        },
+      }),
+      [],
+    );
+    const noVariant = mapSummaryTrace(
+      makeSummary({ attributes: { 'ab.experiment': 'assistant-tone' } }),
+      [],
+    );
+    const noVersion = mapSummaryTrace(
+      makeSummary({
+        attributes: { 'ab.experiment': 'assistant-tone', 'ab.variant': 'A' },
+      }),
+      [],
+    );
+
+    expect(full.experiment).toEqual({
+      name: 'assistant-tone',
+      variant: 'B',
+      variantVersion: '2',
+    });
+    expect(noVariant.experiment).toBeUndefined();
+    expect(noVersion.experiment).toEqual({
+      name: 'assistant-tone',
+      variant: 'A',
+      variantVersion: undefined,
+    });
+  });
+
+  it('MUST fall back to OpenInference cache keys when gen_ai.usage.* is absent (decision 72)', () => {
+    const trace = mapSummaryTrace(
+      makeSummary({
+        attributes: {},
+        promptTokens: null,
+        completionTokens: null,
+      }),
+      [
+        makeRootSpan(),
+        makeLlmSpan({
+          attributes: {
+            'langwatch.span.type': 'llm',
+            'gen_ai.response.model': 'claude-sonnet-5',
+            'llm.token_count.prompt_details.cache_read': '500',
+            'llm.token_count.prompt_details.cache_write': '1200',
+          },
+        }),
+      ],
+    );
+
+    expect(trace.spans[1]?.tokens).toEqual({
+      cache_read: 500,
+      cache_write: 1200,
+    });
+    // Trace-level counts fall back to the span sum.
+    expect(trace.tokens.cache_read).toBe(500);
+    expect(trace.tokens.cache_write).toBe(1200);
+  });
+
+  it('MUST prefer gen_ai.usage.* over OpenInference keys when both exist', () => {
+    const trace = mapSummaryTrace(makeSummary({ attributes: {} }), [
+      makeRootSpan(),
+      makeLlmSpan({
+        attributes: {
+          'langwatch.span.type': 'llm',
+          'gen_ai.response.model': 'claude-sonnet-5',
+          'gen_ai.usage.cache_creation.input_tokens': '1084',
+          'llm.token_count.prompt_details.cache_write': '9999',
+        },
+      }),
+    ]);
+
+    expect(trace.spans[1]?.tokens).toEqual({ cache_write: 1084 });
+  });
 });

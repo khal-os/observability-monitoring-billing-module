@@ -36,6 +36,18 @@ export interface ChannelRef {
 }
 
 /**
+ * The A/B arm that served the execution — a POINT-IN-TIME fact denormalized
+ * on the trace like AgentRef's version/instance, never resolved from the
+ * experiment registry later. Display-only enrichment (decision 70): not a
+ * filter, not a session key, not a billing dimension.
+ */
+export interface ExperimentRef {
+  name: string;
+  variant: string;
+  variantVersion?: string;
+}
+
+/**
  * The price stamp (T5): applied price + resulting cost per token type,
  * written at ingestion time and IMMUTABLE from then on (invariant 1).
  */
@@ -66,12 +78,17 @@ export interface PendingPriceInfo {
 export interface TraceModel {
   traceId: string;
   sessionId?: string;
+  /** End user the execution served — display-only enrichment (decision 70). */
+  userId?: string;
   agent?: AgentRef;
   model?: string;
   type: string;
   channel: ChannelRef;
   domain?: string;
   subdomain?: string;
+  /** Deployment environment of the agent (dev/staging/prod) — display-only. */
+  environment?: string;
+  experiment?: ExperimentRef;
   startedAt: Date;
   finishedAt: Date;
   durationMs: number;

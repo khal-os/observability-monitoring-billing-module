@@ -166,6 +166,42 @@ describe('SyncTracesToDbUseCase', () => {
       expect(stored?.stampedCosts).toHaveLength(2);
     });
 
+    it('MUST carry userId, environment and experiment into the stored trace (decision 70)', async () => {
+      const { sut, traceSourceClientStub, traceRepositoryStub } = makeSut();
+
+      traceSourceClientStub.traces = [
+        makeTrace({
+          userId: 'user-5511987654321',
+          environment: 'prod',
+          experiment: { name: 'assistant-tone', variant: 'B', variantVersion: '2' },
+        }),
+      ];
+
+      await sut.sync(WINDOW);
+
+      const stored = traceRepositoryStub.inserted[0];
+
+      expect(stored?.userId).toBe('user-5511987654321');
+      expect(stored?.environment).toBe('prod');
+      expect(stored?.experiment).toEqual({
+        name: 'assistant-tone',
+        variant: 'B',
+        variantVersion: '2',
+      });
+    });
+
+    it('MUST store absent enrichment as undefined at the mapper (null at the write boundary)', async () => {
+      const { sut, traceRepositoryStub } = makeSut();
+
+      await sut.sync(WINDOW);
+
+      const stored = traceRepositoryStub.inserted[0];
+
+      expect(stored?.userId).toBeUndefined();
+      expect(stored?.environment).toBeUndefined();
+      expect(stored?.experiment).toBeUndefined();
+    });
+
     it('MUST consolidate derived snapshot fields at write time (decision 51)', async () => {
       const { sut, traceRepositoryStub } = makeSut();
 

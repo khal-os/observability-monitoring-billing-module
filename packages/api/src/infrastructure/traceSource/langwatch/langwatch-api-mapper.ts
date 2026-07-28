@@ -1,6 +1,7 @@
 import {
   AgentRef,
   ChannelRef,
+  ExperimentRef,
   SourceSpan,
   SourceTrace,
   TokenCounts,
@@ -16,6 +17,12 @@ import { LangWatchApiSpan, LangWatchApiTrace } from './langwatch-api-schema.js';
 //   canal:   `channel` (tipo: whatsapp/web/...) · `channel.version`
 //            · `channel.instance` (deployment do omni que serviu o trace)
 //   sessão = `thread_id`; `domain`/`subdomain` diretos.
+//   usuário: `user_id` ∥ `langwatch.user.id` ∥ `user.id` (decisão 70)
+//   ambiente: `deployment.environment` (∥ `.name`, o rename do semconv)
+//   A/B:     `ab.experiment` + `ab.variant` (+ `ab.variant_version`)
+// Fallbacks de token OpenInference NÃO existem aqui (decisão 72): a API
+// expõe apenas `span.metrics` computadas, nunca attributes crus — a
+// robustez extra vive só no adapter ClickHouse.
 
 const metadataString = (
   metadata: Record<string, unknown>,
@@ -179,17 +186,37 @@ export const mapApiTrace = (trace: LangWatchApiTrace): SourceTrace => {
     instance: metadataString(metadata, 'channel.instance'),
   };
 
+  const experimentName = metadataString(metadata, 'ab.experiment');
+  const experimentVariant = metadataString(metadata, 'ab.variant');
+
+  const experiment: ExperimentRef | undefined =
+    experimentName && experimentVariant
+      ? {
+          name: experimentName,
+          variant: experimentVariant,
+          variantVersion: metadataString(metadata, 'ab.variant_version'),
+        }
+      : undefined;
+
   return {
     traceId: trace.trace_id,
     sessionId:
       metadataString(metadata, 'thread_id') ??
       metadataString(metadata, 'langwatch.thread.id'),
+    userId:
+      metadataString(metadata, 'user_id') ??
+      metadataString(metadata, 'langwatch.user.id') ??
+      metadataString(metadata, 'user.id'),
     agent,
     model: singleModelOf(spans),
     type: rootSpan?.type ?? 'unknown',
     channel,
     domain: metadataString(metadata, 'domain'),
     subdomain: metadataString(metadata, 'subdomain'),
+    environment:
+      metadataString(metadata, 'deployment.environment') ??
+      metadataString(metadata, 'deployment.environment.name'),
+    experiment,
     startedAt,
     finishedAt,
     status: trace.error ? 'error' : 'ok',

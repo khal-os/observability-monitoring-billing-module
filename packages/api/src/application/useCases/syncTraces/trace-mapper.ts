@@ -86,6 +86,7 @@ export const mapToTrace = (
   const traceModel: TraceModel = {
     traceId: trace.traceId,
     sessionId: trace.sessionId,
+    userId: trace.userId,
     agent: trace.agent
       ? {
           id: trace.agent.id,
@@ -102,6 +103,14 @@ export const mapToTrace = (
     },
     domain: trace.domain,
     subdomain: trace.subdomain,
+    environment: trace.environment,
+    experiment: trace.experiment
+      ? {
+          name: trace.experiment.name,
+          variant: trace.experiment.variant,
+          variantVersion: trace.experiment.variantVersion,
+        }
+      : undefined,
     startedAt: trace.startedAt,
     finishedAt: trace.finishedAt,
     durationMs: Math.max(

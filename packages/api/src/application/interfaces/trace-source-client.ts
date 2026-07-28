@@ -2,6 +2,7 @@ import {
   AgentRef,
   ChannelRef,
   ExecutionStatus,
+  ExperimentRef,
   TokenCounts,
 } from '../../domain/models/trace-model.js';
 
@@ -14,7 +15,7 @@ import {
  * root wiring, with zero changes to core/data/presentation.
  * (Enforced by architecture-boundaries.spec.ts.)
  */
-export type { AgentRef, ChannelRef, ExecutionStatus, TokenCounts };
+export type { AgentRef, ChannelRef, ExecutionStatus, ExperimentRef, TokenCounts };
 
 export interface SourceSpan {
   spanId: string;
@@ -34,6 +35,8 @@ export interface SourceTrace {
   traceId: string;
   /** Absent for traces outside any conversation — they never join /sessions. */
   sessionId?: string;
+  /** End user the execution served — store + display only, never a filter or billing dimension (decision 70). */
+  userId?: string;
   /** Absent/invalid attribution metadata → stored as unclassified, never dropped (T3). */
   agent?: AgentRef;
   model?: string;
@@ -43,6 +46,10 @@ export interface SourceTrace {
   channel: ChannelRef;
   domain?: string;
   subdomain?: string;
+  /** Deployment environment of the agent (dev/staging/prod) — store + display only. */
+  environment?: string;
+  /** A/B arm that served the execution — store + display only (decision 70). */
+  experiment?: ExperimentRef;
   startedAt: Date;
   finishedAt: Date;
   status: ExecutionStatus;

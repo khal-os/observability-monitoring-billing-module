@@ -222,4 +222,49 @@ describe('mapApiTrace()', () => {
       'span-late',
     ]);
   });
+
+  it('MUST read userId with the fallback chain user_id ∥ langwatch.user.id ∥ user.id (decision 70)', () => {
+    const canonical = mapApiTrace(
+      makeApiTrace({
+        metadata: {
+          user_id: 'u-canonical',
+          'langwatch.user.id': 'u-reserved',
+          'user.id': 'u-native',
+        },
+      }),
+    );
+    const reserved = mapApiTrace(
+      makeApiTrace({ metadata: { 'langwatch.user.id': 'u-reserved' } }),
+    );
+
+    expect(canonical.userId).toBe('u-canonical');
+    expect(reserved.userId).toBe('u-reserved');
+    expect(mapApiTrace(makeApiTrace()).userId).toBeUndefined();
+  });
+
+  it('MUST read environment and the A/B experiment block from metadata (decision 70)', () => {
+    const mapped = mapApiTrace(
+      makeApiTrace({
+        metadata: {
+          'deployment.environment': 'prod',
+          'ab.experiment': 'assistant-tone',
+          'ab.variant': 'B',
+          'ab.variant_version': '2',
+        },
+      }),
+    );
+    const partial = mapApiTrace(
+      makeApiTrace({ metadata: { 'ab.experiment': 'assistant-tone' } }),
+    );
+
+    expect(mapped.environment).toBe('prod');
+    expect(mapped.experiment).toEqual({
+      name: 'assistant-tone',
+      variant: 'B',
+      variantVersion: '2',
+    });
+    // Missing ab.variant → no half-built block.
+    expect(partial.experiment).toBeUndefined();
+    expect(partial.environment).toBeUndefined();
+  });
 });

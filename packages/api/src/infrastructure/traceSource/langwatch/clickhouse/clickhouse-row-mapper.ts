@@ -1,6 +1,7 @@
 import {
   AgentRef,
   ChannelRef,
+  ExperimentRef,
   SourceSpan,
   SourceTrace,
   TokenCounts,
@@ -20,6 +21,12 @@ import { SpanRow, SummaryRow } from './clickhouse-row-schema.js';
 // Metadata conventions (agent/channel/domain) are the same as the API
 // mapper; trace-level lookups fall back to the root span's
 // ResourceAttributes, which is where OTel semconv resources land.
+// Decision 70 adds display-only enrichment reads: user (user_id ∥
+// langwatch.user.id ∥ user.id), environment (deployment.environment) and
+// the A/B arm (ab.experiment/ab.variant/ab.variant_version). Decision 72
+// adds defensive OpenInference cache-token fallbacks on spans
+// (llm.token_count.prompt_details.*) for stacks whose keys LangWatch does
+// not normalize to gen_ai.usage.*.
 
 const attributeString = (
   attributes: Record<string, string>,
@@ -138,14 +145,21 @@ const mapSpan = (row: SpanRow): SourceSpan => {
   const tokens = cleanTokens({
     input: attributeTokenCount(row.attributes, 'gen_ai.usage.input_tokens'),
     output: attributeTokenCount(row.attributes, 'gen_ai.usage.output_tokens'),
-    cache_read: attributeTokenCount(
-      row.attributes,
-      'gen_ai.usage.cache_read.input_tokens',
-    ),
-    cache_write: attributeTokenCount(
-      row.attributes,
-      'gen_ai.usage.cache_creation.input_tokens',
-    ),
+    cache_read:
+      attributeTokenCount(row.attributes, 'gen_ai.usage.cache_read.input_tokens') ??
+      attributeTokenCount(
+        row.attributes,
+        'llm.token_count.prompt_details.cache_read',
+      ),
+    cache_write:
+      attributeTokenCount(
+        row.attributes,
+        'gen_ai.usage.cache_creation.input_tokens',
+      ) ??
+      attributeTokenCount(
+        row.attributes,
+        'llm.token_count.prompt_details.cache_write',
+      ),
   });
 
   return {
@@ -211,6 +225,18 @@ export const mapSummaryTrace = (
     instance: attributeString(metadata, 'channel.instance'),
   };
 
+  const experimentName = attributeString(metadata, 'ab.experiment');
+  const experimentVariant = attributeString(metadata, 'ab.variant');
+
+  const experiment: ExperimentRef | undefined =
+    experimentName && experimentVariant
+      ? {
+          name: experimentName,
+          variant: experimentVariant,
+          variantVersion: attributeString(metadata, 'ab.variant_version'),
+        }
+      : undefined;
+
   const tokens = cleanTokens({
     input: summary.promptTokens ?? sumSpanTokens(spans, 'input'),
     output: summary.completionTokens ?? sumSpanTokens(spans, 'output'),
@@ -232,6 +258,10 @@ export const mapSummaryTrace = (
       attributeString(metadata, 'gen_ai.conversation.id') ??
       attributeString(metadata, 'thread_id') ??
       attributeString(metadata, 'langwatch.thread.id'),
+    userId:
+      attributeString(metadata, 'user_id') ??
+      attributeString(metadata, 'langwatch.user.id') ??
+      attributeString(metadata, 'user.id'),
     agent,
     model: singleModelOf(spanRows),
     type:
@@ -243,6 +273,10 @@ export const mapSummaryTrace = (
     channel,
     domain: attributeString(metadata, 'domain'),
     subdomain: attributeString(metadata, 'subdomain'),
+    environment:
+      attributeString(metadata, 'deployment.environment') ??
+      attributeString(metadata, 'deployment.environment.name'),
+    experiment,
     startedAt,
     finishedAt: new Date(
       summary.occurredAtMs + Math.max(summary.totalDurationMs, 0),

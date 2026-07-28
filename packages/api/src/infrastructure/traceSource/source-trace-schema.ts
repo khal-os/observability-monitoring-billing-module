@@ -45,16 +45,27 @@ const channelRefSchema = z
   })
   .strict();
 
+const experimentRefSchema = z
+  .object({
+    name: z.string().min(1),
+    variant: z.string().min(1),
+    variantVersion: z.string().min(1).optional(),
+  })
+  .strict();
+
 export const sourceTraceSchema = z
   .object({
     traceId: z.string().min(1),
     sessionId: z.string().min(1).optional(),
+    userId: z.string().min(1).optional(),
     agent: agentRefSchema.optional(),
     model: z.string().min(1).optional(),
     type: z.string().min(1),
     channel: channelRefSchema,
     domain: z.string().optional(),
     subdomain: z.string().optional(),
+    environment: z.string().min(1).optional(),
+    experiment: experimentRefSchema.optional(),
     startedAt: z.coerce.date(),
     finishedAt: z.coerce.date(),
     status: z.enum(['ok', 'error']),
