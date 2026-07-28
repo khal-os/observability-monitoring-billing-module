@@ -248,6 +248,9 @@ const renderDetail = (trace) => {
       <span title="${escapeHtml(trace.started_at)}">${escapeHtml(trace.started_at_display)} (${escapeHtml(trace.age_display)})</span>
       ${trace.session_id ? `<span>· sessão <button class="chain-trace-link" id="session-link" data-session-id="${escapeHtml(trace.session_id)}">${escapeHtml(trace.session_id)}</button></span>` : ''}
       ${trace.model ? `<span>· modelo <span class="mono">${escapeHtml(trace.model)}</span></span>` : ''}
+      ${trace.user_id ? `<span>· usuário <span class="mono">${escapeHtml(trace.user_id)}</span></span>` : ''}
+      ${trace.environment ? `<span>· ambiente ${escapeHtml(trace.environment)}</span>` : ''}
+      ${trace.experiment ? `<span>· experimento ${escapeHtml(trace.experiment.name)} · variante ${escapeHtml(trace.experiment.variant)}</span>` : ''}
     </div>
     ${trace.unclassified_label ? `
       <p class="pending unclassified">Sem atribuição de agente: ${escapeHtml(trace.unclassified_label)}</p>` : ''}
@@ -426,6 +429,7 @@ const renderSessionDetail = (session) => {
       ${statusBadge(session.status)}
       <span title="${escapeHtml(session.started_at)}">início ${escapeHtml(session.started_at_display)}</span>
       <span>· última atividade ${escapeHtml(session.last_activity_at_display)} (${escapeHtml(session.age_display)})</span>
+      ${session.user_id ? `<span>· usuário <span class="mono">${escapeHtml(session.user_id)}</span></span>` : ''}
     </div>
     <div class="stat-grid">
       ${renderStat('Traces', session.trace_count)}

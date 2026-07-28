@@ -39,6 +39,7 @@ export const toSessionListItem = (
 
   return {
     session_id: session.sessionId,
+    user_id: session.userId ?? null,
     // Full block of the session's FIRST trace: which agent build served the
     // conversation (user decision — consistent with the traces list).
     // Domain/subdomain are trace-level attributes → root (decision 20).

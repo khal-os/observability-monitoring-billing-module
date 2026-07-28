@@ -12,6 +12,7 @@ import { traceListItemSchema } from '../traces/trace-view-schemas.js';
  */
 export const sessionListItemSchema = z.strictObject({
   session_id: z.string(),
+  user_id: z.string().nullable(),
   agent: z.strictObject({
     id: z.string().nullable(),
     version: z.string().nullable(),

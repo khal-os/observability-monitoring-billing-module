@@ -32,6 +32,7 @@ export const toTraceListItem = (
 ): TraceListItemView => ({
   trace_id: trace.traceId,
   session_id: trace.sessionId ?? null,
+  user_id: trace.userId ?? null,
   // Full point-in-time blocks already at list level (user decision): which
   // agent BUILD and omni deployment served each execution. Domain/subdomain
   // are TRACE-level attributes (decision 20) — they live at the root.
@@ -45,6 +46,14 @@ export const toTraceListItem = (
   subdomain: trace.subdomain ?? null,
   scope_label:
     [trace.domain, trace.subdomain].filter(Boolean).join(' · ') || null,
+  environment: trace.environment ?? null,
+  experiment: trace.experiment
+    ? {
+        name: trace.experiment.name,
+        variant: trace.experiment.variant,
+        variant_version: trace.experiment.variantVersion ?? null,
+      }
+    : null,
   type: trace.type,
   channel: {
     type: trace.channel.type,

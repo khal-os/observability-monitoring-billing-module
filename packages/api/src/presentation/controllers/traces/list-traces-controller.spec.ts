@@ -140,6 +140,7 @@ describe('ListTracesController', () => {
           {
             trace_id: 'trace-001',
             session_id: 'sess-001',
+            user_id: null,
             agent: {
               id: 'agent-atendimento',
               version: '1.4.2',
@@ -149,6 +150,8 @@ describe('ListTracesController', () => {
             domain: 'varejo',
             subdomain: null,
             scope_label: 'varejo',
+            environment: null,
+            experiment: null,
             type: 'chat',
             channel: { type: 'whatsapp', version: '3.2.0', instance: null },
             status: 'ok',

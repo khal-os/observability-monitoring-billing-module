@@ -19,6 +19,13 @@ const channelBlockSchema = z.strictObject({
   instance: z.string().nullable(),
 });
 
+/** A/B arm that served the execution — display only (decision 70). */
+const experimentBlockSchema = z.strictObject({
+  name: z.string(),
+  variant: z.string(),
+  variant_version: z.string().nullable(),
+});
+
 /**
  * Display fields (`*_display`, `*_label`) are part of the contract
  * (decision 51): the API owns every derived/formatted value and the
@@ -27,11 +34,14 @@ const channelBlockSchema = z.strictObject({
 export const traceListItemSchema = z.strictObject({
   trace_id: z.string(),
   session_id: z.string().nullable(),
+  user_id: z.string().nullable(),
   agent: agentBlockSchema,
   agent_label: z.string(),
   domain: z.string().nullable(),
   subdomain: z.string().nullable(),
   scope_label: z.string().nullable(),
+  environment: z.string().nullable(),
+  experiment: experimentBlockSchema.nullable(),
   type: z.string(),
   channel: channelBlockSchema,
   status: executionStatusSchema,

@@ -42,6 +42,7 @@ const groupStages: Document[] = [
       },
       startedAt: { $first: '$startedAt' },
       agent: { $first: '$agent' },
+      userId: { $first: '$userId' },
       domain: { $first: '$domain' },
       subdomain: { $first: '$subdomain' },
       lastActivityAt: { $max: '$finishedAt' },
@@ -58,6 +59,7 @@ const groupStages: Document[] = [
 const toSummary = (document: Document): SessionSummaryModel => ({
   sessionId: document.sessionId,
   agent: document.agent ?? undefined,
+  userId: document.userId ?? undefined,
   domain: document.domain ?? undefined,
   subdomain: document.subdomain ?? undefined,
   traceCount: document.traceCount,

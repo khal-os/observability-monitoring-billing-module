@@ -13,6 +13,8 @@ export interface SessionSummaryModel {
   sessionId: string;
   /** Attribution of the session's FIRST trace (PoC rule). */
   agent?: AgentRef;
+  /** End user of the session's FIRST trace (same PoC rule) — display only. */
+  userId?: string;
   domain?: string;
   subdomain?: string;
   traceCount: number;
