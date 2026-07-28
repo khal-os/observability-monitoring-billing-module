@@ -10,7 +10,6 @@
 #   make sync CLIENT=claro FROM=2026-07-01 TO=2026-07-22
 #   make price CLIENT=vivo ARGS='--model ... --token-type ... --price-brl ... --effective-from ...'
 #   make logs CLIENT=vivo
-#   make register CLIENT=hapvida                # connector register (agents discover links here)
 #   make down CLIENT=claro                      # stop one client (volumes preserved)
 #   make ps                                     # all compose projects on this host
 #
@@ -55,7 +54,7 @@ JOB = $(COMPOSE_PROD) run --rm --no-deps api node
 # form exactly when generated fixtures exist, the prod form otherwise.
 SYNC_COMPOSE = $(if $(wildcard demo-data/$(CLIENT)/*.json),$(COMPOSE_DEV),$(COMPOSE_PROD))
 
-.PHONY: help build up up-prod down logs ps migrate seed-prices sync price reprocess register require-client
+.PHONY: help build up up-prod down logs ps migrate seed-prices sync price reprocess require-client
 
 help:
 	@grep -E '^#( |$$)' Makefile | sed 's/^# \?//'
@@ -112,6 +111,3 @@ price: require-client
 
 reprocess: require-client
 	$(JOB) dist/main/jobs/reprocess-pending.js
-
-register: require-client
-	python3 packages/register/register.py $(CLIENT)
