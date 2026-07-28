@@ -55,7 +55,8 @@ content) → live views (traces/sessions) + monthly aggregates (billing).
 
 ## PoC scope (see docs/produto/poc.md for details)
 
-IN: T4 price table (seeded) · T2-lite sync worker against a **fake LangWatch
+IN: T4 price table (seeded via the dev-only `make seed-prices` job — decision
+74; migrations carry only index bootstrap) · T2-lite sync worker against a **fake LangWatch
 client** (interface + fixtures shaped like the real API; real client is a
 later swap — QA14 spike) · T5 stamping · T3 store (traces/spans/content) ·
 endpoints `GET /traces`, `GET /traces/:id`, `GET /sessions`,

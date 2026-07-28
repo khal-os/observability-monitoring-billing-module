@@ -58,7 +58,8 @@ health waits → migrations → **automatic LangWatch onboarding** (registers
 in the env file — creates organization + project via the instance's own API,
 wires the project API key into the env, recreates the api with real sync
 enabled) → **demo data** (deterministic traffic generated for this client,
-premium-model prices, pushed into its LangWatch, ingested through the real
+PoC price table via `make seed-prices` + premium-model prices, pushed into
+its LangWatch, ingested through the real
 sync — every trace priced between R$ 1 and R$ 100). The summary prints the
 UI, API, LangWatch and Compass URLs plus the login credentials.
 
