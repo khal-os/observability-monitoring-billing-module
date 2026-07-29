@@ -167,7 +167,7 @@ const optionHtml = (value, text, selected) =>
 
 const renderFilterSelect = (select, label, options, current, valueLabel) => {
   const parts = [
-    optionHtml('', `${label}: todos (${options.length})`, current === ''),
+    optionHtml('', `${label}: todos`, current === ''),
     ...options.map((option) =>
       optionHtml(
         option.value,
