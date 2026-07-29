@@ -33,43 +33,50 @@ export class ReprocessPendingToDbUseCase implements ReprocessPendingUseCase {
       examined: pendingTraces.length,
       stamped: 0,
       stillPending: 0,
+      failed: 0,
     };
 
     for (const trace of pendingTraces) {
-      // QA19: same as-of rule as the sync — the price version effective on
-      // the TRACE's date, never "the latest price now".
-      const effectivePrices = trace.model
-        ? await this.priceVersionRepository.findEffectivePrices(
-            trace.model,
-            trace.startedAt,
-          )
-        : {};
+      // Per-trace isolation (decision 79): one throwing trace must not
+      // lose the whole run — the sweep is rerunnable and every other
+      // trace's stamp is independent of this one.
+      try {
+        // QA19: same as-of rule as the sync — the price version effective
+        // on the TRACE's date, never "the latest price now".
+        const effectivePrices = trace.model
+          ? await this.priceVersionRepository.findEffectivePrices(
+              trace.model,
+              trace.startedAt,
+            )
+          : {};
 
-      const stamp = stampTokens(trace.tokens, effectivePrices);
+        const stamp = stampTokens(trace.tokens, effectivePrices);
 
-      if (stamp.pricingStatus === 'pending_price') {
-        report.stillPending += 1;
-        continue;
-      }
+        if (stamp.pricingStatus === 'pending_price') {
+          report.stillPending += 1;
+          continue;
+        }
 
-      const result = await this.traceRepository.stampPendingTrace(
-        trace.traceId,
-        {
+        // A 'skipped' result means a concurrent reprocess stamped it
+        // between our read and our write — the trace IS stamped either
+        // way; reporting it as still-pending would be false.
+        await this.traceRepository.stampPendingTrace(trace.traceId, {
           stampedCosts: stamp.stampedCosts,
           totalCostMicrocents: stamp.totalCostMicrocents,
           stampedAt: new Date(),
-        },
-      );
+        });
 
-      if (result === 'stamped') {
         report.stamped += 1;
-      } else {
-        report.stillPending += 1;
+      } catch (error) {
+        report.failed += 1;
+        console.warn(
+          `Reprocess pending: trace ${trace.traceId} failed and was skipped: ${String(error)}`,
+        );
       }
     }
 
     console.log(
-      `Reprocess pending: examined ${report.examined}, stamped ${report.stamped}, still pending ${report.stillPending}.`,
+      `Reprocess pending: examined ${report.examined}, stamped ${report.stamped}, still pending ${report.stillPending}, failed ${report.failed}.`,
     );
 
     return report;

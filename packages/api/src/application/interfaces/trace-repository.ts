@@ -1,8 +1,22 @@
 import {
   AgentRef,
   StampedTokenCost,
+  TokenCounts,
   TraceModel,
 } from '../../domain/models/trace-model.js';
+
+/**
+ * The slim shape of the pending sweep (decision 79): exactly what
+ * re-stamping needs. Full documents embed input/output/spans (decision
+ * 47) — a day of unpriced traffic on a new model once meant loading
+ * gigabytes of payloads into one array and OOM-ing the worker mid-incident.
+ */
+export interface PendingPriceTrace {
+  traceId: string;
+  model?: string;
+  startedAt: Date;
+  tokens: TokenCounts;
+}
 
 /**
  * Attribution fields are MUTABLE in open periods (invariant 7). This type
@@ -37,7 +51,15 @@ export interface TraceRepository {
    */
   insertIfAbsent(trace: TraceModel): Promise<'inserted' | 'skipped'>;
 
-  /** Refreshes attribution only — the price stamp is untouchable here. */
+  /**
+   * Refreshes attribution FROM THE SOURCE only — the price stamp is
+   * untouchable here, and so is a runbook-corrected trace: a document
+   * carrying `attributionCorrectedAt` (set by the open-period manual
+   * correction, decision 79) is skipped whole. Without that guard, any
+   * window re-sync — or the batch loop's own crash-replay — would quietly
+   * revert a correction back to the source's stale value (the source
+   * still holds the wrong attribution; that is WHY it was corrected).
+   */
   updateAttribution(
     traceId: string,
     attribution: TraceAttribution,
@@ -52,5 +74,6 @@ export interface TraceRepository {
     stamp: PendingStamp,
   ): Promise<'stamped' | 'skipped'>;
 
-  findPendingPrice(): Promise<TraceModel[]>;
+  /** Slim projection, oldest first — never the embedded payloads. */
+  findPendingPrice(): Promise<PendingPriceTrace[]>;
 }

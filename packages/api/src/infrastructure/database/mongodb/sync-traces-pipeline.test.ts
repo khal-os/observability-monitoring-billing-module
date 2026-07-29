@@ -275,7 +275,12 @@ describe('Sync + price stamping (integration)', () => {
 
       const report = await reprocess.reprocess();
 
-      expect(report).toEqual({ examined: 2, stamped: 2, stillPending: 0 });
+      expect(report).toEqual({
+        examined: 2,
+        stamped: 2,
+        stillPending: 0,
+        failed: 0,
+      });
 
       // June 10 trace → June 1 prices (NOT the June 15 ones)
       const stampedW1 = await findTrace('trace-w1-006');

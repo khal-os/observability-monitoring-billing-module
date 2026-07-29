@@ -33,9 +33,18 @@ describe('MongoDbTraceRepository', () => {
 
     // Open-period runbook correction applied straight to the store.
     applyRawCorrection: async (traceId, agentId) => {
+      // The runbook convention (decision 79): a manual correction ALWAYS
+      // stamps attributionCorrectedAt — it is what shields the corrected
+      // trace from being reverted by the next source refresh.
       await MongoDb.getCollection(TRACES_COLLECTION).updateOne(
         { traceId },
-        { $set: { agent: { id: agentId } }, $unset: { unclassified: '' } },
+        {
+          $set: {
+            agent: { id: agentId },
+            attributionCorrectedAt: new Date(),
+          },
+          $unset: { unclassified: '' },
+        },
       );
     },
 

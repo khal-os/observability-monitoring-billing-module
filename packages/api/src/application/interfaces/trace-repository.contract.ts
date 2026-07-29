@@ -218,6 +218,32 @@ export const runTraceRepositoryContract = (
         expect(stored?.['unclassified']).toEqual({ reasons: ['missing model'] });
       });
 
+      it('MUST NOT revert a runbook correction when the re-synced payload still CARRIES the stale value (decision 79)', async () => {
+        await harness.repository.insertIfAbsent(
+          makeContractTrace({
+            agent: { id: 'agent-errado' },
+          }),
+        );
+
+        // Open-period correction applied directly to the store (invariant
+        // 7) — stamps attributionCorrectedAt per the runbook convention.
+        await harness.applyRawCorrection('trace-001', 'agent-corrigido');
+
+        // Any window re-sync (or the batch loop's crash-replay) delivers
+        // the source payload again — which still holds the WRONG agent.
+        await harness.repository.updateAttribution('trace-001', {
+          agent: { id: 'agent-errado' },
+          domain: 'dominio-do-source',
+        });
+
+        const stored = await harness.readTrace('trace-001');
+
+        expect((stored?.['agent'] as AgentRecord)?.id).toBe('agent-corrigido');
+        // The whole refresh is skipped — a corrected trace belongs to the
+        // operator, not the source.
+        expect(stored?.['domain']).not.toBe('dominio-do-source');
+      });
+
       it('MUST NOT re-flag attribution corrected in the store when the payload lacks it', async () => {
         await harness.repository.insertIfAbsent(
           makeContractTrace({

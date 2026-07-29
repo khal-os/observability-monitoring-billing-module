@@ -1,4 +1,5 @@
 import {
+  PendingPriceTrace,
   PendingStamp,
   TraceAttribution,
   TraceRepository,
@@ -36,7 +37,20 @@ export class MongoDbTraceRepository implements TraceRepository {
 
     // One trace = one document (decision 47): the write is atomic, so the
     // old commit-marker/partial-leftover dance is gone by construction.
-    await traces.insertOne({ ...trace });
+    try {
+      await traces.insertOne({ ...trace });
+    } catch (error) {
+      // findOne→insertOne is check-then-act: a concurrent ingestor (the
+      // worker and a manual `make sync` are a legal combination) can win
+      // the race between the two calls. The unique traceId index turns
+      // that into E11000 — which is just "skipped" arriving late, same as
+      // the price repo treats it. Anything else propagates.
+      if ((error as { code?: number }).code === 11000) {
+        return 'skipped';
+      }
+
+      throw error;
+    }
 
     // Facet cube (decision 77): counted exactly once per trace — rides
     // the insert-once guarantee above; drift heals via rebuild job.
@@ -56,7 +70,14 @@ export class MongoDbTraceRepository implements TraceRepository {
     // its old tuple to the new one (decision 77).
     const before = (await traces.findOne({
       traceId,
-    })) as unknown as TraceModel | null;
+    })) as unknown as (TraceModel & { attributionCorrectedAt?: Date }) | null;
+
+    // Runbook-corrected traces are off-limits to source refreshes
+    // (decision 79): the source still carries the value the correction
+    // fixed, so refreshing would silently revert it on every re-sync.
+    if (before?.attributionCorrectedAt) {
+      return;
+    }
 
     const set: Record<string, unknown> = {};
 
@@ -130,12 +151,19 @@ export class MongoDbTraceRepository implements TraceRepository {
     return result.matchedCount > 0 ? 'stamped' : 'skipped';
   }
 
-  async findPendingPrice(): Promise<TraceModel[]> {
+  async findPendingPrice(): Promise<PendingPriceTrace[]> {
+    // Slim projection (decision 79): re-stamping needs four small fields;
+    // the embedded input/output/spans (decision 47) stay in the store —
+    // the sweep runs inside the ingestion worker and must stay bounded
+    // even when a new unpriced model has accumulated a day of traffic.
     const documents = await MongoDb.getCollection(TRACES_COLLECTION)
-      .find({ pricingStatus: 'pending_price' })
+      .find(
+        { pricingStatus: 'pending_price' },
+        { projection: { _id: 0, traceId: 1, model: 1, startedAt: 1, tokens: 1 } },
+      )
       .sort({ startedAt: 1 })
       .toArray();
 
-    return documents as unknown as TraceModel[];
+    return documents as unknown as PendingPriceTrace[];
   }
 }
