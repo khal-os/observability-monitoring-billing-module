@@ -88,8 +88,10 @@ up: require-client
 up-prod: require-client
 	$(COMPOSE_PROD) up -d --remove-orphans
 
+# --remove-orphans on the way DOWN too: after a service rename, plain
+# `down` would leave the old container running — a second ingestor.
 down: require-client
-	$(COMPOSE_PROD) down
+	$(COMPOSE_PROD) down --remove-orphans
 
 logs: require-client
 	$(COMPOSE_PROD) logs -f

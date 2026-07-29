@@ -6,7 +6,7 @@
  *
  * Usage:
  *   node scripts/generate-loadtest-traces.mjs [count] [mongoUri] [dbName]
- * Defaults: 1_000_000 traces into mongodb://127.0.0.1:27018, db "loadtest".
+ * Defaults: 1_000_000 traces into mongodb://127.0.0.1:27019, db "loadtest".
  *
  * Dump it afterwards (container has the tools):
  *   docker exec cliente-mongo mongodump --db loadtest --archive --gzip > file.gz
@@ -21,7 +21,8 @@ const require = createRequire(
 const { MongoClient } = require('mongodb');
 
 const TOTAL = Number(process.argv[2] ?? 1_000_000);
-const URI = process.argv[3] ?? 'mongodb://127.0.0.1:27018';
+// 27019 = the loadtest stack's own mongo (clients/loadtest.env MONGO_HOST_PORT) — 27018 belongs to another client.
+const URI = process.argv[3] ?? 'mongodb://127.0.0.1:27019';
 const DB = process.argv[4] ?? 'loadtest';
 const BATCH = 2_000;
 
