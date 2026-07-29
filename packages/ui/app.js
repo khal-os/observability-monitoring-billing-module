@@ -77,8 +77,8 @@ const renderRow = (trace) => `<tr class="clickable" data-trace-id="${escapeHtml(
   </tr>`;
 
 const render = (data) => {
-  totalLabel.textContent = `${data.total} traces`;
-  pageLabel.textContent = `Página ${data.page} de ${data.total_pages}`;
+  totalLabel.textContent = `${data.total_display} traces`;
+  pageLabel.textContent = `Página ${data.page} de ${data.total_pages_display}`;
   prevBtn.disabled = data.page <= 1;
   nextBtn.disabled = data.page >= data.total_pages;
 
