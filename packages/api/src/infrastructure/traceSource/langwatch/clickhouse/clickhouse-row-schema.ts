@@ -29,8 +29,14 @@ export const summaryRowSchema = z.looseObject({
   totalDurationMs: z.number(),
   containsError: z.boolean(),
   errorMessage: z.string().nullable(),
-  promptTokens: z.number().nullable(),
-  completionTokens: z.number().nullable(),
+  // Token counts must be whole and non-negative AT THE BOUNDARY: a
+  // fractional or negative count reaching the stamper either throws
+  // (assertNonNegativeInteger — a deterministic error the batch loop
+  // would re-read forever) or mints a stamp inconsistent with its own
+  // tokens. Tightening here routes such rows to the poison path
+  // (decision 62) instead.
+  promptTokens: z.number().int().nonnegative().nullable(),
+  completionTokens: z.number().int().nonnegative().nullable(),
   rootSpanType: z.string().nullable(),
 });
 

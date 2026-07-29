@@ -84,7 +84,10 @@ const cleanTokens = (tokens: TokenCounts): TokenCounts => {
   const cleaned: TokenCounts = {};
 
   for (const [tokenType, count] of Object.entries(tokens)) {
-    if (typeof count === 'number' && count > 0) {
+    // Whole and positive only: a fractional count would deterministically
+    // throw in the stamper (assertNonNegativeInteger) and stall the sync
+    // on the same trace forever; a negative one corrupts tokensTotal.
+    if (typeof count === 'number' && Number.isSafeInteger(count) && count > 0) {
       cleaned[tokenType as keyof TokenCounts] = count;
     }
   }

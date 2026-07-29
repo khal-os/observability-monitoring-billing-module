@@ -79,6 +79,17 @@ describe('mapApiTrace()', () => {
     expect(mapped.tokens.cache_write).toBe(2_875);
   });
 
+  it('MUST drop fractional or negative token counts at the boundary — a fractional count would stall the stamper forever', () => {
+    const mapped = mapApiTrace(
+      makeApiTrace({
+        metrics: { prompt_tokens: 100.5, completion_tokens: -3 },
+      }),
+    );
+
+    expect(mapped.tokens.input).toBeUndefined();
+    expect(mapped.tokens.output).toBeUndefined();
+  });
+
   it('MUST fall back to summing span metrics when trace metrics are absent', () => {
     const mapped = mapApiTrace(
       makeApiTrace({
