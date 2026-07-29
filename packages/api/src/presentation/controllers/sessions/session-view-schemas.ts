@@ -70,5 +70,16 @@ export const sessionDetailResponseSchema = sessionListItemSchema.extend({
   ),
 });
 
+const sessionFilterOptionSchema = z.strictObject({
+  value: z.string(),
+  count: z.number().int(),
+});
+
+/** GET /sessions/filters — dropdown options counted over the read-model (decision 80). */
+export const sessionFilterOptionsResponseSchema = z.strictObject({
+  agents: z.array(sessionFilterOptionSchema),
+  statuses: z.array(sessionFilterOptionSchema),
+});
+
 export type SessionListItemView = z.infer<typeof sessionListItemSchema>;
 export type SessionDetailView = z.infer<typeof sessionDetailResponseSchema>;

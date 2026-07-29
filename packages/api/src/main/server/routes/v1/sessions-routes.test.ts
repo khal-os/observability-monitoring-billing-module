@@ -92,6 +92,66 @@ describe('Sessions Routes', () => {
     });
   });
 
+  describe('GET /api/v1/sessions/filters', () => {
+    it('MUST count SESSIONS per option over the read-model (decision 80)', async () => {
+      const response = await request(app)
+        .get('/api/v1/sessions/filters')
+        .expect(200);
+
+      // June fixtures: 4 sessions, 1 with a failed trace (cobranca-002).
+      expect(response.body.statuses).toEqual(
+        expect.arrayContaining([
+          { value: 'ok', count: 3 },
+          { value: 'error', count: 1 },
+        ]),
+      );
+      expect(response.body.statuses).toHaveLength(2);
+
+      // agent-atendimento owns exactly one session (checkout-001).
+      expect(response.body.agents).toEqual(
+        expect.arrayContaining([{ value: 'agent-atendimento', count: 1 }]),
+      );
+
+      const totalAgentCount = response.body.agents.reduce(
+        (sum: number, option: { count: number }) => sum + option.count,
+        0,
+      );
+
+      expect(totalAgentCount).toBeLessThanOrEqual(4);
+    });
+
+    it('MUST cascade with self-exclusion (decision 76): agent options honor the status filter, status options keep listing alternatives', async () => {
+      const response = await request(app)
+        .get('/api/v1/sessions/filters?status=error')
+        .expect(200);
+
+      // Agent counts now cover ONLY the single error session…
+      const totalAgentCount = response.body.agents.reduce(
+        (sum: number, option: { count: number }) => sum + option.count,
+        0,
+      );
+
+      expect(totalAgentCount).toBe(1);
+
+      // …while the status field self-excludes its own filter: both
+      // alternatives stay listed with their unfiltered counts.
+      expect(response.body.statuses).toEqual(
+        expect.arrayContaining([
+          { value: 'ok', count: 3 },
+          { value: 'error', count: 1 },
+        ]),
+      );
+    });
+
+    it('MUST reject an unknown param (strict schema)', async () => {
+      const response = await request(app)
+        .get('/api/v1/sessions/filters?agents=x')
+        .expect(400);
+
+      expect(response.body.name).toBe('InvalidParamError');
+    });
+  });
+
   describe('GET /api/v1/sessions/:id', () => {
     it('MUST return the chronological chain — shuffled arrivals reorder naturally', async () => {
       const response = await request(app)

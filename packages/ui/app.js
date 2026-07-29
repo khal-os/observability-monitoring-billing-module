@@ -483,7 +483,67 @@ document.addEventListener('keydown', (event) => {
 
 /* ---------- Sessions ---------- */
 
-const sessionsState = { page: 1 };
+const sessionsState = { page: 1, filters: { agent: '', status: '' } };
+
+const sessionFilterSelects = {
+  agent: document.getElementById('sessions-filter-agent'),
+  status: document.getElementById('sessions-filter-status'),
+};
+
+const buildSessionFilterParams = () => {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(sessionsState.filters)) {
+    if (value) params.set(key, value);
+  }
+  return params;
+};
+
+/* Dropdowns from GET /sessions/filters (decisão 80): session counts per
+   option, cascading with self-exclusion — same contract as the traces
+   filter bar. */
+let sessionFilterOptionsSeq = 0;
+
+const loadSessionFilterOptions = async (background = false) => {
+  const seq = ++sessionFilterOptionsSeq;
+  try {
+    const res = await fetch(`${API_BASE}/sessions/filters?${buildSessionFilterParams()}`);
+    if (!res.ok) throw new Error(`API respondeu ${res.status}`);
+    const data = await res.json();
+    if (seq !== sessionFilterOptionsSeq) return;
+    // Same rule as the traces bar: never repaint under a focused select.
+    if (
+      background &&
+      Object.values(sessionFilterSelects).includes(document.activeElement)
+    ) {
+      return;
+    }
+    renderFilterSelect(
+      sessionFilterSelects.agent,
+      'Agente',
+      data.agents,
+      sessionsState.filters.agent,
+      (value) => value,
+    );
+    renderFilterSelect(
+      sessionFilterSelects.status,
+      'Status',
+      data.statuses,
+      sessionsState.filters.status,
+      (value) => STATUS_LABELS[value] ?? value,
+    );
+  } catch {
+    /* Dropdowns keep their last options; the next reload recovers. */
+  }
+};
+
+for (const [key, select] of Object.entries(sessionFilterSelects)) {
+  select.addEventListener('change', () => {
+    sessionsState.filters[key] = select.value;
+    sessionsState.page = 1;
+    loadSessions();
+    loadSessionFilterOptions();
+  });
+}
 const sessionsBody = document.getElementById('sessions-body');
 const sessionsTotalLabel = document.getElementById('sessions-total-label');
 const sessionsPageLabel = document.getElementById('sessions-page-label');
@@ -538,9 +598,10 @@ const loadSessions = async (background = false) => {
     sessionsBody.innerHTML = '<tr><td colspan="8" class="empty">Carregando…</td></tr>';
   }
   try {
-    const res = await fetch(
-      `${API_BASE}/sessions?page=${sessionsState.page}&page_size=${PAGE_SIZE}`,
-    );
+    const params = buildSessionFilterParams();
+    params.set('page', sessionsState.page);
+    params.set('page_size', PAGE_SIZE);
+    const res = await fetch(`${API_BASE}/sessions?${params}`);
     if (!res.ok) throw new Error(`API respondeu ${res.status}`);
     const data = await res.json();
     if (seq !== sessionsLoadSeq) return;
@@ -817,7 +878,10 @@ const TABS = {
   sessions: {
     button: document.getElementById('tab-sessions'),
     view: document.getElementById('view-sessions'),
-    loadOnce: loadSessions,
+    loadOnce: () => {
+      loadSessions();
+      loadSessionFilterOptions();
+    },
   },
   billing: {
     button: document.getElementById('tab-billing'),
@@ -876,6 +940,9 @@ setInterval(() => {
     loadFilterOptions(true);
   } else if (TABS.sessions.button.classList.contains('active')) {
     // First visit loads via loadOnce; only refresh once that has run.
-    if (!TABS.sessions.loadOnce) loadSessions(true);
+    if (!TABS.sessions.loadOnce) {
+      loadSessions(true);
+      loadSessionFilterOptions(true);
+    }
   }
 }, AUTO_REFRESH_MS);

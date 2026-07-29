@@ -13,6 +13,7 @@ import {
 } from '../../../../presentation/controllers/traces/trace-view-schemas.js';
 import {
   sessionDetailResponseSchema,
+  sessionFilterOptionsResponseSchema,
   sessionListResponseSchema,
 } from '../../../../presentation/controllers/sessions/session-view-schemas.js';
 import {
@@ -49,6 +50,7 @@ describe('API Docs (OpenAPI)', () => {
         '/api/v1/billing/summary',
         '/api/v1/bills',
         '/api/v1/sessions',
+        '/api/v1/sessions/filters',
         '/api/v1/sessions/{id}',
         '/api/v1/traces',
         '/api/v1/traces/filters',
@@ -115,6 +117,16 @@ describe('API Docs (OpenAPI)', () => {
 
       expect(() => sessionListResponseSchema.parse(list.body)).not.toThrow();
       expect(() => sessionDetailResponseSchema.parse(detail.body)).not.toThrow();
+    });
+
+    it('GET /sessions/filters MUST match the published options schema (strict)', async () => {
+      const response = await request(app)
+        .get('/api/v1/sessions/filters')
+        .expect(200);
+
+      expect(() =>
+        sessionFilterOptionsResponseSchema.parse(response.body),
+      ).not.toThrow();
     });
 
     it('GET /billing/summary MUST match the published schema', async () => {

@@ -11,20 +11,20 @@ import {
   exceedsPaginationDepth,
   invalidPeriod,
   invalidPeriodResponse,
-  isoDateParam,
   paginationDepthExceededResponse,
   paginationSchema,
   parseQuery,
 } from '../../helpers/query-validation.js';
 import { toSessionListItem } from './session-view-model.js';
+import {
+  sessionFilterQueryShape,
+  toSessionListFilters,
+} from './session-filter-query.js';
 
 // Strict: an unknown param (e.g. a typo like ?agents=x) is a 400, never
 // silently ignored into an unfiltered result.
 const querySchema = z.strictObject({
-  from: isoDateParam.optional(),
-  to: isoDateParam.optional(),
-  agent: z.string().min(1).optional(),
-  status: z.enum(['ok', 'error']).optional(),
+  ...sessionFilterQueryShape,
   ...paginationSchema,
 });
 
@@ -50,10 +50,10 @@ export class ListSessionsController implements Controller {
       return invalidPeriodResponse();
     }
 
-    const { page, page_size, agent, from, to, status } = parsed.value;
+    const { page, page_size, ...filterQuery } = parsed.value;
 
     const result = await this.listSessions.list(
-      { from, to, agentId: agent, status },
+      toSessionListFilters(filterQuery),
       { page, pageSize: page_size },
     );
 

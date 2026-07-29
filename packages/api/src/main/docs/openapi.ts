@@ -7,6 +7,7 @@ import {
 } from '../../presentation/controllers/traces/trace-view-schemas.js';
 import {
   sessionDetailResponseSchema,
+  sessionFilterOptionsResponseSchema,
   sessionListResponseSchema,
 } from '../../presentation/controllers/sessions/session-view-schemas.js';
 import {
@@ -105,6 +106,18 @@ const traceFilterParams = [
   }),
 ];
 
+/** Shared by GET /sessions and GET /sessions/filters. */
+const sessionFilterParams = [
+  ...periodParams,
+  queryParam('agent', 'Filtra pelo id do agente da sessão.', {
+    type: 'string',
+  }),
+  queryParam('status', 'error se QUALQUER trace da sessão falhou.', {
+    type: 'string',
+    enum: ['ok', 'error'],
+  }),
+];
+
 export const buildOpenApiDocument = (clientName?: string) => ({
   openapi: '3.1.0',
   info: {
@@ -191,19 +204,29 @@ export const buildOpenApiDocument = (clientName?: string) => ({
           'Período filtra pelo INÍCIO da sessão (QA17). Sessão com traces ' +
           'pendentes de preço expõe cost_brl null + parcial — nunca um total ' +
           'que se leia como R$ 0,00 final.',
-        parameters: [
-          ...periodParams,
-          queryParam('agent', 'Filtra pelo id do agente da sessão.', {
-            type: 'string',
-          }),
-          queryParam('status', 'error se QUALQUER trace da sessão falhou.', {
-            type: 'string',
-            enum: ['ok', 'error'],
-          }),
-          ...paginationParams,
-        ],
+        parameters: [...sessionFilterParams, ...paginationParams],
         responses: {
           '200': okResponse('Página de sessões.', sessionListResponseSchema),
+          '400': errorResponse('Parâmetro de consulta inválido.'),
+          '500': errorResponse('Erro interno.'),
+        },
+      },
+    },
+    '/api/v1/sessions/filters': {
+      get: {
+        tags: ['Sessions'],
+        summary: 'Opções dos dropdowns de filtro de sessões',
+        description:
+          'Valores distintos de agente e status com contagem de SESSÕES por ' +
+          'opção, servidos pelo read-model materializado (decisão 80). ' +
+          'Cascata com auto-exclusão (decisão 76): as opções do campo X ' +
+          'honram todos os filtros EXCETO o do próprio X.',
+        parameters: [...sessionFilterParams],
+        responses: {
+          '200': okResponse(
+            'Opções por campo.',
+            sessionFilterOptionsResponseSchema,
+          ),
           '400': errorResponse('Parâmetro de consulta inválido.'),
           '500': errorResponse('Erro interno.'),
         },

@@ -2,6 +2,7 @@ import { Document } from 'mongodb';
 import { SessionQueryRepository } from '../../../../application/interfaces/session-query-repository.js';
 import { SessionListFilters } from '../../../../domain/useCases/list-sessions-use-case.js';
 import { SessionDetail } from '../../../../domain/useCases/get-session-detail-use-case.js';
+import { SessionFilterOptions } from '../../../../domain/useCases/list-session-filter-options-use-case.js';
 import { SessionSummaryModel } from '../../../../domain/models/session-model.js';
 import {
   MAX_PAGINATION_SKIP,
@@ -102,6 +103,47 @@ export class MongoDbSessionQueryRepository implements SessionQueryRepository {
       pageSize: pagination.pageSize,
       total: totalCapped ? MAX_PAGINATION_SKIP : rawTotal,
       totalCapped,
+    };
+  }
+
+  async findSessionFilterOptions(
+    filters: SessionListFilters,
+  ): Promise<SessionFilterOptions> {
+    // One $facet pass over the materialized summaries (decision 80): tiny
+    // documents, so counting is cheap at any trace volume. Self-exclusion
+    // per field (decision 76 semantics): each facet applies every filter
+    // EXCEPT its own, so a selected dropdown keeps listing alternatives.
+    const withoutAgent: SessionListFilters = { ...filters, agentId: undefined };
+    const withoutStatus: SessionListFilters = { ...filters, status: undefined };
+
+    const [result] = await MongoDb.getCollection(SESSION_SUMMARIES_COLLECTION)
+      .aggregate([
+        {
+          $facet: {
+            agents: [
+              { $match: { ...buildSessionMatch(withoutAgent), 'agent.id': { $type: 'string' } } },
+              { $group: { _id: '$agent.id', count: { $sum: 1 } } },
+              { $sort: { _id: 1 } },
+            ],
+            statuses: [
+              { $match: buildSessionMatch(withoutStatus) },
+              { $group: { _id: '$status', count: { $sum: 1 } } },
+              { $sort: { _id: 1 } },
+            ],
+          },
+        },
+      ])
+      .toArray();
+
+    const toOptions = (rows: Document[] | undefined) =>
+      (rows ?? []).map((row) => ({
+        value: row._id as string,
+        count: row.count as number,
+      }));
+
+    return {
+      agents: toOptions(result?.agents),
+      statuses: toOptions(result?.statuses),
     };
   }
 
