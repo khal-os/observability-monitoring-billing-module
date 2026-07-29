@@ -30,12 +30,21 @@ ENVFILE = clients/$(CLIENT).env
 # would leak into every stack — and an exported COMPOSE_PROJECT_NAME would
 # collapse two clients into one project. The env file is the only source of
 # truth for these.
+# EVERY variable a compose file interpolates must be listed here — a var
+# that escapes the scrub silently overrides all client env files at once.
 SCRUB = env -u COMPOSE_PROJECT_NAME -u CLIENT_NAME -u API_PORT \
           -u LANGWATCH_PORT -u LANGWATCH_API_KEY -u LANGWATCH_ENDPOINT \
           -u LANGWATCH_PROJECT_ID \
           -u MONGO_DB_HOST -u MONGO_DB_PORT -u MONGO_MEMORY_LIMIT \
-          -u MONGO_DB_USER -u MONGO_DB_PASSWORD -u API_IMAGE \
-          -u LW_NEXTAUTH_SECRET -u LW_API_TOKEN_JWT_SECRET -u LW_CREDENTIALS_SECRET
+          -u MONGO_DB_USER -u MONGO_DB_PASSWORD -u MONGO_HOST_PORT \
+          -u API_IMAGE -u UI_IMAGE -u UI_PORT \
+          -u LW_NEXTAUTH_SECRET -u LW_API_TOKEN_JWT_SECRET -u LW_CREDENTIALS_SECRET \
+          -u TRACE_INGESTION_INTERVAL_SECONDS -u TRACE_INGESTION_BATCH_SIZE \
+          -u TRACE_INGESTION_QUIET_PERIOD_SECONDS -u REPROCESS_INTERVAL_SECONDS \
+          -u LANGWATCH_WORKERS_REPLICAS -u LANGWATCH_MEMORY_LIMIT \
+          -u LANGWATCH_WORKERS_MEMORY_LIMIT -u LW_POSTGRES_MEMORY_LIMIT \
+          -u LW_REDIS_MEMORY_LIMIT -u LW_CLICKHOUSE_MEMORY_LIMIT \
+          -u LW_CLICKHOUSE_CPU_LIMIT
 # Role files (decision 65): module (api+ui) + connector (LangWatch +
 # trace-ingestion-worker) + database (mongo) merge into ONE project per
 # client. Couplings live in the file that introduces them, so dropping a

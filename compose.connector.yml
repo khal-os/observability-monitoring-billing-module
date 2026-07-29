@@ -18,6 +18,19 @@
 # container is kept as upstream ships it: START_WORKERS=true does NOT work
 # on the production image (its start.sh needs `concurrently`, a dev-only
 # dependency — verified absent in langwatch/langwatch:3.5.0).
+#
+# HORIZONTAL SCALING (decision 78): LangWatch's scaling unit is the
+# stateless compute (app + workers) over ONE postgres + ONE redis + ONE
+# clickhouse — the stateful spine stays single per client. Here that means:
+# `langwatch-workers` scales via LANGWATCH_WORKERS_REPLICAS (they
+# coordinate through the redis queue; no port, no name, no state); the
+# `langwatch` app stays at 1 replica because it owns the host-port
+# binding — scaling it needs a fan-in proxy in front (not built until
+# needed). The backing stores get env-tunable memory limits instead,
+# because N replicas multiply load on the same three stores. The
+# trace-ingestion-worker must NEVER scale past 1 per source — see its
+# comment. Scaling beyond one host = drop this role file and point
+# LANGWATCH_CLICKHOUSE_URL at the external stack (decision 65).
 
 x-langwatch-env: &langwatch-env
   SKIP_ENV_VALIDATION: "true"
@@ -33,9 +46,15 @@ x-langwatch-env: &langwatch-env
   NEXTAUTH_URL: http://localhost:${LANGWATCH_PORT:-5560}
   LANGWATCH_API_URL: http://localhost:${LANGWATCH_PORT:-5560}
   NEXTAUTH_PROVIDER: email # plain email+password signup, no verification step
-  NEXTAUTH_SECRET: ${LW_NEXTAUTH_SECRET}
-  API_TOKEN_JWT_SECRET: ${LW_API_TOKEN_JWT_SECRET}
-  CREDENTIALS_SECRET: ${LW_CREDENTIALS_SECRET}
+  # `:?` — fail at compose time, not at runtime: LangWatch sets
+  # SKIP_ENV_VALIDATION and will happily boot with EMPTY secrets (forgeable
+  # session tokens; with >1 replica, sessions that validate on one replica
+  # and bounce on another). And CREDENTIALS_SECRET set late is unrecoverable
+  # (stored credentials become undecryptable), so empty-then-fix is the
+  # worst path — refuse it loudly here.
+  NEXTAUTH_SECRET: ${LW_NEXTAUTH_SECRET:?generate with `openssl rand -base64 32` (clients/<name>.env)}
+  API_TOKEN_JWT_SECRET: ${LW_API_TOKEN_JWT_SECRET:?generate with `openssl rand -base64 32` (clients/<name>.env)}
+  CREDENTIALS_SECRET: ${LW_CREDENTIALS_SECRET:?generate with `openssl rand -base64 32` (clients/<name>.env) — must never change after first boot}
 
 x-langwatch-deps: &langwatch-deps
   postgres:
@@ -78,6 +97,14 @@ services:
   # to an undefined service). Boot ordering is covered anyway: the mongo
   # driver waits up to 30s of server selection on connect, and
   # `restart: unless-stopped` retries the pathological case.
+  # EXACTLY ONE replica per source — never scale this service. The sync
+  # watermark (sync_state) has no lease: two drainers race on the cursor
+  # (last-writer-wins can move it BACKWARDS pre-guard, and even with the
+  # never-backwards guard two instances double-read every batch and churn
+  # attribution). The fixed container_name is a deliberate second lock:
+  # `--scale trace-ingestion-worker=2` fails on the name collision instead
+  # of silently double-draining. LangWatch replicas are irrelevant here —
+  # this worker reads ClickHouse, not the app.
   trace-ingestion-worker:
     image: ${API_IMAGE:-platform-api:local}
     container_name: ${CLIENT_NAME}-trace-ingestion-worker
@@ -116,6 +143,9 @@ services:
 
   # ---- the LangWatch stack itself ----
 
+  # Single replica by construction: it owns the host-port binding. Scaling
+  # the app requires a fan-in proxy publishing the port instead — add that
+  # when the app (not the workers) is actually the bottleneck.
   langwatch:
     image: langwatch/langwatch:3.5.0
     container_name: ${CLIENT_NAME}-langwatch
@@ -129,11 +159,14 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2g
+          memory: ${LANGWATCH_MEMORY_LIMIT:-2g}
 
+  # The horizontal-scaling unit: stateless queue consumers coordinated by
+  # redis. No container_name — a fixed name caps replicas at 1 (two
+  # containers cannot share one name); compose names these
+  # <project>-langwatch-workers-1..N.
   langwatch-workers:
     image: langwatch/langwatch:3.5.0
-    container_name: ${CLIENT_NAME}-langwatch-workers
     command: ["pnpm", "run", "start:workers"]
     working_dir: /app/langwatch
     environment:
@@ -142,9 +175,10 @@ services:
       <<: *langwatch-deps
     restart: unless-stopped
     deploy:
+      replicas: ${LANGWATCH_WORKERS_REPLICAS:-1}
       resources:
         limits:
-          memory: 1536m # upstream dev compose cap for the workers process
+          memory: ${LANGWATCH_WORKERS_MEMORY_LIMIT:-1536m} # upstream dev compose cap, per replica
 
   postgres:
     image: postgres:16
@@ -164,7 +198,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 256m
+          # Defaults sized for 1 app + 1 worker; raise via the client env
+          # when LANGWATCH_WORKERS_REPLICAS > 1 (N replicas multiply
+          # connections and write volume into this single store).
+          memory: ${LW_POSTGRES_MEMORY_LIMIT:-256m}
 
   redis:
     image: redis:7-alpine
@@ -180,7 +217,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512m # upstream raised this from 64m after BGSAVE OOM kills
+          memory: ${LW_REDIS_MEMORY_LIMIT:-512m} # upstream raised this from 64m after BGSAVE OOM kills
 
   clickhouse:
     image: langwatch/clickhouse-serverless:0.2.0
@@ -199,8 +236,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2g
-          cpus: "1.0"
+          memory: ${LW_CLICKHOUSE_MEMORY_LIMIT:-2g}
+          cpus: ${LW_CLICKHOUSE_CPU_LIMIT:-1.0}
 
 volumes:
   db-data:
