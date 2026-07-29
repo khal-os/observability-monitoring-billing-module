@@ -83,7 +83,8 @@ body {
 }
 
 .filter-bar select:hover { border-color: var(--muted); }
-.filter-bar select:focus { outline: none; border-color: #60a5fa; }
+/* Visible focus: the highlighted border alone is too subtle for keyboard use. */
+.filter-bar select:focus { outline: 2px solid #60a5fa; outline-offset: 1px; border-color: #60a5fa; }
 
 .table-wrap {
   border: 1px solid var(--border);
@@ -181,6 +182,8 @@ tbody tr:hover { background: rgba(255, 255, 255, 0.02); }
 .pager button:not(:disabled):hover { border-color: var(--muted); }
 
 tbody tr.clickable { cursor: pointer; }
+/* Rows are keyboard targets (role="button" + tabindex) — show where focus is. */
+tbody tr.clickable:focus-visible { outline: 2px solid #60a5fa; outline-offset: -2px; }
 
 /* ---------- Side panel (trace detail) ---------- */
 

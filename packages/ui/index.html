@@ -8,10 +8,10 @@
 </head>
 <body>
   <main class="page">
-    <nav class="tabs">
-      <button id="tab-traces" class="tab active">Traces</button>
-      <button id="tab-sessions" class="tab">Sessões</button>
-      <button id="tab-billing" class="tab">Faturas</button>
+    <nav class="tabs" role="tablist" aria-label="Seções">
+      <button id="tab-traces" class="tab active" role="tab" aria-selected="true">Traces</button>
+      <button id="tab-sessions" class="tab" role="tab" aria-selected="false">Sessões</button>
+      <button id="tab-billing" class="tab" role="tab" aria-selected="false">Faturas</button>
       <span id="client-name" class="client-name"></span>
     </nav>
 

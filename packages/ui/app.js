@@ -43,6 +43,23 @@ const statusBadge = (status) => {
 const spanColor = (types, type) =>
   SPAN_COLORS[types.indexOf(type) % SPAN_COLORS.length];
 
+/* Clickable rows are real keyboard targets (role="button" + tabindex="0"):
+   Enter/Space triggers the same open handler as click — Space is
+   preventDefault'ed so the page does not scroll. */
+const onRowActivate = (tbodyEl, selector, handler) => {
+  tbodyEl.addEventListener('click', (event) => {
+    const row = event.target.closest(selector);
+    if (row) handler(row);
+  });
+  tbodyEl.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    const row = event.target.closest(selector);
+    if (!row) return;
+    event.preventDefault();
+    handler(row);
+  });
+};
+
 const errorBox = document.getElementById('error');
 
 /* ---------- Traces list ---------- */
@@ -62,7 +79,7 @@ const costCellHtml = (item) =>
     ? escapeHtml(item.cost_brl_display)
     : '<span class="pending">preço pendente</span>';
 
-const renderRow = (trace) => `<tr class="clickable" data-trace-id="${escapeHtml(trace.trace_id)}">
+const renderRow = (trace) => `<tr class="clickable" role="button" tabindex="0" data-trace-id="${escapeHtml(trace.trace_id)}">
     <td class="trace-id">${escapeHtml(trace.trace_id)}</td>
     <td>
       <div class="agent-name">${escapeHtml(trace.agent_label)}</div>
@@ -242,6 +259,50 @@ const panel = document.getElementById('panel');
 const panelContent = document.getElementById('panel-content');
 const backdrop = document.getElementById('backdrop');
 
+/* Focus management (a11y): opening the panel moves focus to its close
+   button; closing returns it to the opener. Auto-refresh repaints rows,
+   so a row opener is remembered as an identity selector (re-queried at
+   close), with the raw element as fallback for non-row openers. */
+let panelReturn = null;
+
+const rowIdentitySelector = (row) => {
+  if (row.dataset.traceId !== undefined)
+    return `tr[data-trace-id="${CSS.escape(row.dataset.traceId)}"]`;
+  if (row.dataset.sessionId !== undefined)
+    return `tr[data-session-id="${CSS.escape(row.dataset.sessionId)}"]`;
+  if (row.dataset.year !== undefined)
+    return `tr[data-year="${CSS.escape(row.dataset.year)}"][data-month="${CSS.escape(row.dataset.month)}"]`;
+  return null;
+};
+
+const rememberPanelReturn = () => {
+  // In-panel navigation (trace ↔ session links) keeps the original opener.
+  if (!panel.classList.contains('hidden')) return;
+  const el = document.activeElement;
+  const row = el?.closest?.('tr.clickable');
+  panelReturn = row
+    ? { selector: rowIdentitySelector(row), element: row }
+    : { selector: null, element: el };
+};
+
+const restorePanelReturn = () => {
+  if (!panelReturn) return;
+  const { selector, element } = panelReturn;
+  panelReturn = null;
+  const target =
+    (selector && document.querySelector(selector)) ||
+    (element && document.contains(element) ? element : null);
+  if (target && target.focus) target.focus();
+};
+
+/* Every panel render ends here: wire the close button and move focus onto
+   it, so keyboard users land inside the freshly opened panel. */
+const wirePanelClose = () => {
+  const closeBtn = document.getElementById('panel-close');
+  closeBtn.addEventListener('click', closePanel);
+  closeBtn.focus();
+};
+
 const renderStat = (label, valueHtml) => `
   <div class="stat">
     <div class="stat-label">${label}</div>
@@ -371,7 +432,7 @@ const renderDetail = (trace) => {
     ${renderCosts(trace)}
     ${renderContent(trace)}`;
 
-  document.getElementById('panel-close').addEventListener('click', closePanel);
+  wirePanelClose();
   const sessionLink = document.getElementById('session-link');
   if (sessionLink) {
     sessionLink.addEventListener('click', () =>
@@ -384,6 +445,7 @@ let panelSeq = 0;
 
 const openPanel = async (traceId) => {
   const seq = ++panelSeq;
+  rememberPanelReturn();
   panel.classList.remove('hidden');
   backdrop.classList.remove('hidden');
   panelContent.innerHTML = '<p class="empty">Carregando…</p>';
@@ -401,7 +463,7 @@ const openPanel = async (traceId) => {
         <button class="panel-close" id="panel-close" aria-label="Fechar">✕</button>
       </div>
       <div class="error">Falha ao carregar o trace: ${escapeHtml(err.message)}</div>`;
-    document.getElementById('panel-close').addEventListener('click', closePanel);
+    wirePanelClose();
   }
 };
 
@@ -409,12 +471,10 @@ const closePanel = () => {
   panelSeq += 1;
   panel.classList.add('hidden');
   backdrop.classList.add('hidden');
+  restorePanelReturn();
 };
 
-tbody.addEventListener('click', (event) => {
-  const row = event.target.closest('tr[data-trace-id]');
-  if (row) openPanel(row.dataset.traceId);
-});
+onRowActivate(tbody, 'tr[data-trace-id]', (row) => openPanel(row.dataset.traceId));
 
 backdrop.addEventListener('click', closePanel);
 document.addEventListener('keydown', (event) => {
@@ -438,7 +498,7 @@ const sessionCostHtml = (session) => {
   return `<span class="pending">pendente</span>${partial}`;
 };
 
-const renderSessionRow = (session) => `<tr class="clickable" data-session-id="${escapeHtml(session.session_id)}">
+const renderSessionRow = (session) => `<tr class="clickable" role="button" tabindex="0" data-session-id="${escapeHtml(session.session_id)}">
     <td class="trace-id">${escapeHtml(session.session_id)}</td>
     <td>
       <div class="agent-name">${escapeHtml(session.agent_label)}</div>
@@ -555,7 +615,7 @@ const renderSessionDetail = (session) => {
       ${session.chain_truncated ? `<div class="empty">Cadeia truncada: exibindo os primeiros ${session.chain.length} traces desta sessão (os totais acima cobrem a sessão inteira).</div>` : ''}
     </section>`;
 
-  document.getElementById('panel-close').addEventListener('click', closePanel);
+  wirePanelClose();
   panelContent.querySelectorAll('.chain-trace-link[data-trace-id]').forEach((btn) =>
     btn.addEventListener('click', () => openPanel(btn.dataset.traceId)),
   );
@@ -563,6 +623,7 @@ const renderSessionDetail = (session) => {
 
 const openSessionPanel = async (sessionId) => {
   const seq = ++panelSeq;
+  rememberPanelReturn();
   panel.classList.remove('hidden');
   backdrop.classList.remove('hidden');
   panelContent.innerHTML = '<p class="empty">Carregando…</p>';
@@ -580,14 +641,12 @@ const openSessionPanel = async (sessionId) => {
         <button class="panel-close" id="panel-close" aria-label="Fechar">✕</button>
       </div>
       <div class="error">Falha ao carregar a sessão: ${escapeHtml(err.message)}</div>`;
-    document.getElementById('panel-close').addEventListener('click', closePanel);
+    wirePanelClose();
   }
 };
 
-sessionsBody.addEventListener('click', (event) => {
-  const row = event.target.closest('tr[data-session-id]');
-  if (row) openSessionPanel(row.dataset.sessionId);
-});
+onRowActivate(sessionsBody, 'tr[data-session-id]', (row) =>
+  openSessionPanel(row.dataset.sessionId));
 
 /* ---------- Faturas (bills) ---------- */
 
@@ -682,11 +741,12 @@ const renderBillPanel = (data) => {
       exibidas fecham exatamente com o total exibido.
     </p>`;
 
-  document.getElementById('panel-close').addEventListener('click', closePanel);
+  wirePanelClose();
 };
 
 const openBillPanel = async (year, month) => {
   const seq = ++panelSeq;
+  rememberPanelReturn();
   panel.classList.remove('hidden');
   backdrop.classList.remove('hidden');
   panelContent.innerHTML = '<p class="empty">Carregando…</p>';
@@ -704,11 +764,11 @@ const openBillPanel = async (year, month) => {
         <button class="panel-close" id="panel-close" aria-label="Fechar">✕</button>
       </div>
       <div class="error">Falha ao carregar a fatura: ${escapeHtml(err.message)}</div>`;
-    document.getElementById('panel-close').addEventListener('click', closePanel);
+    wirePanelClose();
   }
 };
 
-const renderBillRow = (bill) => `<tr class="clickable" data-year="${bill.year}" data-month="${bill.month}">
+const renderBillRow = (bill) => `<tr class="clickable" role="button" tabindex="0" data-year="${bill.year}" data-month="${bill.month}">
   <td class="agent-name">${escapeHtml(bill.month_label)}</td>
   <td>${bill.partial
     ? `<span class="partial-badge">${escapeHtml(bill.status_label)}</span>`
@@ -744,10 +804,8 @@ const loadBills = async () => {
   }
 };
 
-billsBody.addEventListener('click', (event) => {
-  const row = event.target.closest('tr[data-year]');
-  if (row) openBillPanel(row.dataset.year, row.dataset.month);
-});
+onRowActivate(billsBody, 'tr[data-year]', (row) =>
+  openBillPanel(row.dataset.year, row.dataset.month));
 
 /* ---------- Tabs ---------- */
 
@@ -771,6 +829,7 @@ const TABS = {
 const activateTab = (name) => {
   for (const [key, tab] of Object.entries(TABS)) {
     tab.button.classList.toggle('active', key === name);
+    tab.button.setAttribute('aria-selected', key === name ? 'true' : 'false');
     tab.view.classList.toggle('hidden', key !== name);
   }
   errorBox.classList.add('hidden');
