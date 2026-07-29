@@ -56,9 +56,11 @@ content) → live views (traces/sessions) + monthly aggregates (billing).
 ## PoC scope (see docs/produto/poc.md for details)
 
 IN: T4 price table (seeded via the dev-only `make seed-prices` job — decision
-74; migrations carry only index bootstrap) · T2-lite sync worker against a **fake LangWatch
-client** (interface + fixtures shaped like the real API; real client is a
-later swap — QA14 spike) · T5 stamping · T3 store (traces/spans/content) ·
+74; migrations carry only index bootstrap) · T2 sync (QA14 RESOLVED — real
+clients ship: direct-ClickHouse reads preferred, HTTP LangWatch as fallback
+with a code-level guard on the ~100-trace search cap, and the fixture-backed
+`FakeTraceSourceClient` for offline demos/tests; chain composed in
+`sync-factory.ts`) · T5 stamping · T3 store (traces/spans/content) ·
 endpoints `GET /traces`, `GET /traces/:id`, `GET /sessions`,
 `GET /sessions/:id` (session = derived read-model grouped by `session_id`) ·
 one billing aggregate endpoint (month × agent × model) that visibly equals
@@ -76,7 +78,9 @@ masking/retention, admin UIs, alerts.
 - Ingestion must be idempotent: re-running a sync window never double-counts.
 - When a decision is made during implementation, append it to the decision
   log in `docs/produto/backlog-v2.3.md` instead of leaving it implicit.
-- Open questions (QA1–QA19) are listed at the end of the backlog doc; QA14
-  (LangWatch API fidelity) and QA19 (stamp rule) are the two that most affect
-  this code — flag any code path that depends on their answers with a
-  `// QA14:` / `// QA19:` comment.
+- Open questions (QA1–QA19) are listed at the end of the backlog doc. QA14
+  (LangWatch API fidelity) is RESOLVED (spike 2026-07-20, decision 40) —
+  `// QA14:` comments now mark fidelity findings (e.g. the search-cap
+  guard), not pending work. QA19 (stamp rule) remains OPEN and most affects
+  this code — flag any code path that depends on its answer with a
+  `// QA19:` comment.

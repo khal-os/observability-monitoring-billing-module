@@ -7,16 +7,18 @@ dinheiro por construção**.
 
 ## O que entra (na ordem de construção)
 
-1. **T4 — Tabela de preços versionada (seed via SQL/migration)**
+1. **T4 — Tabela de preços versionada (seed via `make seed-prices`, decisão 74 — migrações só criam índices; store é MongoDB)**
    - `price_versions`: model, token_type (input | output | cache_read |
      cache_write), price_brl_per_million, effective_from. Imutável (insert
      only); constraint de unicidade (model, token_type, effective_from).
    - Seed com 2+ modelos e pelo menos UMA troca de preço no meio do período
      dos dados de teste — para a demo provar a imutabilidade do carimbo.
 
-2. **Cliente LangWatch falso (interface + fixtures)**
-   - Interface `LangWatchClient` com um `FakeLangWatchClient` lendo fixtures
-     JSON no formato da API real (traces com spans, session_id, agente,
+2. **Cliente de fonte de traces (interface + fixtures; QA14 resolvida — clientes reais entregues)**
+   - Interface `TraceSourceClient`; em produção a cadeia é ClickHouse
+     direto → HTTP LangWatch (janela limitada a ~100 pela busca — guard no
+     código) → `FakeTraceSourceClient` lendo fixtures JSON no contrato T1
+     (traces com spans, session_id, agente,
      modelo, tokens por tipo, timestamps, status, conteúdo de entrada/saída,
      channel, domain/subdomain).
    - Fixtures devem incluir casos de borda: trace com erro em um span; trace
@@ -55,7 +57,7 @@ dinheiro por construção**.
      /sessions (regra dita com honestidade no payload do trace).
 
 6. **Billing mínimo**
-   - `GET /billing/summary?month=YYYY-MM` — total do mês + quebra por
+   - `GET /billing/summary?year=YYYY&month=M` — total do mês + quebra por
      agente × modelo × tipo de token, tudo = SOMA dos custos carimbados.
    - Traces `pending_price` reportados à parte (contagem/volume), nunca
      como R$ 0,00 dentro do total.
@@ -70,7 +72,7 @@ telas. Ver `backlog-v2.3.md` para os critérios completos de cada um.
 
 ## Roteiro da demo (o que "pronto" significa)
 
-1. Rodar migrations + seed de preços.
+1. Rodar migrations (índices) + `make seed-prices` (decisão 74).
 2. Rodar o sync → fixtures ingeridas e carimbadas; mostrar no banco o
    trace com preço/custo gravados e o caso `pending_price`.
 3. Trocar o preço de um modelo (insert de nova versão com effective_from
