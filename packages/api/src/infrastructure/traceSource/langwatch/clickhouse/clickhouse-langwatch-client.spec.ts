@@ -129,6 +129,50 @@ describe('ClickHouseLangWatchClient', () => {
       warn.mockRestore();
     });
 
+    it('MUST halt WITHOUT advancing when a whole non-trivial batch is poison — schema drift, not isolated bad rows (decision 79)', async () => {
+      const poisonRows = Array.from({ length: 10 }, (_, index) => ({
+        traceId: `trace-poison-${index}`,
+        updatedAtMs: T0 + index,
+      }));
+      const { queryFn } = makeQueryStub([poisonRows]);
+      const sut = makeSut(queryFn);
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await expect(
+        sut.fetchBatch({
+          after: null,
+          limit: 10,
+          updatedBefore: new Date(T0 + 60_000),
+        }),
+      ).rejects.toThrow(/schema drift/);
+
+      warn.mockRestore();
+    });
+
+    it('MUST keep decision-62 skip-and-advance for an all-poison batch BELOW the breaker threshold', async () => {
+      const poisonRows = [
+        { traceId: 'trace-poison-a', updatedAtMs: T0 + 1 },
+        { traceId: 'trace-poison-b', updatedAtMs: T0 + 2 },
+      ];
+      const { queryFn } = makeQueryStub([poisonRows]);
+      const sut = makeSut(queryFn);
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const batch = await sut.fetchBatch({
+        after: null,
+        limit: 2,
+        updatedBefore: new Date(T0 + 60_000),
+      });
+
+      expect(batch.traces).toEqual([]);
+      expect(batch.nextCursor).toEqual({
+        updatedAt: new Date(T0 + 2),
+        traceId: 'trace-poison-b',
+      });
+
+      warn.mockRestore();
+    });
+
     it('MUST filter by tenant when a project id is configured', async () => {
       const { queryFn, calls } = makeQueryStub([[], []]);
       const sut = makeSut(queryFn, 'project_abc');

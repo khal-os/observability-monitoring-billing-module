@@ -20,6 +20,10 @@ const INGESTION_DEFAULTS = {
 // Decisão 59: com LANGWATCH_CLICKHOUSE_URL configurado, a fonte é o
 // ClickHouse do próprio LangWatch (leitura direta, sem o teto de ~100 da
 // busca HTTP). Nada fora deste factory sabe a diferença.
+const quietPeriodMs = (): number =>
+  (config.traceIngestionQuietPeriodSeconds ??
+    INGESTION_DEFAULTS.quietPeriodSeconds) * 1000;
+
 const makeClickHouseClient = (): ClickHouseLangWatchClient | undefined =>
   config.langwatchClickhouseUrl
     ? new ClickHouseLangWatchClient({
@@ -28,6 +32,7 @@ const makeClickHouseClient = (): ClickHouseLangWatchClient | undefined =>
         password: config.langwatchClickhousePassword ?? '',
         database: config.langwatchClickhouseDatabase ?? 'langwatch',
         tenantId: config.langwatchProjectId,
+        quietPeriodMs: quietPeriodMs(),
       })
     : undefined;
 
@@ -40,6 +45,7 @@ const makeTraceSourceClient = (): TraceSourceClient =>
     ? new HttpLangWatchClient({
         endpoint: config.langwatchEndpoint,
         apiKey: config.langwatchApiKey,
+        quietPeriodMs: quietPeriodMs(),
       })
     : new FakeTraceSourceClient());
 
@@ -87,9 +93,7 @@ export const makeSyncBatchesUseCase = ():
       priceVersionRepository: new MongoDbPriceVersionRepository(),
       traceRepository: new MongoDbTraceRepository(),
       batchSize: config.traceIngestionBatchSize ?? INGESTION_DEFAULTS.batchSize,
-      quietPeriodMs:
-        (config.traceIngestionQuietPeriodSeconds ?? INGESTION_DEFAULTS.quietPeriodSeconds) *
-        1000,
+      quietPeriodMs: quietPeriodMs(),
     }),
   };
 };

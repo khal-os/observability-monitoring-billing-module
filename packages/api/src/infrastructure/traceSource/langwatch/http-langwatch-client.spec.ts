@@ -108,7 +108,7 @@ describe('HttpLangWatchClient', () => {
     );
   });
 
-  it('MUST paginate with pageOffset until totalHits is covered', async () => {
+  it('MUST refuse a window holding more hits than one page — QA14: pageOffset is ignored, looping would silently lose the excess', async () => {
     const { fetchFn, calls } = makeFetchStub(
       [[{ trace_id: 'trace-a' }], [{ trace_id: 'trace-b' }]],
       2,
@@ -120,20 +120,12 @@ describe('HttpLangWatchClient', () => {
       fetchFn,
     });
 
-    const traces = await sut.fetchTraces(WINDOW);
+    await expect(sut.fetchTraces(WINDOW)).rejects.toThrow(/QA14/);
 
-    expect(traces.map((trace) => trace.traceId)).toEqual([
-      'trace-a',
-      'trace-b',
-    ]);
-
-    const searches = calls.filter((call) =>
-      call.url.includes('/api/traces/search'),
-    );
-
-    expect(searches.map((call) => (call.body as { pageOffset: number }).pageOffset)).toEqual([
-      0, 1,
-    ]);
+    // Fails BEFORE any detail fetch: one search call, nothing else — no
+    // partial window is ever reported as a healthy sync.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toContain('/api/traces/search');
   });
 
   it('MUST enforce the half-open window locally — border trace excluded', async () => {

@@ -16,6 +16,10 @@ import {
   summaryRowSchema,
 } from './clickhouse-row-schema.js';
 import { mapSummaryTrace } from './clickhouse-row-mapper.js';
+import {
+  DEFAULT_QUIET_PERIOD_MS,
+  clampWindowToQuietPeriod,
+} from '../quiet-period.js';
 
 /**
  * The goose migration version of langwatch/langwatch:3.5.0 — the version
@@ -75,11 +79,17 @@ const SPANS_SELECT = `
  * Rows that fail validation/mapping are POISON: skipped and logged with
  * their id, never fatal, and the cursor advances past them (decision 62 —
  * one bad row must not stall ingestion; the log is the recovery trail).
+ * EXCEPT when a whole non-trivial batch is poison (decision 79): that is
+ * indistinguishable from schema drift (the startup tripwire runs once —
+ * a LangWatch upgrade mid-run would otherwise convert 100% of traffic to
+ * skipped-and-logged rows while the cursor advances past them, a silent
+ * permanent archive hole). All-poison batches throw instead.
  */
 export class ClickHouseLangWatchClient
   implements TraceSourceClient, TraceBatchSource
 {
   private readonly tenantId?: string;
+  private readonly quietPeriodMs: number;
   private readonly queryFn: QueryFn;
 
   constructor(args: {
@@ -89,10 +99,13 @@ export class ClickHouseLangWatchClient
     database: string;
     /** LangWatch project id — filters rows when the instance hosts more than one project. */
     tenantId?: string;
+    /** Windowed-sync clamp (decision 61) — defaults to 15 min. */
+    quietPeriodMs?: number;
     /** Test seam, like the HTTP client's fetchFn. */
     queryFn?: QueryFn;
   }) {
     this.tenantId = args.tenantId;
+    this.quietPeriodMs = args.quietPeriodMs ?? DEFAULT_QUIET_PERIOD_MS;
     this.queryFn = args.queryFn ?? makeClickHouseQueryFn(args);
   }
 
@@ -143,15 +156,40 @@ export class ClickHouseLangWatchClient
       },
     );
 
+    const traces = await this.toSourceTraces(rows);
+
+    assertNotAllPoison(rows.length, traces.length);
+
     return {
-      traces: await this.toSourceTraces(rows),
+      traces,
       nextCursor: nextCursorOf(rows),
       scanned: rows.length,
     };
   }
 
   /** Half-open [from, to) on the trace's own start instant — CLI contract. */
-  async fetchTraces(window: SyncWindow): Promise<SourceTrace[]> {
+  async fetchTraces(requestedWindow: SyncWindow): Promise<SourceTrace[]> {
+    // Same quiet period as the continuous loop (decision 61): an in-flight
+    // trace ingested mid-build freezes a partial, immutable stamp.
+    const safe = clampWindowToQuietPeriod(requestedWindow, this.quietPeriodMs);
+
+    if (!safe) {
+      console.warn(
+        'Sync: window entirely inside the quiet period — nothing fetched ' +
+          '(decision 61: in-flight traces would freeze partial stamps).',
+      );
+
+      return [];
+    }
+
+    if (safe.clamped) {
+      console.warn(
+        `Sync: window upper bound clamped to ${safe.window.to.toISOString()} ` +
+          '(quiet period, decision 61) — re-run later to cover the rest.',
+      );
+    }
+
+    const window = safe.window;
     const rows = await this.queryFn(
       `${SUMMARY_SELECT}
   WHERE s.OccurredAt >= fromUnixTimestamp64Milli({fromMs:Int64})
@@ -165,7 +203,11 @@ export class ClickHouseLangWatchClient
       },
     );
 
-    return this.toSourceTraces(rows);
+    const traces = await this.toSourceTraces(rows);
+
+    assertNotAllPoison(rows.length, traces.length);
+
+    return traces;
   }
 
   private async toSourceTraces(rawRows: unknown[]): Promise<SourceTrace[]> {
@@ -240,12 +282,40 @@ export class ClickHouseLangWatchClient
 }
 
 /**
+ * The poison circuit breaker (decision 79): decision 62's skip-and-log is
+ * right for an ISOLATED malformed row, but a batch where EVERY row fails
+ * validation/mapping is a different animal — that is what schema drift
+ * looks like from here (the startup tripwire runs once; a LangWatch
+ * upgrade mid-run is invisible to it), and advancing the cursor over it
+ * silently loses the whole stream to rotating container logs. Below the
+ * threshold, N independent malformed rows in sequence stays plausible and
+ * the skip-and-advance behavior is preserved; at or above it, halt loudly
+ * without advancing. Also closes the sleepless-poll corner: an all-poison
+ * FULL batch used to yield nextCursor=null + caughtUp=false, re-fetching
+ * the identical batch in a tight loop.
+ */
+const POISON_BREAKER_MIN_ROWS = 10;
+
+const assertNotAllPoison = (rowCount: number, traceCount: number): void => {
+  if (rowCount >= POISON_BREAKER_MIN_ROWS && traceCount === 0) {
+    throw new Error(
+      `Sync: all ${rowCount} rows in this batch failed validation/mapping — ` +
+        'this looks like LangWatch schema drift, not isolated poison rows. ' +
+        'Halting WITHOUT advancing the cursor (the rows stay fetchable). ' +
+        'Restart the worker to re-run the schema tripwire; if the LangWatch ' +
+        'image changed, re-validate the SELECTs/mapper first (decision 59).',
+    );
+  }
+};
+
+/**
  * The cursor advances over RAW rows — a poison row moves it forward like
  * any other, so it can never stall the loop. Raw field access is guarded:
  * a row too broken to even carry (updatedAtMs, traceId) is unrepresentable
  * in the cursor and simply skipped here (the batch still advances via the
- * later well-formed rows; an all-poison batch keeps the cursor put, which
- * only re-logs the same skips next tick — safe, if noisy).
+ * later well-formed rows; an all-poison batch below the circuit-breaker
+ * threshold keeps the cursor put, which only re-logs the same skips next
+ * tick — safe, if noisy; at the threshold the breaker throws instead).
  */
 const nextCursorOf = (rawRows: unknown[]): SyncCursor | null => {
   for (let i = rawRows.length - 1; i >= 0; i -= 1) {
