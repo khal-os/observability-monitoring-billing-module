@@ -23,17 +23,61 @@ export class MongoDbSyncStateRepository implements SyncStateRepository {
     };
   }
 
+  /**
+   * The watermark NEVER moves backwards. A blind upsert would let a slow
+   * second drainer (an orphaned container after a deploy, an overlapping
+   * manual run) overwrite a newer cursor with an older one — every write
+   * is conditioned on the stored cursor being at or behind the new one,
+   * in the same (updatedAt, traceId) order the batch source drains in.
+   * A rejected write is not an error: the batch it bookmarks was already
+   * persisted, and insertIfAbsent deduplicates any re-read.
+   */
   async setTraceCursor(cursor: SyncCursor): Promise<void> {
-    await MongoDb.getCollection(SYNC_STATE_COLLECTION).updateOne(
-      { _id: TRACE_CURSOR_ID } as never,
-      {
-        $set: {
+    const collection = MongoDb.getCollection(SYNC_STATE_COLLECTION);
+
+    const fields = {
+      cursorUpdatedAt: cursor.updatedAt,
+      cursorTraceId: cursor.traceId,
+      advancedAt: new Date(),
+    };
+
+    const notAhead = {
+      $or: [
+        { cursorUpdatedAt: { $lt: cursor.updatedAt } },
+        {
           cursorUpdatedAt: cursor.updatedAt,
-          cursorTraceId: cursor.traceId,
-          advancedAt: new Date(),
+          cursorTraceId: { $lte: cursor.traceId },
         },
-      },
+      ],
+    };
+
+    const advanced = await collection.updateOne(
+      { _id: TRACE_CURSOR_ID, ...notAhead } as never,
+      { $set: fields },
+    );
+
+    if (advanced.matchedCount > 0) {
+      return;
+    }
+
+    // No match: either the stored cursor is ahead (stay put) or the
+    // document doesn't exist yet. $setOnInsert only creates — it cannot
+    // regress an existing document that appeared between the two calls.
+    const created = await collection.updateOne(
+      { _id: TRACE_CURSOR_ID } as never,
+      { $setOnInsert: fields },
       { upsert: true },
     );
+
+    if (created.upsertedCount > 0) {
+      return;
+    }
+
+    // The document was created by a racer between our two calls; it may
+    // hold an older cursor than ours. One conditional retry settles it —
+    // if this one also misses, the stored cursor is genuinely ahead.
+    await collection.updateOne({ _id: TRACE_CURSOR_ID, ...notAhead } as never, {
+      $set: fields,
+    });
   }
 }
