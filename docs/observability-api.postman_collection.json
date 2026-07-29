@@ -40,7 +40,7 @@
                 { "key": "page_size", "value": "20", "description": "Itens por página (máx. 100)." }
               ]
             },
-            "description": "Lista paginada, mais recente primeiro. Filtros combináveis (AND entre campos); os multi-valor aceitam parâmetro repetido para OR (decisão 76). Trace pendente de preço expõe `cost_brl: null` + `pricing_status: pending_price` — nunca R$ 0,00.\n\nParâmetros opcionais estão desabilitados — habilite os que quiser usar."
+            "description": "Lista paginada, mais recente primeiro. Filtros combináveis (AND entre campos); os multi-valor aceitam parâmetro repetido para OR (decisão 76). Trace pendente de preço expõe `cost_brl: null` + `pricing_status: pending_price` — nunca R$ 0,00.\n\nTotais limitados (decisão 77): com filtros a contagem para em 10.000 — `total_capped: true` e displays com sufixo \"+\" (`total_display: \"10.000+\"`). Sem filtros o total é exato.\n\nParâmetros opcionais estão desabilitados — habilite os que quiser usar."
           }
         },
         {
@@ -64,7 +64,7 @@
                 { "key": "search", "value": "{{sessionId}}", "description": "Busca exata por id de trace OU de sessão.", "disabled": true }
               ]
             },
-            "description": "Valores ARMAZENADOS por campo filtrável com contagem por opção — `{value, count}[]` em `domains`, `subdomains`, `types`, `agents` (= agent.id), `channels` (= channel.type) e `statuses` — ordenados, nulls fora.\n\nCascata com auto-exclusão: as opções do campo X honram todos os filtros EXCETO o do próprio X — um dropdown selecionado continua listando suas alternativas. Cada `count` é um \"e se\": traces que casariam com aquele valor combinado aos filtros dos OUTROS campos. Sem paginação."
+            "description": "Valores ARMAZENADOS por campo filtrável com contagem por opção — `{value, count}[]` em `domains`, `subdomains`, `types`, `agents` (= agent.id), `channels` (= channel.type) e `statuses` — ordenados, nulls fora. Servidos pelo cubo de contadores mantido na ingestão (decisão 77) — sub-segundo mesmo com milhões de traces.\n\nCascata com auto-exclusão: as opções do campo X honram todos os filtros EXCETO o do próprio X — um dropdown selecionado continua listando suas alternativas. Cada `count` é um \"e se\": traces que casariam com aquele valor combinado aos filtros dos OUTROS campos.\n\nPeríodo (from/to) arredondado PARA FORA em dias UTC inteiros neste endpoint; `search` usa o caminho live. Sem paginação."
           }
         },
         {
