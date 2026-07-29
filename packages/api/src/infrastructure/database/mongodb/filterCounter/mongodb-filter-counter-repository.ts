@@ -1,4 +1,4 @@
-import { Document } from 'mongodb';
+import { ClientSession, Document } from 'mongodb';
 import { FilterCounterDims } from '../../../../domain/models/filter-counter-model.js';
 import { MongoDb } from '../mongo-db.js';
 import { TRACES_COLLECTION } from '../trace/mongodb-trace-repository.js';
@@ -17,17 +17,22 @@ const tupleFilter = (dims: FilterCounterDims): Document => ({
 
 /**
  * Write side of the facet cube (decision 77). The trace repository calls
- * increment/applyDelta alongside its own writes; a crash between the two
- * loses at most one count — the cube is a derived cache, repaired by
- * `rebuildFromTraces` (make rebuild-filter-counters), never a source of
- * truth (invariant 3 keeps billing on the stamps, not on counters).
+ * increment/applyDelta INSIDE the same transaction as its own writes
+ * (decision 81): trace and count commit or abort together, so the old
+ * crash-between-two-writes drift (a lost increment was wrong FOREVER —
+ * retried batches see 'skipped' and never re-increment) cannot happen.
+ * `rebuildFromTraces` remains for restored deployments; billing never
+ * reads the cube (invariant 3 keeps it on the stamps).
  */
 export class MongoDbFilterCounterRepository {
-  async increment(dims: FilterCounterDims): Promise<void> {
+  async increment(
+    dims: FilterCounterDims,
+    session?: ClientSession,
+  ): Promise<void> {
     await MongoDb.getCollection(TRACE_FILTER_COUNTERS_COLLECTION).updateOne(
       tupleFilter(dims),
       { $inc: { count: 1 } },
-      { upsert: true },
+      { upsert: true, session },
     );
   }
 
@@ -35,15 +40,20 @@ export class MongoDbFilterCounterRepository {
   async applyDelta(
     before: FilterCounterDims,
     after: FilterCounterDims,
+    session?: ClientSession,
   ): Promise<void> {
     const counters = MongoDb.getCollection(TRACE_FILTER_COUNTERS_COLLECTION);
 
     // Zero-count leftovers are fine: the facet read filters count > 0.
-    await counters.updateOne(tupleFilter(before), { $inc: { count: -1 } });
+    await counters.updateOne(
+      tupleFilter(before),
+      { $inc: { count: -1 } },
+      { session },
+    );
     await counters.updateOne(
       tupleFilter(after),
       { $inc: { count: 1 } },
-      { upsert: true },
+      { upsert: true, session },
     );
   }
 

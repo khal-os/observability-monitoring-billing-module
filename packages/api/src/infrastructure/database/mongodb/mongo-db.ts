@@ -1,4 +1,4 @@
-import { MongoClient, UUID } from 'mongodb';
+import { ClientSession, MongoClient, UUID } from 'mongodb';
 import { setupMongoDbClient } from './helpers/mongodb-connection-setup.js';
 import { MongoDbEnvironmentVariables } from '../../configuration/interfaces/mongodb-environment-variables.js';
 
@@ -106,5 +106,24 @@ export class MongoDb {
 
   static generateUUID(): string {
     return new UUID().toString();
+  }
+
+  /**
+   * Multi-document transaction (decision 81) — requires the server to be
+   * a replica set (compose runs mongo as a single-node RS; the jest
+   * memory server is configured likewise). withTransaction retries
+   * transient errors and commits with majority concern; the callback must
+   * pass the session into every operation it wants inside the boundary.
+   */
+  static async withTransaction<T>(
+    fn: (session: ClientSession) => Promise<T>,
+  ): Promise<T> {
+    const session = MongoDb.getClient().startSession();
+
+    try {
+      return await session.withTransaction(fn);
+    } finally {
+      await session.endSession();
+    }
   }
 }

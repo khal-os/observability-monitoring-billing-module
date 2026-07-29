@@ -34,6 +34,9 @@ const recomputeSessionOf = async (
   }
 };
 
+const isDuplicateKey = (error: unknown): boolean =>
+  (error as { code?: number }).code === 11000;
+
 /**
  * Storage convention: OPTIONAL FIELDS ARE STORED AS NULL, never absent —
  * every document shows the full schema in the DB. The mapper names every
@@ -51,28 +54,34 @@ export class MongoDbTraceRepository implements TraceRepository {
       return 'skipped';
     }
 
-    // One trace = one document (decision 47): the write is atomic, so the
-    // old commit-marker/partial-leftover dance is gone by construction.
+    // One trace = one document (decision 47) and trace + counter commit
+    // or abort TOGETHER (decision 81): the facet cube's exactly-once
+    // counting rides the same durability as the insert — a crash can no
+    // longer land the trace without its count (which a retried batch,
+    // seeing 'skipped', would never repair).
     try {
-      await traces.insertOne({ ...trace });
+      await MongoDb.withTransaction(async (session) => {
+        await traces.insertOne({ ...trace }, { session });
+        await filterCounters().increment(toFilterCounterDims(trace), session);
+      });
     } catch (error) {
       // findOne→insertOne is check-then-act: a concurrent ingestor (the
       // worker and a manual `make sync` are a legal combination) can win
       // the race between the two calls. The unique traceId index turns
-      // that into E11000 — which is just "skipped" arriving late, same as
-      // the price repo treats it. Anything else propagates.
-      if ((error as { code?: number }).code === 11000) {
+      // that into E11000 aborting the transaction — which is just
+      // "skipped" arriving late, same as the price repo treats it.
+      // Anything else propagates.
+      if (isDuplicateKey(error)) {
         return 'skipped';
       }
 
       throw error;
     }
 
-    // Facet cube (decision 77): counted exactly once per trace — rides
-    // the insert-once guarantee above; drift heals via rebuild job.
-    await filterCounters().increment(toFilterCounterDims(trace));
-
-    // Sessions read-model (decision 80).
+    // Sessions read-model (decision 80) — deliberately OUTSIDE the
+    // transaction: recompute-on-touch is self-healing (next touch or
+    // rebuild), and keeping the transaction two writes wide keeps it
+    // fast and conflict-free.
     await recomputeSessionOf(trace.sessionId);
 
     return 'inserted';
@@ -84,72 +93,84 @@ export class MongoDbTraceRepository implements TraceRepository {
   ): Promise<void> {
     const traces = MongoDb.getCollection(TRACES_COLLECTION);
 
-    // Snapshot BEFORE the correction: agent/domain/subdomain are facet
-    // cube dimensions, so a correction must move the trace's count from
-    // its old tuple to the new one (decision 77).
-    const before = (await traces.findOne({
-      traceId,
-    })) as unknown as (TraceModel & { attributionCorrectedAt?: Date }) | null;
+    // The whole read-modify-write runs in ONE transaction (decision 81):
+    // the before-snapshot, the attribution merge, the counter delta and
+    // the unclassified recompute commit or abort together — no partial
+    // state, no counter delta applied against a torn document.
+    const sessionId = await MongoDb.withTransaction<string | null>(
+      async (session) => {
+        // Snapshot BEFORE the correction: agent/domain/subdomain are facet
+        // cube dimensions, so a correction must move the trace's count from
+        // its old tuple to the new one (decision 77).
+        const before = (await traces.findOne(
+          { traceId },
+          { session },
+        )) as unknown as (TraceModel & { attributionCorrectedAt?: Date }) | null;
 
-    // Runbook-corrected traces are off-limits to source refreshes
-    // (decision 79): the source still carries the value the correction
-    // fixed, so refreshing would silently revert it on every re-sync.
-    if (before?.attributionCorrectedAt) {
-      return;
-    }
+        // Runbook-corrected traces are off-limits to source refreshes
+        // (decision 79): the source still carries the value the correction
+        // fixed, so refreshing would silently revert it on every re-sync.
+        if (!before || before.attributionCorrectedAt) {
+          return null;
+        }
 
-    const set: Record<string, unknown> = {};
+        const set: Record<string, unknown> = {};
 
-    if (attribution.agent !== undefined) {
-      // Canonical block: version/instance always present (null when absent).
-      set['agent'] = {
-        id: attribution.agent.id,
-        version: attribution.agent.version ?? null,
-        instance: attribution.agent.instance ?? null,
-      };
-    }
+        if (attribution.agent !== undefined) {
+          // Canonical block: version/instance always present (null when absent).
+          set['agent'] = {
+            id: attribution.agent.id,
+            version: attribution.agent.version ?? null,
+            instance: attribution.agent.instance ?? null,
+          };
+        }
 
-    for (const field of ['model', 'domain', 'subdomain'] as const) {
-      if (attribution[field] !== undefined) {
-        set[field] = attribution[field];
-      }
-    }
+        for (const field of ['model', 'domain', 'subdomain'] as const) {
+          if (attribution[field] !== undefined) {
+            set[field] = attribution[field];
+          }
+        }
 
-    if (Object.keys(set).length > 0) {
-      await traces.updateOne({ traceId }, { $set: set });
-    }
+        if (Object.keys(set).length > 0) {
+          await traces.updateOne({ traceId }, { $set: set }, { session });
+        }
 
-    // The unclassified flag is derived from the MERGED document, so a
-    // stored correction is never re-flagged by a payload lacking the field
-    // and a flag is never cleared while the stored value is still absent.
-    const stored = await traces.findOne({ traceId });
+        // The unclassified flag is derived from the MERGED document, so a
+        // stored correction is never re-flagged by a payload lacking the
+        // field and a flag is never cleared while the stored value is
+        // still absent.
+        const stored = await traces.findOne({ traceId }, { session });
 
-    if (!stored) {
-      return;
-    }
+        if (!stored) {
+          return null;
+        }
 
-    if (before) {
-      const beforeDims = toFilterCounterDims(before);
-      const afterDims = toFilterCounterDims(stored as unknown as TraceModel);
+        const beforeDims = toFilterCounterDims(before);
+        const afterDims = toFilterCounterDims(stored as unknown as TraceModel);
 
-      if (JSON.stringify(beforeDims) !== JSON.stringify(afterDims)) {
-        await filterCounters().applyDelta(beforeDims, afterDims);
-      }
-    }
+        if (JSON.stringify(beforeDims) !== JSON.stringify(afterDims)) {
+          await filterCounters().applyDelta(beforeDims, afterDims, session);
+        }
 
-    const unclassified = deriveUnclassified({
-      agentId: (stored['agent'] as { id?: string } | null)?.id ?? undefined,
-      model: (stored['model'] as string | null) ?? undefined,
-    });
+        const unclassified = deriveUnclassified({
+          agentId: (stored['agent'] as { id?: string } | null)?.id ?? undefined,
+          model: (stored['model'] as string | null) ?? undefined,
+        });
 
-    await traces.updateOne(
-      { traceId },
-      { $set: { unclassified: unclassified ?? null } },
+        await traces.updateOne(
+          { traceId },
+          { $set: { unclassified: unclassified ?? null } },
+          { session },
+        );
+
+        return (stored['sessionId'] as string | null) ?? null;
+      },
     );
 
     // Attribution feeds the session's first-trace block — refresh the
-    // materialized summary (decision 80).
-    await recomputeSessionOf(stored['sessionId'] as string | null);
+    // materialized summary (decision 80); outside the transaction, same
+    // rationale as insertIfAbsent (self-healing by design).
+    await recomputeSessionOf(sessionId);
   }
 
   async stampPendingTrace(

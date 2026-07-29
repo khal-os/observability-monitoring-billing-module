@@ -31,6 +31,28 @@ services:
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_DB_USER:-}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_DB_PASSWORD:-}
+    # SINGLE-NODE REPLICA SET (decision 81): the repositories use
+    # multi-document transactions (trace + facet counter commit or abort
+    # together), and mongod only allows transactions on a replica set.
+    # Restarting an existing standalone volume with --replSet is the
+    # supported upgrade path — data is preserved; the healthcheck below
+    # initiates the set once. With auth enabled a replica set additionally
+    # REQUIRES a keyFile (internal auth): generated into the volume on
+    # first auth boot and reused from then on. Compass/mongosh from the
+    # host (dev port) must append ?directConnection=true — the advertised
+    # member host `mongo:27017` only resolves inside the project network.
+    command: >
+      bash -c '
+        if [ -n "$$MONGO_INITDB_ROOT_USERNAME" ]; then
+          if [ ! -f /data/db/replica.key ]; then
+            openssl rand -base64 756 > /data/db/replica.key;
+          fi;
+          chown mongodb:mongodb /data/db/replica.key;
+          chmod 400 /data/db/replica.key;
+          exec docker-entrypoint.sh mongod --replSet rs0 --keyFile /data/db/replica.key;
+        else
+          exec docker-entrypoint.sh mongod --replSet rs0;
+        fi'
     volumes:
       - mongo-data:/data/db
     healthcheck:
@@ -39,11 +61,15 @@ services:
       # added AFTER an auth-less first boot" state (entrypoint only creates
       # the root user on an empty volume). ${MONGO_DB_USER:+...} interpolates
       # at compose time; $$MONGO_INITDB_ROOT_* expand inside the container.
-      test: ["CMD-SHELL", "mongosh --quiet ${MONGO_DB_USER:+-u \"$$MONGO_INITDB_ROOT_USERNAME\" -p \"$$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin} --eval \"db.adminCommand('ping')\""]
+      # Also initiates the single-node replica set exactly once (member
+      # host pinned to the SERVICE name so every container in the project
+      # resolves it) and only reports healthy once this node is the
+      # writable primary — transactions need a primary, not just a ping.
+      test: ["CMD-SHELL", "mongosh --quiet ${MONGO_DB_USER:+-u \"$$MONGO_INITDB_ROOT_USERNAME\" -p \"$$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin} --eval \"try { rs.status() } catch (e) { rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'mongo:27017'}]}) }; if (!db.hello().isWritablePrimary) { quit(1) }; db.adminCommand('ping')\""]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 15s
+      start_period: 20s
     restart: unless-stopped
     deploy:
       resources:
