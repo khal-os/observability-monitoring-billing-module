@@ -159,6 +159,31 @@
       ]
     },
     {
+      "name": "Prices",
+      "description": "Tabela de preços contratados (T4) — versões imutáveis por vigência.",
+      "item": [
+        {
+          "name": "Registra versão de preço",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"openai/gpt-5-mini\",\n  \"token_type\": \"input\",\n  \"price_brl_per_million\": \"2.75\",\n  \"effective_from\": \"2026-06-01\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/prices",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "prices"]
+            },
+            "description": "Registra uma NOVA versão de preço — sempre insert, nunca update (invariante 9): duplicata de (model, token_type, effective_from) responde 409; mudança de preço é um novo effective_from.\n\n- `model`: canonicalizado para a MESMA chave `provider/id` que o carimbo consulta (decisão 82) — `gemini-2.5-pro` vira `google/gemini-2.5-pro`.\n- `token_type`: input | output | cache_read | cache_write.\n- `price_brl_per_million`: STRING decimal (até 8 casas) — dinheiro nunca é float; número JSON responde 400.\n- `effective_from`: data/datetime ISO 8601.\n\nContrato ESTRITO: campo desconhecido responde 400 (um typo nunca registra preço errado).\n\nEfeito imediato (decisão 57): traces pending_price desbloqueados pelo novo preço são carimbados na hora — o relatório (`reprocess.examined/stamped/still_pending/failed`) vem na resposta 201. Preços já aplicados NUNCA mudam (invariante 1)."
+          }
+        }
+      ]
+    },
+    {
       "name": "Docs",
       "description": "Documento OpenAPI gerado dos MESMOS schemas zod estritos que os testes de contrato usam.",
       "item": [
