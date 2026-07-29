@@ -58,6 +58,30 @@ describe('ListTraceFilterOptionsController', () => {
       expect(httpResponse.body).toEqual(new InvalidParamError('from'));
     });
 
+    it('MUST return 400 with the param name for an unknown param (strict schema)', async () => {
+      const { sut } = makeSut();
+
+      // Typo'd param (agents ≠ agent) — silently ignoring it would return
+      // counts the caller believes are filtered.
+      const httpResponse = await sut.handle({
+        query: { agents: 'agent-atendimento' },
+      });
+
+      expect(httpResponse.statusCode).toBe(400);
+      expect(httpResponse.body).toEqual(new InvalidParamError('agents'));
+    });
+
+    it('MUST return 400 on `from` for an inverted period (from > to)', async () => {
+      const { sut } = makeSut();
+
+      const httpResponse = await sut.handle({
+        query: { from: '2026-07-01', to: '2026-06-01' },
+      });
+
+      expect(httpResponse.statusCode).toBe(400);
+      expect(httpResponse.body).toEqual(new InvalidParamError('from'));
+    });
+
     it('MUST return 400 for an empty value in a multi-value filter', async () => {
       const { sut } = makeSut();
 

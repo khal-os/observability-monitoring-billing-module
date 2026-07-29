@@ -8,6 +8,8 @@ import {
 } from '../middlewares/index.js';
 
 export const setupMiddlewares = (app: Application): void => {
+  // Fingerprinting header — no reason to advertise the framework.
+  app.disable('x-powered-by');
   app.use(requestLoggerMiddleware);
   app.use(urlEncodedMiddleware);
   app.use(bodyParserMiddleware);

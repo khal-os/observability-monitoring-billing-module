@@ -1,30 +1,36 @@
 import express, { Express } from 'express';
+import { Server as HttpServer } from 'http';
 import { ServerEnvironmentVariables } from '../../configuration/interfaces/index.js';
 import { Server } from '../../interfaces/index.js';
 
 export class ExpressServer implements Server {
   app: Express;
-  field: number;
+  private httpServer?: HttpServer;
 
   constructor() {
-    const app = express();
-
-    this.app = app;
-    this.field = 0;
+    this.app = express();
   }
 
   async start(config: ServerEnvironmentVariables): Promise<void> {
     const serverPort = config.serverPort;
 
-    this.app.listen(serverPort, () => {
+    this.httpServer = this.app.listen(serverPort, () => {
       console.log(`Express: Server is running on port ${serverPort}!`);
     });
-
-    this.field = 1;
   }
 
   async stop(): Promise<void> {
-    // Implement logic to gracefully stop the server if needed
+    const httpServer = this.httpServer;
+
+    if (!httpServer) {
+      return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      httpServer.close((error) => (error ? reject(error) : resolve()));
+    });
+
+    this.httpServer = undefined;
     console.log('Express: Server stopped successfully!');
   }
 }

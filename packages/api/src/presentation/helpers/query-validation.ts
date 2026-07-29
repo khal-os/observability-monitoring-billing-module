@@ -10,6 +10,29 @@ export const paginationSchema = {
 };
 
 /**
+ * Date query params accept ONLY ISO shapes — 'YYYY-MM-DD' or a full ISO
+ * datetime (offset/local allowed). z.coerce.date() takes anything
+ * new Date() takes ("5" → 2001-05-01) and would silently filter by a
+ * bogus instant. The NaN refine catches ISO-shaped impossible dates
+ * (e.g. 2026-02-30) that survive the format check.
+ */
+export const isoDateParam = z
+  .union([z.iso.date(), z.iso.datetime({ offset: true, local: true })])
+  .transform((value) => new Date(value))
+  .refine((date) => !Number.isNaN(date.getTime()));
+
+/**
+ * Cross-field rule (checked after parse, like the pagination depth): an
+ * inverted period can never match anything — answered as a plain 400
+ * on `from`.
+ */
+export const invalidPeriod = (value: { from?: Date; to?: Date }): boolean =>
+  value.from !== undefined && value.to !== undefined && value.from > value.to;
+
+export const invalidPeriodResponse = (): HttpResponse =>
+  buildBadRequest(new InvalidParamError('from'));
+
+/**
  * Depth guard for list endpoints: the skip a page implies must stay
  * within the same 10.000-document horizon that caps the totals
  * (decision 79) — beyond it every request is an O(skip) index walk.
@@ -39,9 +62,15 @@ export const parseQuery = <Schema extends z.ZodTypeAny>(
   const parsed = schema.safeParse(query ?? {});
 
   if (!parsed.success) {
-    // First segment only: query params are flat — an issue inside a
+    const issue = parsed.error.issues[0];
+    // Strict objects report unknown params as one unrecognized_keys issue
+    // with an empty path — the offending name lives in `keys`. Otherwise,
+    // first path segment only: query params are flat — an issue inside a
     // repeated param (path ['agent', 1]) is still the param `agent`.
-    const paramName = String(parsed.error.issues[0]?.path[0] ?? '') || 'query';
+    const paramName =
+      issue?.code === 'unrecognized_keys'
+        ? (issue.keys[0] ?? 'query')
+        : String(issue?.path[0] ?? '') || 'query';
 
     return {
       ok: false,

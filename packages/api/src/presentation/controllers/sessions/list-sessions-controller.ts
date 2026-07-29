@@ -9,15 +9,20 @@ import { buildSuccess, totalPages } from '../../helpers/http-helper.js';
 import { formatIntDisplay } from '../../../common/helpers/display/display.js';
 import {
   exceedsPaginationDepth,
+  invalidPeriod,
+  invalidPeriodResponse,
+  isoDateParam,
   paginationDepthExceededResponse,
   paginationSchema,
   parseQuery,
 } from '../../helpers/query-validation.js';
 import { toSessionListItem } from './session-view-model.js';
 
-const querySchema = z.object({
-  from: z.coerce.date().optional(),
-  to: z.coerce.date().optional(),
+// Strict: an unknown param (e.g. a typo like ?agents=x) is a 400, never
+// silently ignored into an unfiltered result.
+const querySchema = z.strictObject({
+  from: isoDateParam.optional(),
+  to: isoDateParam.optional(),
   agent: z.string().min(1).optional(),
   status: z.enum(['ok', 'error']).optional(),
   ...paginationSchema,
@@ -39,6 +44,10 @@ export class ListSessionsController implements Controller {
 
     if (exceedsPaginationDepth(parsed.value)) {
       return paginationDepthExceededResponse();
+    }
+
+    if (invalidPeriod(parsed.value)) {
+      return invalidPeriodResponse();
     }
 
     const { page, page_size, agent, from, to, status } = parsed.value;

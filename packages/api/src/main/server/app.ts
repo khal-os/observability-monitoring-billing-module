@@ -1,5 +1,10 @@
 import { ExpressServer } from '../../infrastructure/index.js';
-import { setupDocs, setupMiddlewares, setupV1Routes } from './helpers/index.js';
+import {
+  setupDocs,
+  setupErrorHandling,
+  setupMiddlewares,
+  setupV1Routes,
+} from './helpers/index.js';
 
 const server = new ExpressServer();
 
@@ -8,5 +13,7 @@ const server = new ExpressServer();
 setupDocs(server.app);
 setupMiddlewares(server.app);
 setupV1Routes(server.app);
+// LAST: 404 catch-all + JSON error boundary must trail every route.
+setupErrorHandling(server.app);
 
 export { server };

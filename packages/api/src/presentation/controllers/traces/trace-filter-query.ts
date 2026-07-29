@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { TraceListFilters } from './traces-protocols.js';
+import { isoDateParam } from '../../helpers/query-validation.js';
 
 /**
  * Multi-value filters arrive as repeated query params (?agent=a&agent=b):
@@ -14,8 +15,8 @@ const stringListParam = z
 
 /** Shared by GET /traces (plus pagination) and GET /traces/filters. */
 export const traceFilterQueryShape = {
-  from: z.coerce.date().optional(),
-  to: z.coerce.date().optional(),
+  from: isoDateParam.optional(),
+  to: isoDateParam.optional(),
   agent: stringListParam,
   status: z.enum(['ok', 'error']).optional(),
   type: stringListParam,
@@ -25,7 +26,7 @@ export const traceFilterQueryShape = {
   search: z.string().min(1).optional(),
 };
 
-const traceFilterQuerySchema = z.object(traceFilterQueryShape);
+const traceFilterQuerySchema = z.strictObject(traceFilterQueryShape);
 
 export type TraceFilterQuery = z.infer<typeof traceFilterQuerySchema>;
 

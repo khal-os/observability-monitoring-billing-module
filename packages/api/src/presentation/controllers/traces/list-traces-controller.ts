@@ -8,6 +8,8 @@ import {
 import { buildSuccess, totalPages } from '../../helpers/http-helper.js';
 import {
   exceedsPaginationDepth,
+  invalidPeriod,
+  invalidPeriodResponse,
   paginationDepthExceededResponse,
   paginationSchema,
   parseQuery,
@@ -19,7 +21,9 @@ import {
   traceFilterQueryShape,
 } from './trace-filter-query.js';
 
-const querySchema = z.object({
+// Strict: an unknown param (e.g. a typo like ?agents=x) is a 400, never
+// silently ignored into an unfiltered result.
+const querySchema = z.strictObject({
   ...traceFilterQueryShape,
   ...paginationSchema,
 });
@@ -40,6 +44,10 @@ export class ListTracesController implements Controller {
 
     if (exceedsPaginationDepth(parsed.value)) {
       return paginationDepthExceededResponse();
+    }
+
+    if (invalidPeriod(parsed.value)) {
+      return invalidPeriodResponse();
     }
 
     const { page, page_size, ...filterQuery } = parsed.value;

@@ -51,6 +51,40 @@ describe('ListSessionsController', () => {
     expect(httpResponse.body).toEqual(new InvalidParamError('to'));
   });
 
+  it('MUST return 400 with the param name for an unknown param (strict schema)', async () => {
+    const { sut } = makeSut();
+
+    // Typo'd param (agents ≠ agent) — silently ignoring it would return
+    // an unfiltered list the caller believes is filtered.
+    const httpResponse = await sut.handle({
+      query: { agents: 'agent-atendimento' },
+    });
+
+    expect(httpResponse.statusCode).toBe(400);
+    expect(httpResponse.body).toEqual(new InvalidParamError('agents'));
+  });
+
+  it('MUST return 400 for a non-ISO date value that new Date() would accept', async () => {
+    const { sut } = makeSut();
+
+    // z.coerce.date() reads "5" as 2001-05-01 — only ISO shapes pass.
+    const httpResponse = await sut.handle({ query: { from: '5' } });
+
+    expect(httpResponse.statusCode).toBe(400);
+    expect(httpResponse.body).toEqual(new InvalidParamError('from'));
+  });
+
+  it('MUST return 400 on `from` for an inverted period (from > to)', async () => {
+    const { sut } = makeSut();
+
+    const httpResponse = await sut.handle({
+      query: { from: '2026-07-01', to: '2026-06-01' },
+    });
+
+    expect(httpResponse.statusCode).toBe(400);
+    expect(httpResponse.body).toEqual(new InvalidParamError('from'));
+  });
+
   it('MUST forward period/agent/status filters and pagination', async () => {
     const { sut, listSessionsStub } = makeSut();
     const listSpy = jest.spyOn(listSessionsStub, 'list');

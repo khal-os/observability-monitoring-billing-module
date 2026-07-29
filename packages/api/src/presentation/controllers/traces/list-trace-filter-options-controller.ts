@@ -7,13 +7,19 @@ import {
   TraceFilterOption,
 } from './traces-protocols.js';
 import { buildSuccess } from '../../helpers/http-helper.js';
-import { parseQuery } from '../../helpers/query-validation.js';
+import {
+  invalidPeriod,
+  invalidPeriodResponse,
+  parseQuery,
+} from '../../helpers/query-validation.js';
 import {
   toTraceListFilters,
   traceFilterQueryShape,
 } from './trace-filter-query.js';
 
-const querySchema = z.object(traceFilterQueryShape);
+// Strict: an unknown param (e.g. a typo like ?agents=x) is a 400, never
+// silently ignored into an unfiltered result.
+const querySchema = z.strictObject(traceFilterQueryShape);
 
 const toOptionViews = (options: TraceFilterOption[]) =>
   options.map(({ value, count }) => ({ value, count }));
@@ -32,6 +38,10 @@ export class ListTraceFilterOptionsController implements Controller {
 
     if (!parsed.ok) {
       return parsed.response;
+    }
+
+    if (invalidPeriod(parsed.value)) {
+      return invalidPeriodResponse();
     }
 
     const options = await this.listTraceFilterOptions.list(
