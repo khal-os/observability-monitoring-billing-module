@@ -6,7 +6,12 @@ import {
   ListTracesUseCase,
 } from './traces-protocols.js';
 import { buildSuccess, totalPages } from '../../helpers/http-helper.js';
-import { paginationSchema, parseQuery } from '../../helpers/query-validation.js';
+import {
+  exceedsPaginationDepth,
+  paginationDepthExceededResponse,
+  paginationSchema,
+  parseQuery,
+} from '../../helpers/query-validation.js';
 import { formatIntDisplay } from '../../../common/helpers/display/display.js';
 import { toTraceListItem } from './trace-view-model.js';
 import {
@@ -31,6 +36,10 @@ export class ListTracesController implements Controller {
 
     if (!parsed.ok) {
       return parsed.response;
+    }
+
+    if (exceedsPaginationDepth(parsed.value)) {
+      return paginationDepthExceededResponse();
     }
 
     const { page, page_size, ...filterQuery } = parsed.value;

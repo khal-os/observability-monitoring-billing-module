@@ -6,7 +6,11 @@ import {
   TraceFilterOptions,
 } from '../../../../domain/useCases/list-trace-filter-options-use-case.js';
 import { utcDayOf } from '../../../../domain/models/filter-counter-model.js';
-import { Paginated, Pagination } from '../../../../domain/models/pagination.js';
+import {
+  MAX_PAGINATION_SKIP,
+  Paginated,
+  Pagination,
+} from '../../../../domain/models/pagination.js';
 import { TraceModel } from '../../../../domain/models/trace-model.js';
 import { MongoDb } from '../mongo-db.js';
 import { TRACES_COLLECTION } from './mongodb-trace-repository.js';
@@ -15,8 +19,11 @@ import { TRACE_FILTER_COUNTERS_COLLECTION } from '../filterCounter/mongodb-filte
 /**
  * Exact totals on arbitrary filter combos are O(matching docs) — counting
  * stops here and displays show "10.000+" (decision 77, measured at 1M).
+ * Shared with the presentation-layer depth guard (decision 79): the pages
+ * a client can navigate to and the documents we are willing to count are
+ * the same horizon.
  */
-export const TOTAL_CAP = 10_000;
+export const TOTAL_CAP = MAX_PAGINATION_SKIP;
 
 const buildFilter = (filters: TraceListFilters): Filter<Document> => {
   const filter: Filter<Document> = {};

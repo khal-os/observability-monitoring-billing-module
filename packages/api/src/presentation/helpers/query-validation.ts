@@ -2,11 +2,27 @@ import { z } from 'zod';
 import { HttpResponse } from '../interfaces/index.js';
 import { InvalidParamError } from '../errors/index.js';
 import { buildBadRequest } from './http-helper.js';
+import { MAX_PAGINATION_SKIP } from '../../domain/models/pagination.js';
 
 export const paginationSchema = {
   page: z.coerce.number().int().min(1).default(1),
   page_size: z.coerce.number().int().min(1).max(100).default(20),
 };
+
+/**
+ * Depth guard for list endpoints: the skip a page implies must stay
+ * within the same 10.000-document horizon that caps the totals
+ * (decision 79) — beyond it every request is an O(skip) index walk.
+ * Checked after parse (it spans two fields), answered as a plain 400
+ * on `page` like any other invalid param.
+ */
+export const exceedsPaginationDepth = (value: {
+  page: number;
+  page_size: number;
+}): boolean => (value.page - 1) * value.page_size >= MAX_PAGINATION_SKIP;
+
+export const paginationDepthExceededResponse = (): HttpResponse =>
+  buildBadRequest(new InvalidParamError('page'));
 
 /**
  * Express delivers query params as strings — schemas must coerce. On

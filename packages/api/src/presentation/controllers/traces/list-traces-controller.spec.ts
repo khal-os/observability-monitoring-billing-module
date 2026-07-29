@@ -69,6 +69,40 @@ describe('ListTracesController', () => {
       expect(httpResponse.body).toEqual(new InvalidParamError('page'));
     });
 
+    it('MUST return 400 when the page implies a skip past the 10.000 horizon (decision 79)', async () => {
+      const { sut } = makeSut();
+
+      // page 501 × size 20 → skip 10.000 — the first page beyond the
+      // capped-count horizon; anything deeper is an O(skip) index walk.
+      const httpResponse = await sut.handle({
+        query: { page: '501', page_size: '20' },
+      });
+
+      expect(httpResponse.statusCode).toBe(400);
+      expect(httpResponse.body).toEqual(new InvalidParamError('page'));
+    });
+
+    it('MUST accept the last page inside the horizon', async () => {
+      const { sut } = makeSut();
+
+      const httpResponse = await sut.handle({
+        query: { page: '500', page_size: '20' },
+      });
+
+      expect(httpResponse.statusCode).toBe(200);
+    });
+
+    it('MUST return 400 for an absurd page number instead of overflowing the skip', async () => {
+      const { sut } = makeSut();
+
+      const httpResponse = await sut.handle({
+        query: { page: '1000000000000000', page_size: '100' },
+      });
+
+      expect(httpResponse.statusCode).toBe(400);
+      expect(httpResponse.body).toEqual(new InvalidParamError('page'));
+    });
+
     it('MUST return 400 for an unknown status value', async () => {
       const { sut } = makeSut();
 
