@@ -63,7 +63,7 @@ JOB = $(COMPOSE_PROD) run --rm --no-deps api node
 # form exactly when generated fixtures exist, the prod form otherwise.
 SYNC_COMPOSE = $(if $(wildcard demo-data/$(CLIENT)/*.json),$(COMPOSE_DEV),$(COMPOSE_PROD))
 
-.PHONY: help build up up-prod down logs ps migrate seed-prices sync price reprocess rebuild-filter-counters require-client
+.PHONY: help build up up-prod down logs ps migrate seed-prices sync price reprocess rebuild-filter-counters rebuild-session-summaries require-client
 
 help:
 	@grep -E '^#( |$$)' Makefile | sed 's/^# \?//'
@@ -125,3 +125,9 @@ reprocess: require-client
 # one-time after restoring pre-existing data; anytime to repair drift.
 rebuild-filter-counters: require-client
 	$(JOB) dist/main/jobs/rebuild-filter-counters.js
+
+# Recompute the sessions read-model (decision 80) from the traces
+# collection — one-time after restoring pre-existing data; ingestion
+# maintains it by recompute-on-touch from then on.
+rebuild-session-summaries: require-client
+	$(JOB) dist/main/jobs/rebuild-session-summaries.js

@@ -8,6 +8,7 @@ import { seedPocPrices } from '../../../../../infrastructure/database/mongodb/pr
 import { PRICE_VERSIONS_COLLECTION } from '../../../../../infrastructure/database/mongodb/priceVersion/mongodb-price-version-repository.js';
 import { TRACES_COLLECTION } from '../../../../../infrastructure/database/mongodb/trace/mongodb-trace-repository.js';
 import { TRACE_FILTER_COUNTERS_COLLECTION } from '../../../../../infrastructure/database/mongodb/filterCounter/mongodb-filter-counter-repository.js';
+import { SESSION_SUMMARIES_COLLECTION } from '../../../../../infrastructure/database/mongodb/session/mongodb-session-summary-repository.js';
 import { makeSyncTracesUseCase } from '../../../../factories/sync-factory.js';
 import { StampedTokenCost } from '../../../../../domain/models/trace-model.js';
 
@@ -41,6 +42,7 @@ export const routeDbHarness = {
     for (const collection of [
       TRACES_COLLECTION,
       TRACE_FILTER_COUNTERS_COLLECTION,
+      SESSION_SUMMARIES_COLLECTION,
       PRICE_VERSIONS_COLLECTION,
       MIGRATIONS_COLLECTION,
     ]) {

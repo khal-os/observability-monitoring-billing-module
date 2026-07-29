@@ -11,75 +11,22 @@ import {
 import { TraceModel } from '../../../../domain/models/trace-model.js';
 import { MongoDb } from '../mongo-db.js';
 import { TRACES_COLLECTION } from '../trace/mongodb-trace-repository.js';
+import { sessionSummaryStages } from './session-summary-pipeline.js';
+import { SESSION_SUMMARIES_COLLECTION } from './mongodb-session-summary-repository.js';
 
 /**
- * Sessions are a DERIVED read-model (T11): GROUP BY sessionId over stored
- * traces, computed at read time. Aggregates close by construction — the
- * session cost is the exact sum of member stamped costs, no parallel path.
+ * Sessions are a DERIVED read-model (T11), now MATERIALIZED (decision
+ * 80): the list reads `session_summaries` — one small document per
+ * session, maintained by recompute-on-touch at ingestion and rebuildable
+ * from the traces — through plain indexed finds (migration 014). The
+ * money shown per session stays the exact sum of member stamped costs by
+ * construction: the summary is always produced by the SAME pipeline the
+ * live detail read uses, over the traces themselves.
  *
- * 1M-scale shape (decision 79): the old pipeline blocking-sorted the whole
- * collection ascending before grouping — a direction no index serves
- * (migration 013's {startedAt: -1, traceId: 1} reversed flips BOTH keys),
- * so at 1M docs it exceeded the 100 MB stage limit and the endpoint 500'd.
- * The $top accumulator picks the earliest trace's fields with the same
- * (startedAt, traceId) tiebreak WITHOUT any pre-sort; allowDiskUse backs
- * the group/sort as the collection grows; totals are capped like the
- * traces list. A materialized sessions collection remains the real
- * follow-up — this keeps the derived pipeline alive until then.
+ * The detail read stays LIVE-derived: it is one indexed per-session
+ * aggregation, and the money-bearing drill-down should never be one
+ * staleness window away from the store.
  */
-const summaryGroupStage: Document = {
-  $group: {
-    _id: '$sessionId',
-    traceCount: { $sum: 1 },
-    errorCount: {
-      $sum: { $cond: [{ $eq: ['$status', 'error'] }, 1, 0] },
-    },
-    totalDurationMs: { $sum: '$durationMs' },
-    tokensInput: { $sum: { $ifNull: ['$tokens.input', 0] } },
-    tokensOutput: { $sum: { $ifNull: ['$tokens.output', 0] } },
-    tokensCacheRead: { $sum: { $ifNull: ['$tokens.cache_read', 0] } },
-    tokensCacheWrite: { $sum: { $ifNull: ['$tokens.cache_write', 0] } },
-    // Sum of STAMPED costs only. Pending traces contribute nothing here
-    // and are surfaced through pendingPriceCount — never as R$ 0.
-    stampedCostMicrocents: { $sum: { $ifNull: ['$totalCostMicrocents', 0] } },
-    pendingPriceCount: {
-      $sum: {
-        $cond: [{ $eq: ['$pricingStatus', 'pending_price'] }, 1, 0],
-      },
-    },
-    // Earliest trace's fields, deterministic tiebreak — replaces the old
-    // whole-collection pre-sort (same semantics, no blocking stage).
-    first: {
-      $top: {
-        sortBy: { startedAt: 1, traceId: 1 },
-        output: {
-          startedAt: '$startedAt',
-          agent: '$agent',
-          userId: '$userId',
-          domain: '$domain',
-          subdomain: '$subdomain',
-        },
-      },
-    },
-    lastActivityAt: { $max: '$finishedAt' },
-  },
-};
-
-const unpackStage: Document = {
-  $addFields: {
-    sessionId: '$_id',
-    startedAt: '$first.startedAt',
-    agent: '$first.agent',
-    userId: '$first.userId',
-    domain: '$first.domain',
-    subdomain: '$first.subdomain',
-    status: { $cond: [{ $gt: ['$errorCount', 0] }, 'error', 'ok'] },
-  },
-};
-
-// Traces without sessionId belong to no conversation: /traces shows them,
-// /sessions never does.
-const sessionOnlyMatch: Document = { sessionId: { $type: 'string' } };
 
 /**
  * A session-detail chain has no product-defined bound, and each trace
@@ -110,10 +57,11 @@ const toSummary = (document: Document): SessionSummaryModel => ({
   lastActivityAt: document.lastActivityAt,
 });
 
-const buildSessionLevelMatch = (filters: SessionListFilters): Document => {
+const buildSessionMatch = (filters: SessionListFilters): Document => {
   const match: Document = {};
 
-  // QA17: period filter anchors on the session's START time.
+  // QA17: period filter anchors on the session's START time — a
+  // materialized field here, so the filter is a plain indexed range.
   if (filters.from || filters.to) {
     match['startedAt'] = {
       ...(filters.from ? { $gte: filters.from } : {}),
@@ -132,68 +80,24 @@ export class MongoDbSessionQueryRepository implements SessionQueryRepository {
     filters: SessionListFilters,
     pagination: Pagination,
   ): Promise<Paginated<SessionSummaryModel>> {
-    const traces = MongoDb.getCollection(TRACES_COLLECTION);
+    const summaries = MongoDb.getCollection(SESSION_SUMMARIES_COLLECTION);
+    const filter = buildSessionMatch(filters);
 
-    // Two-phase narrowing for period filters: a session whose TRUE start
-    // is in-window necessarily has at least one trace in-window, so the
-    // candidate set "sessions ACTIVE in the window" (an indexed startedAt
-    // range scan) is a correct superset. Phase 2 groups ONLY those
-    // sessions' traces — with COMPLETE sums, since $in selects whole
-    // sessions — and the post-group match applies the exact QA17 window,
-    // discarding candidates that merely continued into it. No trace-level
-    // window filter is sound on its own: it would truncate sums and
-    // misdate sessions that started before the window.
-    let candidateMatch: Document = sessionOnlyMatch;
+    const [items, rawTotal] = await Promise.all([
+      summaries
+        .find(filter)
+        .sort({ startedAt: -1, sessionId: 1 })
+        .skip((pagination.page - 1) * pagination.pageSize)
+        .limit(pagination.pageSize)
+        .toArray(),
+      // Capped counting, same horizon as traces (decision 77/79).
+      summaries.countDocuments(filter, { limit: MAX_PAGINATION_SKIP + 1 }),
+    ]);
 
-    if (filters.from || filters.to) {
-      const windowRange = {
-        ...(filters.from ? { $gte: filters.from } : {}),
-        ...(filters.to ? { $lt: filters.to } : {}),
-      };
-      const candidates = await traces
-        .aggregate(
-          [
-            { $match: { ...sessionOnlyMatch, startedAt: windowRange } },
-            { $group: { _id: '$sessionId' } },
-          ],
-          { allowDiskUse: true },
-        )
-        .toArray();
-
-      candidateMatch = {
-        sessionId: { $in: candidates.map((document) => document._id) },
-      };
-    }
-
-    const [result] = await traces
-      .aggregate(
-        [
-          { $match: candidateMatch },
-          summaryGroupStage,
-          unpackStage,
-          { $match: buildSessionLevelMatch(filters) },
-          { $sort: { startedAt: -1, sessionId: 1 } },
-          {
-            $facet: {
-              items: [
-                { $skip: (pagination.page - 1) * pagination.pageSize },
-                { $limit: pagination.pageSize },
-              ],
-              // Capped counting, same horizon as traces (decision 77/79):
-              // exact totals over the grouped set are O(sessions).
-              total: [{ $limit: MAX_PAGINATION_SKIP + 1 }, { $count: 'count' }],
-            },
-          },
-        ],
-        { allowDiskUse: true },
-      )
-      .toArray();
-
-    const rawTotal = result?.total[0]?.count ?? 0;
     const totalCapped = rawTotal > MAX_PAGINATION_SKIP;
 
     return {
-      items: (result?.items ?? []).map(toSummary),
+      items: items.map(toSummary),
       page: pagination.page,
       pageSize: pagination.pageSize,
       total: totalCapped ? MAX_PAGINATION_SKIP : rawTotal,
@@ -203,7 +107,7 @@ export class MongoDbSessionQueryRepository implements SessionQueryRepository {
 
   async findSessionDetail(sessionId: string): Promise<SessionDetail | null> {
     const [summaryDocument] = await MongoDb.getCollection(TRACES_COLLECTION)
-      .aggregate([{ $match: { sessionId } }, summaryGroupStage, unpackStage])
+      .aggregate([{ $match: { sessionId } }, ...sessionSummaryStages])
       .toArray();
 
     if (!summaryDocument) {

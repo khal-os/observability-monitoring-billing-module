@@ -9,6 +9,7 @@ import { toFilterCounterDims } from '../../../../domain/models/filter-counter-mo
 import { deriveUnclassified } from '../../../../application/useCases/syncTraces/trace-mapper.js';
 import { MongoDb } from '../mongo-db.js';
 import { MongoDbFilterCounterRepository } from '../filterCounter/mongodb-filter-counter-repository.js';
+import { MongoDbSessionSummaryRepository } from '../session/mongodb-session-summary-repository.js';
 
 export const TRACES_COLLECTION = 'traces';
 
@@ -17,6 +18,21 @@ export const TRACES_COLLECTION = 'traces';
 let filterCountersInstance: MongoDbFilterCounterRepository | undefined;
 const filterCounters = () =>
   (filterCountersInstance ??= new MongoDbFilterCounterRepository());
+
+// Same lazy pattern for the materialized sessions read-model (decision
+// 80): every write that touches a session re-derives that session's
+// summary — exact by construction, self-healing on the next touch.
+let sessionSummariesInstance: MongoDbSessionSummaryRepository | undefined;
+const sessionSummaries = () =>
+  (sessionSummariesInstance ??= new MongoDbSessionSummaryRepository());
+
+const recomputeSessionOf = async (
+  sessionId: string | undefined | null,
+): Promise<void> => {
+  if (typeof sessionId === 'string') {
+    await sessionSummaries().recompute(sessionId);
+  }
+};
 
 /**
  * Storage convention: OPTIONAL FIELDS ARE STORED AS NULL, never absent —
@@ -55,6 +71,9 @@ export class MongoDbTraceRepository implements TraceRepository {
     // Facet cube (decision 77): counted exactly once per trace — rides
     // the insert-once guarantee above; drift heals via rebuild job.
     await filterCounters().increment(toFilterCounterDims(trace));
+
+    // Sessions read-model (decision 80).
+    await recomputeSessionOf(trace.sessionId);
 
     return 'inserted';
   }
@@ -127,6 +146,10 @@ export class MongoDbTraceRepository implements TraceRepository {
       { traceId },
       { $set: { unclassified: unclassified ?? null } },
     );
+
+    // Attribution feeds the session's first-trace block — refresh the
+    // materialized summary (decision 80).
+    await recomputeSessionOf(stored['sessionId'] as string | null);
   }
 
   async stampPendingTrace(
@@ -148,7 +171,20 @@ export class MongoDbTraceRepository implements TraceRepository {
       },
     );
 
-    return result.matchedCount > 0 ? 'stamped' : 'skipped';
+    if (result.matchedCount === 0) {
+      return 'skipped';
+    }
+
+    // The stamp moved this session's cost/pending totals — refresh the
+    // materialized summary (decision 80).
+    const stamped = await MongoDb.getCollection(TRACES_COLLECTION).findOne(
+      { traceId },
+      { projection: { _id: 0, sessionId: 1 } },
+    );
+
+    await recomputeSessionOf(stamped?.['sessionId'] as string | null);
+
+    return 'stamped';
   }
 
   async findPendingPrice(): Promise<PendingPriceTrace[]> {

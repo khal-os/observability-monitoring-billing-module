@@ -3,6 +3,7 @@ import { priceVersionIndexes } from './001-price-version-indexes.js';
 import { traceIndexes } from './003-trace-indexes.js';
 import { traceFilterIndexes } from './012-trace-filter-indexes.js';
 import { sortAlignedTraceIndexes } from './013-sort-aligned-trace-indexes.js';
+import { sessionSummaryIndexes } from './014-session-summary-indexes.js';
 
 /**
  * Ordered list — the runner applies each exactly once, in this order.
@@ -18,4 +19,5 @@ export const migrations: Migration[] = [
   traceIndexes,
   traceFilterIndexes,
   sortAlignedTraceIndexes,
+  sessionSummaryIndexes,
 ];

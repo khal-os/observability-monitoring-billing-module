@@ -11,6 +11,7 @@ import {
   seedPocPrices,
 } from '../../infrastructure/database/mongodb/priceVersion/poc-price-seed.js';
 import { MongoDbFilterCounterRepository } from '../../infrastructure/database/mongodb/filterCounter/mongodb-filter-counter-repository.js';
+import { MongoDbSessionSummaryRepository } from '../../infrastructure/database/mongodb/session/mongodb-session-summary-repository.js';
 
 /**
  * THE storage seam: the only place (besides this factory file) that names a
@@ -36,6 +37,13 @@ export const makeFilterCounterRebuild = (): {
   run: () => Promise<number>;
 } => ({
   run: () => new MongoDbFilterCounterRepository().rebuildFromTraces(),
+});
+
+/** Sessions read-model rebuild (decision 80) — see main/jobs/rebuild-session-summaries.ts. */
+export const makeSessionSummaryRebuild = (): {
+  run: () => Promise<void>;
+} => ({
+  run: () => new MongoDbSessionSummaryRepository().rebuildFromTraces(),
 });
 
 /** DEV-ONLY PoC price seeder (decision 74) — see main/jobs/seed-poc-prices.ts. */
