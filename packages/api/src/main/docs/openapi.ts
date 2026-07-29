@@ -38,6 +38,17 @@ const queryParam = (
   required = false,
 ) => ({ name, in: 'query', description, required, schema });
 
+/** Multi-value filter: repeat the param for OR (?agent=a&agent=b). */
+const listQueryParam = (name: string, description: string) => ({
+  name,
+  in: 'query',
+  description,
+  required: false,
+  schema: { type: 'array', items: { type: 'string' } },
+  style: 'form',
+  explode: true,
+});
+
 const pathParam = (name: string, description: string) => ({
   name,
   in: 'path',
@@ -67,6 +78,31 @@ const periodParams = [
   }),
 ];
 
+const traceFilterParams = [
+  ...periodParams,
+  listQueryParam('agent', 'Ids de agente (repita o parâmetro para OR).'),
+  queryParam('status', 'Status de execução.', {
+    type: 'string',
+    enum: ['ok', 'error'],
+  }),
+  listQueryParam('type', 'Tipos de trace (repita o parâmetro para OR).'),
+  listQueryParam(
+    'channel',
+    'Tipos de canal (whatsapp/web/...; repita o parâmetro para OR).',
+  ),
+  listQueryParam(
+    'domain',
+    'Domínios (match exato; repita o parâmetro para OR).',
+  ),
+  listQueryParam(
+    'subdomain',
+    'Subdomínios (match exato; repita o parâmetro para OR).',
+  ),
+  queryParam('search', 'Busca exata por id de trace OU de sessão.', {
+    type: 'string',
+  }),
+];
+
 export const buildOpenApiDocument = (clientName?: string) => ({
   openapi: '3.1.0',
   info: {
@@ -92,26 +128,7 @@ export const buildOpenApiDocument = (clientName?: string) => ({
       get: {
         tags: ['Traces'],
         summary: 'Lista traces (recente primeiro)',
-        parameters: [
-          ...periodParams,
-          queryParam('agent', 'Filtra pelo id do agente.', { type: 'string' }),
-          queryParam('status', 'Status de execução.', {
-            type: 'string',
-            enum: ['ok', 'error'],
-          }),
-          queryParam('type', 'Tipo do trace.', { type: 'string' }),
-          queryParam('channel', 'Tipo do canal (whatsapp/web/...).', {
-            type: 'string',
-          }),
-          queryParam('domain', 'Domínio (match exato).', { type: 'string' }),
-          queryParam('subdomain', 'Subdomínio (match exato).', {
-            type: 'string',
-          }),
-          queryParam('search', 'Busca exata por id de trace OU de sessão.', {
-            type: 'string',
-          }),
-          ...paginationParams,
-        ],
+        parameters: [...traceFilterParams, ...paginationParams],
         responses: {
           '200': okResponse('Página de traces.', traceListResponseSchema),
           '400': errorResponse('Parâmetro de consulta inválido.'),

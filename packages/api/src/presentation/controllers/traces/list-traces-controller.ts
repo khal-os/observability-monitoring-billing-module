@@ -8,17 +8,13 @@ import {
 import { buildSuccess, totalPages } from '../../helpers/http-helper.js';
 import { paginationSchema, parseQuery } from '../../helpers/query-validation.js';
 import { toTraceListItem } from './trace-view-model.js';
+import {
+  toTraceListFilters,
+  traceFilterQueryShape,
+} from './trace-filter-query.js';
 
 const querySchema = z.object({
-  from: z.coerce.date().optional(),
-  to: z.coerce.date().optional(),
-  agent: z.string().min(1).optional(),
-  status: z.enum(['ok', 'error']).optional(),
-  type: z.string().min(1).optional(),
-  channel: z.string().min(1).optional(),
-  domain: z.string().min(1).optional(),
-  subdomain: z.string().min(1).optional(),
-  search: z.string().min(1).optional(),
+  ...traceFilterQueryShape,
   ...paginationSchema,
 });
 
@@ -36,22 +32,12 @@ export class ListTracesController implements Controller {
       return parsed.response;
     }
 
-    const { page, page_size, agent, ...filters } = parsed.value;
+    const { page, page_size, ...filterQuery } = parsed.value;
 
-    const result = await this.listTraces.list(
-      {
-        from: filters.from,
-        to: filters.to,
-        agentId: agent,
-        status: filters.status,
-        type: filters.type,
-        channel: filters.channel,
-        domain: filters.domain,
-        subdomain: filters.subdomain,
-        search: filters.search,
-      },
-      { page, pageSize: page_size },
-    );
+    const result = await this.listTraces.list(toTraceListFilters(filterQuery), {
+      page,
+      pageSize: page_size,
+    });
 
     const now = new Date();
 

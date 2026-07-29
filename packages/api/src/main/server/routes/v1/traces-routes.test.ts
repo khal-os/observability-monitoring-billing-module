@@ -67,6 +67,23 @@ describe('Traces Routes', () => {
       expect(byChannel.body.total).toBe(3);
     });
 
+    it('MUST OR repeated values of one param and AND across params (decision 76)', async () => {
+      const byDomains = await request(app)
+        .get('/api/v1/traces?domain=varejo&domain=suporte')
+        .expect(200);
+      expect(byDomains.body.total).toBe(7);
+
+      const combined = await request(app)
+        .get('/api/v1/traces?domain=varejo&domain=suporte&channel=web')
+        .expect(200);
+      expect(combined.body.total).toBe(3);
+
+      const byAgents = await request(app)
+        .get('/api/v1/traces?agent=agent-cobranca&agent=agent-suporte')
+        .expect(200);
+      expect(byAgents.body.total).toBe(4);
+    });
+
     it('MUST paginate on the server', async () => {
       const response = await request(app)
         .get('/api/v1/traces?page=2&page_size=4')
@@ -80,6 +97,7 @@ describe('Traces Routes', () => {
     it('MUST answer 400 (not 500) for invalid query params', async () => {
       await request(app).get('/api/v1/traces?from=banana').expect(400);
       await request(app).get('/api/v1/traces?page_size=9999').expect(400);
+      await request(app).get('/api/v1/traces?agent=a&agent=').expect(400);
     });
   });
 

@@ -1,18 +1,22 @@
 import { ExecutionStatus, TraceModel } from '../models/trace-model.js';
 import { Paginated, Pagination } from '../models/pagination.js';
 
+/**
+ * List fields are OR within themselves and AND across fields — they come
+ * from repeated query params (?agent=a&agent=b), decision 76.
+ */
 export interface TraceListFilters {
   /** Inclusive start of the period filter. */
   from?: Date;
   /** Exclusive end of the period filter. */
   to?: Date;
-  agentId?: string;
+  agentIds?: string[];
   status?: ExecutionStatus;
-  type?: string;
+  types?: string[];
   /** Matches the channel TYPE (whatsapp/web/...). */
-  channel?: string;
-  domain?: string;
-  subdomain?: string;
+  channels?: string[];
+  domains?: string[];
+  subdomains?: string[];
   /** Exact match on trace id OR session id. */
   search?: string;
 }

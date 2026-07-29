@@ -77,6 +77,20 @@ describe('ListTracesController', () => {
       expect(httpResponse.statusCode).toBe(400);
       expect(httpResponse.body).toEqual(new InvalidParamError('status'));
     });
+
+    it('MUST return 400 for an empty value in a multi-value filter', async () => {
+      const { sut } = makeSut();
+
+      const emptySingle = await sut.handle({ query: { agent: '' } });
+      const emptyItem = await sut.handle({
+        query: { agent: ['agent-a', ''] },
+      });
+
+      expect(emptySingle.statusCode).toBe(400);
+      expect(emptySingle.body).toEqual(new InvalidParamError('agent'));
+      expect(emptyItem.statusCode).toBe(400);
+      expect(emptyItem.body).toEqual(new InvalidParamError('agent'));
+    });
   });
 
   describe('Filter mapping', () => {
@@ -100,14 +114,32 @@ describe('ListTracesController', () => {
         {
           from: new Date('2026-06-01'),
           to: new Date('2026-07-01'),
-          agentId: 'agent-atendimento',
+          agentIds: ['agent-atendimento'],
           status: 'ok',
-          type: undefined,
-          domain: undefined,
-          subdomain: undefined,
+          types: undefined,
+          channels: undefined,
+          domains: undefined,
+          subdomains: undefined,
           search: 'sess-001',
         },
         { page: 2, pageSize: 10 },
+      );
+    });
+
+    it('MUST accept repeated params as OR lists (decision 76)', async () => {
+      const { sut, listTracesStub } = makeSut();
+      const listSpy = jest.spyOn(listTracesStub, 'list');
+
+      await sut.handle({
+        query: { agent: ['agent-a', 'agent-b'], domain: 'varejo' },
+      });
+
+      expect(listSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentIds: ['agent-a', 'agent-b'],
+          domains: ['varejo'],
+        }),
+        expect.anything(),
       );
     });
 

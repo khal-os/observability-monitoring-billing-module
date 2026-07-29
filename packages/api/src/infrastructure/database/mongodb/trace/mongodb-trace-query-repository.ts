@@ -16,12 +16,12 @@ const buildFilter = (filters: TraceListFilters): Filter<Document> => {
     };
   }
 
-  if (filters.agentId) filter['agent.id'] = filters.agentId;
+  if (filters.agentIds) filter['agent.id'] = { $in: filters.agentIds };
   if (filters.status) filter['status'] = filters.status;
-  if (filters.type) filter['type'] = filters.type;
-  if (filters.channel) filter['channel.type'] = filters.channel;
-  if (filters.domain) filter['domain'] = filters.domain;
-  if (filters.subdomain) filter['subdomain'] = filters.subdomain;
+  if (filters.types) filter['type'] = { $in: filters.types };
+  if (filters.channels) filter['channel.type'] = { $in: filters.channels };
+  if (filters.domains) filter['domain'] = { $in: filters.domains };
+  if (filters.subdomains) filter['subdomain'] = { $in: filters.subdomains };
 
   if (filters.search) {
     filter['$or'] = [

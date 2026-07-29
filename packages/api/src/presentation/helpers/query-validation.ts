@@ -23,7 +23,9 @@ export const parseQuery = <Schema extends z.ZodTypeAny>(
   const parsed = schema.safeParse(query ?? {});
 
   if (!parsed.success) {
-    const paramName = parsed.error.issues[0]?.path.join('.') || 'query';
+    // First segment only: query params are flat — an issue inside a
+    // repeated param (path ['agent', 1]) is still the param `agent`.
+    const paramName = String(parsed.error.issues[0]?.path[0] ?? '') || 'query';
 
     return {
       ok: false,
