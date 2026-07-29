@@ -49,6 +49,7 @@ describe('API Docs (OpenAPI)', () => {
       expect(Object.keys(response.body.paths).sort()).toEqual([
         '/api/v1/billing/summary',
         '/api/v1/bills',
+        '/api/v1/prices',
         '/api/v1/sessions',
         '/api/v1/sessions/filters',
         '/api/v1/sessions/{id}',

@@ -10,8 +10,18 @@ export const buildSuccess = (data: unknown): HttpResponse => ({
   body: data,
 });
 
+export const buildCreated = (data: unknown): HttpResponse => ({
+  statusCode: 201,
+  body: data,
+});
+
 export const buildNotFound = (error: Error): HttpResponse => ({
   statusCode: 404,
+  body: error,
+});
+
+export const buildConflict = (error: Error): HttpResponse => ({
+  statusCode: 409,
   body: error,
 });
 

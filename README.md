@@ -92,7 +92,9 @@ backfills, price registration, and lifecycle:
 ```bash
 make sync CLIENT=<name> FROM=2026-07-01 TO=2026-07-22   # manual backfill (idempotent windows)
 make price CLIENT=<name> ARGS='--model ... --token-type ... --price-brl ... --effective-from ...'
-make reprocess CLIENT=<name>   # re-stamp pending traces now (price:insert and the worker also do this)
+# ...or over HTTP (same single path — canonical model key + immediate reprocess):
+#   POST /api/v1/prices  {"model","token_type","price_brl_per_million","effective_from"}
+make reprocess CLIENT=<name>   # re-stamp pending traces now (price registration and the worker also do this)
 make logs CLIENT=<name>
 make up CLIENT=<name>          # re-apply the stack (dev form)
 make up-prod CLIENT=<name>     # production form

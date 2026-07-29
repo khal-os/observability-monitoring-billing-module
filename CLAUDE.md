@@ -47,9 +47,11 @@ content) → live views (traces/sessions) + monthly aggregates (billing).
    is not.** Corrections re-aggregate, never re-price.
 8. **Billing period = calendar month.** Current month is always partial and
    must be labeled so. Month close/snapshot (T6) is OUT of PoC scope.
-9. **Prices are versioned data, maintained by direct DB inserts** (no admin
-   UI in v1). Versions are immutable — changes are new inserts with
-   `effective_from`; the model list is data, not code.
+9. **Prices are versioned data** (no admin UI in v1), registered via
+   `POST /api/v1/prices` or the `price:insert` runbook job — both share ONE
+   use case (canonical model key + immediate reprocess, decisions 82/57/83).
+   Versions are immutable — changes are new inserts with `effective_from`;
+   duplicates answer 409; the model list is data, not code.
 10. **Text-only agents** in v1; every trace carries a `channel` field so voice
     can arrive later without a migration.
 

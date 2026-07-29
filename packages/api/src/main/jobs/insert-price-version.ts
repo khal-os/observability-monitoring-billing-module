@@ -1,13 +1,12 @@
 import { parseArgs } from 'node:util';
 import { makeDatabase } from '../factories/database-factory.js';
-import { makePriceVersionRepository } from '../factories/price-factory.js';
-import { makeReprocessPendingUseCase } from '../factories/sync-factory.js';
+import { makeRegisterPriceVersionUseCase } from '../factories/price-factory.js';
 import {
   TOKEN_TYPES,
   TokenType,
 } from '../../domain/models/price-version-model.js';
 import { brlToMicrocents } from '../../common/helpers/money/money.js';
-import { DuplicatePriceVersionError } from '../../application/errors/duplicate-price-version-error.js';
+import { DuplicatePriceVersionError } from '../../domain/errors/duplicate-price-version-error.js';
 
 /**
  * T4 runbook (v1 has no admin UI): registers a NEW price version — always
@@ -61,9 +60,9 @@ const database = makeDatabase();
 await database.connect();
 
 try {
-  const repository = makePriceVersionRepository();
-
-  await repository.insertVersion({
+  // Same single path as POST /prices (canonical model key + immediate
+  // reprocess, decisions 82/57) — the two doors cannot diverge.
+  const registered = await makeRegisterPriceVersionUseCase().register({
     model,
     tokenType,
     priceMicrocentsPerMillion: brlToMicrocents(priceBrl),
@@ -76,12 +75,8 @@ try {
   });
 
   console.log(
-    `Price version registered: ${model} ${tokenType} R$ ${priceBrl}/million effective from ${effectiveFrom.toISOString()}.`,
+    `Price version registered: ${registered.model} ${tokenType} R$ ${priceBrl}/million effective from ${effectiveFrom.toISOString()}.`,
   );
-
-  // Decision 57: a new price immediately re-stamps whatever it unblocks —
-  // no waiting for the worker's periodic sweep (which stays as backstop).
-  await makeReprocessPendingUseCase().reprocess();
 } catch (error) {
   if (error instanceof DuplicatePriceVersionError) {
     console.error(error.message);

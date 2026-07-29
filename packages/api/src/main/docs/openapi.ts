@@ -14,6 +14,10 @@ import {
   billListResponseSchema,
   billingSummaryResponseSchema,
 } from '../../presentation/controllers/billing/billing-view-schemas.js';
+import {
+  registerPriceVersionRequestSchema,
+  registerPriceVersionResponseSchema,
+} from '../../presentation/controllers/prices/price-view-schemas.js';
 
 /**
  * The OpenAPI document is GENERATED from the presentation-layer response
@@ -22,6 +26,10 @@ import {
  * validation and code share one source of truth; drift fails the suite.
  */
 const toSchema = (schema: z.ZodType) => z.toJSONSchema(schema);
+
+/** Request bodies document the INPUT side (transforms parse at the edge). */
+const toRequestSchema = (schema: z.ZodType) =>
+  z.toJSONSchema(schema, { io: 'input' });
 
 const errorResponse = (description: string) => ({
   description,
@@ -137,6 +145,7 @@ export const buildOpenApiDocument = (clientName?: string) => ({
     { name: 'Traces', description: 'Execuções reais por trás dos números.' },
     { name: 'Sessions', description: 'Conversas: traces agrupados por sessão (read-model derivado).' },
     { name: 'Billing', description: 'Agregados mensais — soma dos custos carimbados, por construção.' },
+    { name: 'Prices', description: 'Tabela de preços contratados (T4) — versões imutáveis por vigência.' },
   ],
   paths: {
     '/api/v1/traces': {
@@ -282,6 +291,41 @@ export const buildOpenApiDocument = (clientName?: string) => ({
         responses: {
           '200': okResponse('Resumo do mês.', billingSummaryResponseSchema),
           '400': errorResponse('Ano/mês ausentes ou malformados.'),
+          '500': errorResponse('Erro interno.'),
+        },
+      },
+    },
+    '/api/v1/prices': {
+      post: {
+        tags: ['Prices'],
+        summary: 'Registra uma NOVA versão de preço (nunca um update)',
+        description:
+          'Versões são imutáveis (invariante 9): mudança de preço é um novo ' +
+          'insert com novo effective_from — duplicata de (model, token_type, ' +
+          'effective_from) responde 409. O modelo é canonicalizado para a ' +
+          'MESMA chave `provider/id` que o carimbo consulta (decisão 82). ' +
+          'Valor em STRING decimal (dinheiro nunca é float). Efeito ' +
+          'imediato (decisão 57): traces pending_price desbloqueados pelo ' +
+          'novo preço são carimbados na hora — o relatório vem na resposta. ' +
+          'Preços já aplicados NUNCA mudam (invariante 1): a nova versão só ' +
+          'vale para carimbos futuros.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: toRequestSchema(registerPriceVersionRequestSchema),
+            },
+          },
+        },
+        responses: {
+          '201': okResponse(
+            'Versão registrada + relatório do reprocess imediato.',
+            registerPriceVersionResponseSchema,
+          ),
+          '400': errorResponse('Corpo inválido (campo ausente, malformado ou desconhecido).'),
+          '409': errorResponse(
+            'Versão já existe para (model, token_type, effective_from) — registre um novo effective_from.',
+          ),
           '500': errorResponse('Erro interno.'),
         },
       },

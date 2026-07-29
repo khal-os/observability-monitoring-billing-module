@@ -2,7 +2,7 @@ import {
   EffectivePrices,
   PriceVersionRepository,
 } from '../../../../application/interfaces/price-version-repository.js';
-import { DuplicatePriceVersionError } from '../../../../application/errors/duplicate-price-version-error.js';
+import { DuplicatePriceVersionError } from '../../../../domain/errors/duplicate-price-version-error.js';
 import {
   PriceVersionModel,
   TokenType,
