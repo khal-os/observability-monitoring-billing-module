@@ -61,7 +61,18 @@ export const traceListItemSchema = z.strictObject({
   age_display: z.string(),
 });
 
-export const traceListResponseSchema = paginatedSchema(traceListItemSchema);
+/**
+ * Traces pagination carries the capped-total contract (decision 77):
+ * exact totals for arbitrary filters are O(matching docs) at 1M+ scale,
+ * so counting stops at the cap and displays carry a trailing "+".
+ */
+export const traceListResponseSchema = paginatedSchema(
+  traceListItemSchema,
+).extend({
+  total_capped: z.boolean(),
+  total_display: z.string(),
+  total_pages_display: z.string(),
+});
 
 const traceFilterOptionSchema = z.strictObject({
   value: z.string(),

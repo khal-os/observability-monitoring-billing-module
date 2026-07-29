@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { server } from '../../app.js';
 import { routeDbHarness } from './helpers/route-db-harness.js';
+import { makeFilterCounterRebuild } from '../../../factories/database-factory.js';
 
 const app = server.app;
 
@@ -22,6 +23,10 @@ describe('Traces Routes', () => {
       const response = await request(app).get('/api/v1/traces').expect(200);
 
       expect(response.body.total).toBe(9);
+      // Uncapped totals read exact — no "+" (decision 77).
+      expect(response.body.total_capped).toBe(false);
+      expect(response.body.total_display).toBe('9');
+      expect(response.body.total_pages_display).toBe('1');
       expect(response.body.items[0].trace_id).toBe('trace-w2-003');
       expect(response.body.items.at(-1).trace_id).toBe('trace-w1-001');
     });
@@ -184,6 +189,33 @@ describe('Traces Routes', () => {
       await request(app)
         .get('/api/v1/traces/filters?status=pending')
         .expect(400);
+    });
+
+    it('MUST serve identical facets after a cube rebuild (ground truth, decision 77)', async () => {
+      const incremental = await request(app)
+        .get('/api/v1/traces/filters?domain=varejo')
+        .expect(200);
+
+      await makeFilterCounterRebuild().run();
+
+      const rebuilt = await request(app)
+        .get('/api/v1/traces/filters?domain=varejo')
+        .expect(200);
+
+      expect(rebuilt.body).toEqual(incremental.body);
+    });
+
+    it('MUST fall back to the live path for search (not a cube dimension)', async () => {
+      const response = await request(app)
+        .get('/api/v1/traces/filters?search=sess-checkout-001')
+        .expect(200);
+
+      // The session has 4 traces — every facet is scoped to them.
+      const totalOf = (options: { count: number }[]) =>
+        options.reduce((sum, option) => sum + option.count, 0);
+
+      expect(totalOf(response.body.statuses)).toBe(4);
+      expect(response.body.agents).toHaveLength(1);
     });
   });
 

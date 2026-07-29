@@ -121,6 +121,9 @@ export class MongoDbSessionQueryRepository implements SessionQueryRepository {
       page: pagination.page,
       pageSize: pagination.pageSize,
       total: result?.total[0]?.count ?? 0,
+      // Sessions keep exact totals — the 1M-scale treatment (decision 77)
+      // is a traces-only concern until the sessions read-model follow-up.
+      totalCapped: false,
     };
   }
 

@@ -7,6 +7,7 @@ import { migrations } from '../../../../../infrastructure/database/mongodb/migra
 import { seedPocPrices } from '../../../../../infrastructure/database/mongodb/priceVersion/poc-price-seed.js';
 import { PRICE_VERSIONS_COLLECTION } from '../../../../../infrastructure/database/mongodb/priceVersion/mongodb-price-version-repository.js';
 import { TRACES_COLLECTION } from '../../../../../infrastructure/database/mongodb/trace/mongodb-trace-repository.js';
+import { TRACE_FILTER_COUNTERS_COLLECTION } from '../../../../../infrastructure/database/mongodb/filterCounter/mongodb-filter-counter-repository.js';
 import { makeSyncTracesUseCase } from '../../../../factories/sync-factory.js';
 import { StampedTokenCost } from '../../../../../domain/models/trace-model.js';
 
@@ -39,6 +40,7 @@ export const routeDbHarness = {
   resetAndMigrate: async (): Promise<void> => {
     for (const collection of [
       TRACES_COLLECTION,
+      TRACE_FILTER_COUNTERS_COLLECTION,
       PRICE_VERSIONS_COLLECTION,
       MIGRATIONS_COLLECTION,
     ]) {

@@ -10,6 +10,7 @@ import {
   POC_PRICE_VERSIONS,
   seedPocPrices,
 } from '../../infrastructure/database/mongodb/priceVersion/poc-price-seed.js';
+import { MongoDbFilterCounterRepository } from '../../infrastructure/database/mongodb/filterCounter/mongodb-filter-counter-repository.js';
 
 /**
  * THE storage seam: the only place (besides this factory file) that names a
@@ -25,6 +26,16 @@ export const makeDatabase = (): Database => ({
 
 export const makeMigrationRunner = (): MigrationRunner => ({
   run: () => runMigrations(MongoDb.getClient().db(), migrations),
+});
+
+/**
+ * Facet-cube recompute (decision 77) — see main/jobs/rebuild-filter-counters.ts.
+ * Returns the number of dimension tuples in the rebuilt cube.
+ */
+export const makeFilterCounterRebuild = (): {
+  run: () => Promise<number>;
+} => ({
+  run: () => new MongoDbFilterCounterRepository().rebuildFromTraces(),
 });
 
 /** DEV-ONLY PoC price seeder (decision 74) — see main/jobs/seed-poc-prices.ts. */

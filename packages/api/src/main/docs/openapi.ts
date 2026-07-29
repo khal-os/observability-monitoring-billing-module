@@ -130,6 +130,10 @@ export const buildOpenApiDocument = (clientName?: string) => ({
       get: {
         tags: ['Traces'],
         summary: 'Lista traces (recente primeiro)',
+        description:
+          'Totais LIMITADOS (decisão 77): com filtros, a contagem para em ' +
+          '10.000 — `total_capped: true` e displays com sufixo "+" ' +
+          '("10.000+"). Sem filtros o total é exato.',
         parameters: [...traceFilterParams, ...paginationParams],
         responses: {
           '200': okResponse('Página de traces.', traceListResponseSchema),
@@ -144,11 +148,14 @@ export const buildOpenApiDocument = (clientName?: string) => ({
         summary: 'Opções dos dropdowns de filtro (valores armazenados + contagens)',
         description:
           'Valores distintos por campo filtrável (incluindo statuses), com ' +
-          'contagem por opção, calculados do armazenamento. Cascata com ' +
-          'auto-exclusão: as opções do campo X honram todos os filtros ' +
-          'EXCETO o do próprio X — um dropdown selecionado continua ' +
-          'listando suas alternativas. Cada contagem é um "e se": traces ' +
-          'que casariam com aquele valor combinado aos filtros dos OUTROS campos.',
+          'contagem por opção, servidos pelo cubo de contadores mantido na ' +
+          'ingestão (decisão 77). Cascata com auto-exclusão: as opções do ' +
+          'campo X honram todos os filtros EXCETO o do próprio X — um ' +
+          'dropdown selecionado continua listando suas alternativas. Cada ' +
+          'contagem é um "e se": traces que casariam com aquele valor ' +
+          'combinado aos filtros dos OUTROS campos. Período (from/to) é ' +
+          'arredondado PARA FORA em dias UTC inteiros neste endpoint; a ' +
+          'listagem mantém timestamps exatos.',
         parameters: [...traceFilterParams],
         responses: {
           '200': okResponse(

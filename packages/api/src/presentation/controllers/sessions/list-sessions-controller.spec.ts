@@ -30,7 +30,7 @@ class ListSessionsStub implements ListSessionsUseCase {
     filters: SessionListFilters,
     pagination: Pagination,
   ): Promise<Paginated<SessionSummaryModel>> {
-    return { items: [makeSession()], page: 1, pageSize: 20, total: 1 };
+    return { items: [makeSession()], page: 1, pageSize: 20, total: 1, totalCapped: false };
   }
 }
 
@@ -104,6 +104,7 @@ describe('ListSessionsController', () => {
       page: 1,
       pageSize: 20,
       total: 1,
+      totalCapped: false,
     });
 
     const httpResponse = await sut.handle({ query: {} });

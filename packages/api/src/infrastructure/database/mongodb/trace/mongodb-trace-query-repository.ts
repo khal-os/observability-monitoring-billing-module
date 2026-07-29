@@ -5,10 +5,18 @@ import {
   TraceFilterOption,
   TraceFilterOptions,
 } from '../../../../domain/useCases/list-trace-filter-options-use-case.js';
+import { utcDayOf } from '../../../../domain/models/filter-counter-model.js';
 import { Paginated, Pagination } from '../../../../domain/models/pagination.js';
 import { TraceModel } from '../../../../domain/models/trace-model.js';
 import { MongoDb } from '../mongo-db.js';
 import { TRACES_COLLECTION } from './mongodb-trace-repository.js';
+import { TRACE_FILTER_COUNTERS_COLLECTION } from '../filterCounter/mongodb-filter-counter-repository.js';
+
+/**
+ * Exact totals on arbitrary filter combos are O(matching docs) — counting
+ * stops here and displays show "10.000+" (decision 77, measured at 1M).
+ */
+export const TOTAL_CAP = 10_000;
 
 const buildFilter = (filters: TraceListFilters): Filter<Document> => {
   const filter: Filter<Document> = {};
@@ -37,6 +45,48 @@ const buildFilter = (filters: TraceListFilters): Filter<Document> => {
   return filter;
 };
 
+/** Facet field ↔ its counter-cube dimension and its self-exclusion key. */
+const FACET_FIELDS = [
+  { option: 'domains', dim: 'domain', selfKey: 'domains' },
+  { option: 'subdomains', dim: 'subdomain', selfKey: 'subdomains' },
+  { option: 'types', dim: 'type', selfKey: 'types' },
+  { option: 'agents', dim: 'agentId', selfKey: 'agentIds' },
+  { option: 'channels', dim: 'channelType', selfKey: 'channels' },
+  { option: 'statuses', dim: 'status', selfKey: 'status' },
+] as const;
+
+/**
+ * The counter cube keys days, not timestamps: a facet period is rounded
+ * OUT to whole UTC days (floor(from), ceil(to)) — documented contract of
+ * GET /traces/filters (decision 77). The list keeps exact timestamps.
+ */
+const buildCounterMatch = (filters: TraceListFilters): Filter<Document> => {
+  const match: Filter<Document> = {};
+
+  if (filters.from || filters.to) {
+    const from = filters.from ? utcDayOf(filters.from) : undefined;
+    const to = filters.to
+      ? filters.to.getTime() === utcDayOf(filters.to).getTime()
+        ? filters.to
+        : new Date(utcDayOf(filters.to).getTime() + 24 * 60 * 60 * 1000)
+      : undefined;
+
+    match['day'] = {
+      ...(from ? { $gte: from } : {}),
+      ...(to ? { $lt: to } : {}),
+    };
+  }
+
+  if (filters.agentIds) match['agentId'] = { $in: filters.agentIds };
+  if (filters.status) match['status'] = filters.status;
+  if (filters.types) match['type'] = { $in: filters.types };
+  if (filters.channels) match['channelType'] = { $in: filters.channels };
+  if (filters.domains) match['domain'] = { $in: filters.domains };
+  if (filters.subdomains) match['subdomain'] = { $in: filters.subdomains };
+
+  return match;
+};
+
 export class MongoDbTraceQueryRepository implements TraceQueryRepository {
   async findTraces(
     filters: TraceListFilters,
@@ -44,8 +94,9 @@ export class MongoDbTraceQueryRepository implements TraceQueryRepository {
   ): Promise<Paginated<TraceModel>> {
     const traces = MongoDb.getCollection(TRACES_COLLECTION);
     const filter = buildFilter(filters);
+    const unfiltered = Object.keys(filter).length === 0;
 
-    const [items, total] = await Promise.all([
+    const [items, rawTotal] = await Promise.all([
       traces
         .find(filter, {
           // Detail-heavy fields stay out of list responses (decision 47).
@@ -55,14 +106,21 @@ export class MongoDbTraceQueryRepository implements TraceQueryRepository {
         .skip((pagination.page - 1) * pagination.pageSize)
         .limit(pagination.pageSize)
         .toArray(),
-      traces.countDocuments(filter),
+      // Unfiltered: collection metadata (exact here — single writer, no
+      // orphans). Filtered: count up to the cap and stop (decision 77).
+      unfiltered
+        ? traces.estimatedDocumentCount()
+        : traces.countDocuments(filter, { limit: TOTAL_CAP + 1 }),
     ]);
+
+    const totalCapped = !unfiltered && rawTotal > TOTAL_CAP;
 
     return {
       items: items as unknown as TraceModel[],
       page: pagination.page,
       pageSize: pagination.pageSize,
-      total,
+      total: totalCapped ? TOTAL_CAP : rawTotal,
+      totalCapped,
     };
   }
 
@@ -75,24 +133,73 @@ export class MongoDbTraceQueryRepository implements TraceQueryRepository {
     return trace as unknown as TraceModel | null;
   }
 
-  // QA15: each per-field $group rides the field-led indexes (migrations
-  // 003 + 012) as a covered scan. If cascaded facets get slow at real
-  // volume, the fallback is precomputing the unfiltered options at
-  // ingestion and keeping live queries only for cascaded requests.
   async findFilterOptions(
+    filters: TraceListFilters,
+  ): Promise<TraceFilterOptions> {
+    // `search` is not a cube dimension — but it matches at most a
+    // handful of traces (exact ids), so the live path stays trivial.
+    if (filters.search) {
+      return this.findFilterOptionsLive(filters);
+    }
+
+    const counters = MongoDb.getCollection(TRACE_FILTER_COUNTERS_COLLECTION);
+
+    const optionsFor = async (
+      dim: string,
+      selfKey: keyof TraceListFilters,
+    ): Promise<TraceFilterOption[]> => {
+      // Self-exclusion cascade (see TraceQueryRepository.findFilterOptions):
+      // each count answers "how many traces if I picked this value". With
+      // no other filters the {dim, count} indexes make this an index-only
+      // scan; cascaded matches fall back to scanning the (narrow) subset.
+      const match = buildCounterMatch({ ...filters, [selfKey]: undefined });
+      match[dim] = { $ne: null };
+
+      const rows = await counters
+        .aggregate([
+          { $match: match },
+          { $group: { _id: `$${dim}`, count: { $sum: '$count' } } },
+          // Attribution deltas may leave zero-count tuples behind.
+          { $match: { count: { $gt: 0 } } },
+          { $sort: { _id: 1 } },
+        ])
+        .toArray();
+
+      return rows.map((row) => ({
+        value: row['_id'] as string,
+        count: row['count'] as number,
+      }));
+    };
+
+    const [domains, subdomains, types, agents, channels, statuses] =
+      await Promise.all(
+        FACET_FIELDS.map((field) => optionsFor(field.dim, field.selfKey)),
+      );
+
+    return { domains, subdomains, types, agents, channels, statuses };
+  }
+
+  /** Trace-collection fallback for filters the cube cannot answer. */
+  private async findFilterOptionsLive(
     filters: TraceListFilters,
   ): Promise<TraceFilterOptions> {
     const traces = MongoDb.getCollection(TRACES_COLLECTION);
 
+    const tracePathOf: Record<string, string> = {
+      domain: 'domain',
+      subdomain: 'subdomain',
+      type: 'type',
+      agentId: 'agent.id',
+      channelType: 'channel.type',
+      status: 'status',
+    };
+
     const optionsFor = async (
-      field: string,
+      dim: string,
       selfKey: keyof TraceListFilters,
     ): Promise<TraceFilterOption[]> => {
-      // Self-exclusion cascade (see TraceQueryRepository.findFilterOptions):
-      // each count answers "how many traces if I picked this value".
+      const field = tracePathOf[dim];
       const match = buildFilter({ ...filters, [selfKey]: undefined });
-
-      // Optional fields are stored as null, never absent — keep them out.
       match[field] = { $ne: null };
 
       const rows = await traces
@@ -104,20 +211,15 @@ export class MongoDbTraceQueryRepository implements TraceQueryRepository {
         .toArray();
 
       return rows.map((row) => ({
-        value: row._id as string,
-        count: row.count as number,
+        value: row['_id'] as string,
+        count: row['count'] as number,
       }));
     };
 
     const [domains, subdomains, types, agents, channels, statuses] =
-      await Promise.all([
-        optionsFor('domain', 'domains'),
-        optionsFor('subdomain', 'subdomains'),
-        optionsFor('type', 'types'),
-        optionsFor('agent.id', 'agentIds'),
-        optionsFor('channel.type', 'channels'),
-        optionsFor('status', 'status'),
-      ]);
+      await Promise.all(
+        FACET_FIELDS.map((field) => optionsFor(field.dim, field.selfKey)),
+      );
 
     return { domains, subdomains, types, agents, channels, statuses };
   }

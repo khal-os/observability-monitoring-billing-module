@@ -4,10 +4,18 @@ import {
   TraceRepository,
 } from '../../../../application/interfaces/trace-repository.js';
 import { TraceModel } from '../../../../domain/models/trace-model.js';
+import { toFilterCounterDims } from '../../../../domain/models/filter-counter-model.js';
 import { deriveUnclassified } from '../../../../application/useCases/syncTraces/trace-mapper.js';
 import { MongoDb } from '../mongo-db.js';
+import { MongoDbFilterCounterRepository } from '../filterCounter/mongodb-filter-counter-repository.js';
 
 export const TRACES_COLLECTION = 'traces';
+
+// Lazy: the counter repository imports TRACES_COLLECTION back from this
+// module — instantiating at call time keeps the cycle harmless.
+let filterCountersInstance: MongoDbFilterCounterRepository | undefined;
+const filterCounters = () =>
+  (filterCountersInstance ??= new MongoDbFilterCounterRepository());
 
 /**
  * Storage convention: OPTIONAL FIELDS ARE STORED AS NULL, never absent —
@@ -30,6 +38,10 @@ export class MongoDbTraceRepository implements TraceRepository {
     // old commit-marker/partial-leftover dance is gone by construction.
     await traces.insertOne({ ...trace });
 
+    // Facet cube (decision 77): counted exactly once per trace — rides
+    // the insert-once guarantee above; drift heals via rebuild job.
+    await filterCounters().increment(toFilterCounterDims(trace));
+
     return 'inserted';
   }
 
@@ -38,6 +50,14 @@ export class MongoDbTraceRepository implements TraceRepository {
     attribution: TraceAttribution,
   ): Promise<void> {
     const traces = MongoDb.getCollection(TRACES_COLLECTION);
+
+    // Snapshot BEFORE the correction: agent/domain/subdomain are facet
+    // cube dimensions, so a correction must move the trace's count from
+    // its old tuple to the new one (decision 77).
+    const before = (await traces.findOne({
+      traceId,
+    })) as unknown as TraceModel | null;
+
     const set: Record<string, unknown> = {};
 
     if (attribution.agent !== undefined) {
@@ -66,6 +86,15 @@ export class MongoDbTraceRepository implements TraceRepository {
 
     if (!stored) {
       return;
+    }
+
+    if (before) {
+      const beforeDims = toFilterCounterDims(before);
+      const afterDims = toFilterCounterDims(stored as unknown as TraceModel);
+
+      if (JSON.stringify(beforeDims) !== JSON.stringify(afterDims)) {
+        await filterCounters().applyDelta(beforeDims, afterDims);
+      }
     }
 
     const unclassified = deriveUnclassified({

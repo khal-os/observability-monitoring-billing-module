@@ -36,7 +36,7 @@ class ListTracesStub implements ListTracesUseCase {
     filters: TraceListFilters,
     pagination: Pagination,
   ): Promise<Paginated<TraceModel>> {
-    return { items: [makeTrace()], page: 1, pageSize: 20, total: 1 };
+    return { items: [makeTrace()], page: 1, pageSize: 20, total: 1, totalCapped: false };
   }
 }
 
@@ -167,7 +167,10 @@ describe('ListTracesController', () => {
         page: 1,
         page_size: 20,
         total: 1,
+        total_capped: false,
+        total_display: '1',
         total_pages: 1,
+        total_pages_display: '1',
         items: [
           {
             trace_id: 'trace-001',
@@ -222,6 +225,7 @@ describe('ListTracesController', () => {
         page: 1,
         pageSize: 20,
         total: 1,
+        totalCapped: false,
       });
 
       const httpResponse = await sut.handle({ query: {} });
@@ -229,6 +233,27 @@ describe('ListTracesController', () => {
 
       expect(body.items[0]?.cost_brl).toBeNull();
       expect(body.items[0]?.pricing_status).toBe('pending_price');
+    });
+
+    it('MUST mark capped totals with a trailing "+" — never read as exact (decision 77)', async () => {
+      const { sut, listTracesStub } = makeSut();
+
+      jest.spyOn(listTracesStub, 'list').mockResolvedValueOnce({
+        items: [makeTrace()],
+        page: 1,
+        pageSize: 20,
+        total: 10_000,
+        totalCapped: true,
+      });
+
+      const httpResponse = await sut.handle({ query: {} });
+      const body = httpResponse.body as Record<string, unknown>;
+
+      expect(body['total']).toBe(10_000);
+      expect(body['total_capped']).toBe(true);
+      expect(body['total_display']).toBe('10.000+');
+      expect(body['total_pages']).toBe(500);
+      expect(body['total_pages_display']).toBe('500+');
     });
   });
 });
