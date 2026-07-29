@@ -33,7 +33,7 @@ ENVFILE = clients/$(CLIENT).env
 SCRUB = env -u COMPOSE_PROJECT_NAME -u CLIENT_NAME -u API_PORT \
           -u LANGWATCH_PORT -u LANGWATCH_API_KEY -u LANGWATCH_ENDPOINT \
           -u LANGWATCH_PROJECT_ID \
-          -u MONGO_DB_HOST -u MONGO_DB_PORT \
+          -u MONGO_DB_HOST -u MONGO_DB_PORT -u MONGO_MEMORY_LIMIT \
           -u MONGO_DB_USER -u MONGO_DB_PASSWORD -u API_IMAGE \
           -u LW_NEXTAUTH_SECRET -u LW_API_TOKEN_JWT_SECRET -u LW_CREDENTIALS_SECRET
 # Role files (decision 65): module (api+ui) + connector (LangWatch +
@@ -54,7 +54,7 @@ JOB = $(COMPOSE_PROD) run --rm --no-deps api node
 # form exactly when generated fixtures exist, the prod form otherwise.
 SYNC_COMPOSE = $(if $(wildcard demo-data/$(CLIENT)/*.json),$(COMPOSE_DEV),$(COMPOSE_PROD))
 
-.PHONY: help build up up-prod down logs ps migrate seed-prices sync price reprocess require-client
+.PHONY: help build up up-prod down logs ps migrate seed-prices sync price reprocess rebuild-filter-counters require-client
 
 help:
 	@grep -E '^#( |$$)' Makefile | sed 's/^# \?//'
@@ -111,3 +111,8 @@ price: require-client
 
 reprocess: require-client
 	$(JOB) dist/main/jobs/reprocess-pending.js
+
+# Recompute the facet cube (decision 77) from the traces collection —
+# one-time after restoring pre-existing data; anytime to repair drift.
+rebuild-filter-counters: require-client
+	$(JOB) dist/main/jobs/rebuild-filter-counters.js

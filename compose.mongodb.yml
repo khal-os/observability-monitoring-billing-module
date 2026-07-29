@@ -48,7 +48,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512m
+          # Sizing lever (decision 77 / QA15): mongo 7 is cgroup-aware and
+          # auto-sizes its cache from this limit. At 1M traces (~3.4 GB)
+          # the 512m default thrashes — size ≥ the working set (e.g. 4g).
+          memory: ${MONGO_MEMORY_LIMIT:-512m}
 
 volumes:
   mongo-data:
