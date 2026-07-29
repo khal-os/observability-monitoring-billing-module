@@ -1,6 +1,7 @@
 import { Migration } from '../helpers/migration-runner.js';
 import { priceVersionIndexes } from './001-price-version-indexes.js';
 import { traceIndexes } from './003-trace-indexes.js';
+import { traceFilterIndexes } from './012-trace-filter-indexes.js';
 
 /**
  * Ordered list — the runner applies each exactly once, in this order.
@@ -11,4 +12,8 @@ import { traceIndexes } from './003-trace-indexes.js';
  * start fresh, there is no pre-convention data to migrate. Historical ids
  * (002, 004–011) stay retired: never reuse them for new migrations.
  */
-export const migrations: Migration[] = [priceVersionIndexes, traceIndexes];
+export const migrations: Migration[] = [
+  priceVersionIndexes,
+  traceIndexes,
+  traceFilterIndexes,
+];
