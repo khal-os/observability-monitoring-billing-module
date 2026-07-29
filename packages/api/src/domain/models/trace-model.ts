@@ -1,4 +1,5 @@
 import { TokenType } from './price-version-model.js';
+import { ModelRef } from './model-ref.js';
 import { SpanModel } from './span-model.js';
 
 export type ExecutionStatus = 'ok' | 'error';
@@ -81,7 +82,11 @@ export interface TraceModel {
   /** End user the execution served — display-only enrichment (decision 70). */
   userId?: string;
   agent?: AgentRef;
-  model?: string;
+  /**
+   * Structured internally (id + provider, parsed at ingestion); the wire
+   * string is recomposed by `modelKey` at the borders.
+   */
+  model?: ModelRef;
   type: string;
   channel: ChannelRef;
   domain?: string;

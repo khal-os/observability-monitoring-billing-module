@@ -239,7 +239,7 @@ describe('SyncTracesToDbUseCase', () => {
               version: '1.4.2',
               instance: 'agent-atendimento-7d9f4b-k2xp8',
             },
-            model: 'openai/gpt-5-mini',
+            model: { id: 'gpt-5-mini', provider: 'openai' },
             domain: 'varejo',
             subdomain: undefined,
           },

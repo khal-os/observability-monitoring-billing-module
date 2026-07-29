@@ -388,7 +388,9 @@ describe('Sync + price stamping (integration)', () => {
 
       stored = await findTrace('trace-late-model');
 
-      expect((stored as { model?: string })?.model).toBe('openai/gpt-5-mini');
+      expect(
+        (stored as { model?: { id: string; provider: string | null } })?.model,
+      ).toEqual({ id: 'gpt-5-mini', provider: 'openai' });
 
       const report = await reprocess.reprocess();
 

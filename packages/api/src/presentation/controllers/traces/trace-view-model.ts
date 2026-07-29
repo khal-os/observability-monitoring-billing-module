@@ -13,6 +13,7 @@ import {
   formatIntDisplay,
   formatUtcDateDisplay,
 } from '../../../common/helpers/display/display.js';
+import { modelKey } from '../../../domain/models/model-ref.js';
 import { TraceDetailView, TraceListItemView } from './trace-view-schemas.js';
 
 /**
@@ -132,7 +133,10 @@ export const toTraceDetail = (trace: TraceModel, now: Date): TraceDetailView => 
   ...toTraceListItem(trace, now),
   finished_at: trace.finishedAt.toISOString(),
   finished_at_display: formatDateTimeDisplay(trace.finishedAt),
-  model: trace.model ?? null,
+  // The domain carries the structured ref; the wire keeps the compatible
+  // `provider/id` string, recomposed here (decision 51 — API owns every
+  // displayed value).
+  model: trace.model ? modelKey(trace.model) : null,
   tokens: {
     input: trace.tokens.input ?? 0,
     output: trace.tokens.output ?? 0,

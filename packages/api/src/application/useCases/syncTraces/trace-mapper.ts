@@ -1,5 +1,6 @@
 import { SourceTrace } from '../../interfaces/trace-source-client.js';
 import { TraceModel, UnclassifiedInfo } from '../../../domain/models/trace-model.js';
+import { ModelRef, parseModelRef } from '../../../domain/models/model-ref.js';
 import { SpanModel } from '../../../domain/models/span-model.js';
 import { StampOutcome } from './price-stamper.js';
 
@@ -12,7 +13,7 @@ import { StampOutcome } from './price-stamper.js';
  */
 export const deriveUnclassified = (args: {
   agentId: string | undefined;
-  model: string | undefined;
+  model: ModelRef | undefined;
 }): UnclassifiedInfo | undefined => {
   const reasons: string[] = [];
 
@@ -31,10 +32,17 @@ export const deriveUnclassified = (args: {
  * Missing/invalid attribution never drops a trace — it is stored and
  * flagged unclassified with the reasons (T3), attribution stays mutable.
  */
+/**
+ * The ONE point where the source's loose model string becomes the
+ * structured domain ref — everything past ingestion carries the object.
+ */
+export const sourceModelRef = (trace: SourceTrace): ModelRef | undefined =>
+  trace.model ? parseModelRef(trace.model) : undefined;
+
 export const classifyAttribution = (
   trace: SourceTrace,
 ): UnclassifiedInfo | undefined =>
-  deriveUnclassified({ agentId: trace.agent?.id, model: trace.model });
+  deriveUnclassified({ agentId: trace.agent?.id, model: sourceModelRef(trace) });
 
 /**
  * Canonical shapes for storage: every optional key is NAMED here (agent
@@ -94,7 +102,7 @@ export const mapToTrace = (
           instance: trace.agent.instance,
         }
       : undefined,
-    model: trace.model,
+    model: sourceModelRef(trace),
     type: trace.type,
     channel: {
       type: trace.channel.type,

@@ -23,7 +23,7 @@ const makeDetail = (): SessionDetail => ({
       traceId: 'trace-001',
       sessionId: 'sess-001',
       agent: { id: 'agent-atendimento' },
-      model: 'openai/gpt-5-mini',
+      model: { id: 'gpt-5-mini', provider: 'openai' },
       type: 'chat',
       channel: { type: 'whatsapp' },
       startedAt: new Date('2026-06-05T14:00:00.000Z'),

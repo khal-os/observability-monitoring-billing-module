@@ -1,4 +1,5 @@
 import { TraceModel } from '../../../domain/models/trace-model.js';
+import { modelKey } from '../../../domain/models/model-ref.js';
 import { PriceVersionRepository } from '../../interfaces/price-version-repository.js';
 import { findMissingPriceTokenTypes } from '../syncTraces/price-stamper.js';
 
@@ -27,7 +28,7 @@ export const withDerivedPendingPrice = async (
 
       const effectivePrices = trace.model
         ? await priceVersionRepository.findEffectivePrices(
-            trace.model,
+            modelKey(trace.model),
             trace.startedAt,
           )
         : {};

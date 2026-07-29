@@ -2,8 +2,9 @@ import { EffectivePrices } from '../../interfaces/price-version-repository.js';
 import { PriceVersionRepository } from '../../interfaces/price-version-repository.js';
 import { TraceRepository } from '../../interfaces/trace-repository.js';
 import { SourceTrace } from '../../interfaces/trace-source-client.js';
+import { modelKey } from '../../../domain/models/model-ref.js';
 import { stampTokens } from './price-stamper.js';
-import { mapToTrace } from './trace-mapper.js';
+import { mapToTrace, sourceModelRef } from './trace-mapper.js';
 
 export interface IngestOutcome {
   outcome: 'inserted' | 'skipped';
@@ -22,12 +23,16 @@ export const ingestSourceTrace = async (
   },
   trace: SourceTrace,
 ): Promise<IngestOutcome> => {
+  // The domain carries the model as a structured ref; the price table
+  // stays keyed by the canonical string, recomposed via modelKey.
+  const model = sourceModelRef(trace);
+
   // QA19: the stamp uses the price version effective on the TRACE's
   // date (startedAt), resolved as-of at write time — not the price at
   // sync time. A trace dated 31/07 synced on 01/08 keeps July's price.
-  const effectivePrices: EffectivePrices = trace.model
+  const effectivePrices: EffectivePrices = model
     ? await deps.priceVersionRepository.findEffectivePrices(
-        trace.model,
+        modelKey(model),
         trace.startedAt,
       )
     : {};
@@ -50,7 +55,7 @@ export const ingestSourceTrace = async (
   // by the reprocess job (as-of rule, // QA19 above).
   await deps.traceRepository.updateAttribution(trace.traceId, {
     agent: trace.agent,
-    model: trace.model,
+    model,
     domain: trace.domain,
     subdomain: trace.subdomain,
   });

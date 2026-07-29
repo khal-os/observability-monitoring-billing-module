@@ -12,7 +12,7 @@ import { TraceModel } from '../../../../domain/models/trace-model.js';
 const makeTrace = (overrides: Partial<TraceModel> = {}): TraceModel => ({
   traceId: 'trace-cube-001',
   agent: { id: 'agent-a', version: '1.0.0', instance: 'agent-a-1' },
-  model: 'openai/gpt-5-mini',
+  model: { id: 'gpt-5-mini', provider: 'openai' },
   type: 'chat',
   channel: { type: 'whatsapp', version: '3.2.0' },
   domain: 'varejo',

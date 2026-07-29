@@ -4,6 +4,7 @@ import {
   ReprocessReport,
   TraceRepository,
 } from './reprocess-pending-protocols.js';
+import { modelKey } from '../../../domain/models/model-ref.js';
 import { stampTokens } from '../syncTraces/price-stamper.js';
 
 /**
@@ -45,7 +46,7 @@ export class ReprocessPendingToDbUseCase implements ReprocessPendingUseCase {
         // on the TRACE's date, never "the latest price now".
         const effectivePrices = trace.model
           ? await this.priceVersionRepository.findEffectivePrices(
-              trace.model,
+              modelKey(trace.model),
               trace.startedAt,
             )
           : {};

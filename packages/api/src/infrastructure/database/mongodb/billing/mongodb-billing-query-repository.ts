@@ -6,6 +6,7 @@ import {
 } from '../../../../application/interfaces/billing-query-repository.js';
 import { BillingSummaryLine } from '../../../../domain/useCases/get-billing-summary-use-case.js';
 import { TokenType } from '../../../../domain/models/price-version-model.js';
+import { ModelRef, modelKey } from '../../../../domain/models/model-ref.js';
 import { MongoDb } from '../mongo-db.js';
 import { TRACES_COLLECTION } from '../trace/mongodb-trace-repository.js';
 
@@ -124,21 +125,41 @@ export class MongoDbBillingQueryRepository implements BillingQueryRepository {
       _id: {
         agentId: string | null;
         agentVersion: string | null;
-        model: string | null;
+        model: ModelRef | null;
         tokenType: TokenType;
       };
       tokens: number;
       costMicrocents: number;
     }[];
 
-    const lines: BillingSummaryLine[] = lineDocuments.map((document) => ({
-      agentId: document._id.agentId,
-      agentVersion: document._id.agentVersion,
-      model: document._id.model,
-      tokenType: document._id.tokenType,
-      tokens: document.tokens,
-      costMicrocents: document.costMicrocents,
-    }));
+    // The stored model is the structured ref; billing lines carry the
+    // canonical string key. Grouping happened on the object, so the
+    // model sort is redone here on the recomposed key (the pipeline's
+    // object order is BSON field order, not the key's lexical order).
+    const nullFirst = (a: string | null, b: string | null): number => {
+      if (a === b) return 0;
+      if (a === null) return -1;
+      if (b === null) return 1;
+
+      return a < b ? -1 : 1;
+    };
+
+    const lines: BillingSummaryLine[] = lineDocuments
+      .map((document) => ({
+        agentId: document._id.agentId,
+        agentVersion: document._id.agentVersion,
+        model: document._id.model ? modelKey(document._id.model) : null,
+        tokenType: document._id.tokenType,
+        tokens: document.tokens,
+        costMicrocents: document.costMicrocents,
+      }))
+      .sort(
+        (a, b) =>
+          nullFirst(a.agentId, b.agentId) ||
+          nullFirst(a.agentVersion, b.agentVersion) ||
+          nullFirst(a.model, b.model) ||
+          nullFirst(a.tokenType, b.tokenType),
+      );
 
     const [pendingDocument] = (await traces
       .aggregate([
@@ -168,7 +189,8 @@ export class MongoDbBillingQueryRepository implements BillingQueryRepository {
           cache_write: pendingDocument?.tokensCacheWrite ?? 0,
         },
         models: (pendingDocument?.models ?? [])
-          .filter((model: string | null): model is string => model !== null)
+          .filter((model: ModelRef | null): model is ModelRef => model !== null)
+          .map(modelKey)
           .sort(),
       },
     };

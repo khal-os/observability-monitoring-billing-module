@@ -49,7 +49,7 @@ export const makeContractTrace = (
     traceId,
     sessionId: 'sess-001',
     agent: { id: 'agent-atendimento', version: '1.4.2', instance: 'agent-atendimento-7d9f4b-k2xp8' },
-    model: 'openai/gpt-5-mini',
+    model: { id: 'gpt-5-mini', provider: 'openai' },
     type: 'chat',
     channel: { type: 'whatsapp', version: '3.2.0', instance: 'omni-wa-6b4c9f-r3zs5' },
     domain: 'varejo',
@@ -141,7 +141,7 @@ export const runTraceRepositoryContract = (
 
       it('MUST store pending_price traces with the cost OPEN — never R$ 0 (invariant 2)', async () => {
         await harness.repository.insertIfAbsent(
-          makePending({ traceId: 'trace-pending', model: 'meta/llama-4-scout' }),
+          makePending({ traceId: 'trace-pending', model: { id: 'llama-4-scout', provider: 'meta' } }),
         );
 
         const stored = await harness.readTrace('trace-pending');
@@ -273,12 +273,12 @@ export const runTraceRepositoryContract = (
         );
 
         await harness.repository.updateAttribution('trace-001', {
-          model: 'openai/gpt-5-mini',
+          model: { id: 'gpt-5-mini', provider: 'openai' },
         });
 
         const stored = await harness.readTrace('trace-001');
 
-        expect(stored?.['model']).toBe('openai/gpt-5-mini');
+        expect(stored?.['model']).toEqual({ id: 'gpt-5-mini', provider: 'openai' });
         expect(stored?.['unclassified'] ?? null).toBeNull();
         expect(stored?.['pricingStatus']).toBe('pending_price');
       });

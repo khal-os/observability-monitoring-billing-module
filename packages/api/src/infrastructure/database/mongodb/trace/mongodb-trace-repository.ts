@@ -5,6 +5,7 @@ import {
   TraceRepository,
 } from '../../../../application/interfaces/trace-repository.js';
 import { TraceModel } from '../../../../domain/models/trace-model.js';
+import { ModelRef } from '../../../../domain/models/model-ref.js';
 import { toFilterCounterDims } from '../../../../domain/models/filter-counter-model.js';
 import { deriveUnclassified } from '../../../../application/useCases/syncTraces/trace-mapper.js';
 import { MongoDb } from '../mongo-db.js';
@@ -125,7 +126,15 @@ export class MongoDbTraceRepository implements TraceRepository {
           };
         }
 
-        for (const field of ['model', 'domain', 'subdomain'] as const) {
+        if (attribution.model !== undefined) {
+          // Canonical block: provider always present (null when unknown).
+          set['model'] = {
+            id: attribution.model.id,
+            provider: attribution.model.provider ?? null,
+          };
+        }
+
+        for (const field of ['domain', 'subdomain'] as const) {
           if (attribution[field] !== undefined) {
             set[field] = attribution[field];
           }
@@ -154,7 +163,7 @@ export class MongoDbTraceRepository implements TraceRepository {
 
         const unclassified = deriveUnclassified({
           agentId: (stored['agent'] as { id?: string } | null)?.id ?? undefined,
-          model: (stored['model'] as string | null) ?? undefined,
+          model: (stored['model'] as ModelRef | null) ?? undefined,
         });
 
         await traces.updateOne(

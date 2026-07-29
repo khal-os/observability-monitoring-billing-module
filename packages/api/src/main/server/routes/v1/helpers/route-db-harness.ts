@@ -25,7 +25,7 @@ import { StampedTokenCost } from '../../../../../domain/models/trace-model.js';
 export interface StoredTraceRecord {
   traceId: string;
   agent?: { id?: string; version?: string };
-  model?: string;
+  model?: { id: string; provider: string | null };
   pricingStatus: string;
   startedAt: Date;
   stampedCosts?: StampedTokenCost[];

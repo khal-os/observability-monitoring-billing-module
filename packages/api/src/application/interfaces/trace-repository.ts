@@ -4,6 +4,7 @@ import {
   TokenCounts,
   TraceModel,
 } from '../../domain/models/trace-model.js';
+import { ModelRef } from '../../domain/models/model-ref.js';
 
 /**
  * The slim shape of the pending sweep (decision 79): exactly what
@@ -13,7 +14,7 @@ import {
  */
 export interface PendingPriceTrace {
   traceId: string;
-  model?: string;
+  model?: ModelRef;
   startedAt: Date;
   tokens: TokenCounts;
 }
@@ -32,7 +33,8 @@ export interface PendingPriceTrace {
 export interface TraceAttribution {
   /** Replaced as a whole block when provided (id + version + instance). */
   agent?: AgentRef;
-  model?: string;
+  /** Replaced as a whole block when provided (id + provider). */
+  model?: ModelRef;
   domain?: string;
   subdomain?: string;
 }

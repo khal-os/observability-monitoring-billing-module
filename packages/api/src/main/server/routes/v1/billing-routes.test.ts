@@ -120,7 +120,14 @@ describe('Billing Routes', () => {
 
       for (const trace of stamped) {
         for (const cost of trace.stampedCosts ?? []) {
-          const key = `${trace.agent?.id ?? null}|${trace.agent?.version ?? null}|${trace.model ?? null}|${cost.tokenType}`;
+          // Same recomposition rule as the API: provider/id, or the bare
+          // id when the provider is unknown.
+          const storedModelKey = trace.model
+            ? trace.model.provider
+              ? `${trace.model.provider}/${trace.model.id}`
+              : trace.model.id
+            : null;
+          const key = `${trace.agent?.id ?? null}|${trace.agent?.version ?? null}|${storedModelKey}|${cost.tokenType}`;
           const line = independentLines.get(key) ?? {
             tokens: 0,
             costMicrocents: 0,

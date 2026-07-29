@@ -7,7 +7,7 @@ const makeDetail = (): TraceModel => ({
   traceId: 'trace-001',
   sessionId: 'sess-001',
   agent: { id: 'agent-atendimento', version: '1.4.2', instance: 'agent-atendimento-7d9f4b-k2xp8' },
-  model: 'openai/gpt-5-mini',
+  model: { id: 'gpt-5-mini', provider: 'openai' },
   type: 'chat',
   channel: { type: 'whatsapp', version: '3.2.0', instance: 'omni-wa-6b4c9f-r3zs5' },
   startedAt: new Date('2026-06-05T14:00:00.000Z'),
@@ -75,6 +75,7 @@ describe('GetTraceDetailController', () => {
 
     const httpResponse = await sut.handle({ params: { id: 'trace-001' } });
     const body = httpResponse.body as {
+      model: string | null;
       costs: {
         token_type: string;
         applied_price_brl_per_million: string;
@@ -84,6 +85,8 @@ describe('GetTraceDetailController', () => {
     };
 
     expect(httpResponse.statusCode).toBe(200);
+    // The domain ref is recomposed into the compatible wire string.
+    expect(body.model).toBe('openai/gpt-5-mini');
     expect(body.costs).toEqual([
       {
         token_type: 'input',

@@ -4,6 +4,7 @@ import { traceIndexes } from './003-trace-indexes.js';
 import { traceFilterIndexes } from './012-trace-filter-indexes.js';
 import { sortAlignedTraceIndexes } from './013-sort-aligned-trace-indexes.js';
 import { sessionSummaryIndexes } from './014-session-summary-indexes.js';
+import { modelObject } from './015-model-object.js';
 
 /**
  * Ordered list — the runner applies each exactly once, in this order.
@@ -13,6 +14,9 @@ import { sessionSummaryIndexes } from './014-session-summary-indexes.js';
  * rewrites and null-backfills of earlier layouts were pruned — deployments
  * start fresh, there is no pre-convention data to migrate. Historical ids
  * (002, 004–011) stay retired: never reuse them for new migrations.
+ * Exception: 015 rewrites pre-structured `model` strings into the
+ * canonical `{ id, provider }` block — deployments that ingested before
+ * that change DO carry old-layout data (see the migration's own doc).
  */
 export const migrations: Migration[] = [
   priceVersionIndexes,
@@ -20,4 +24,5 @@ export const migrations: Migration[] = [
   traceFilterIndexes,
   sortAlignedTraceIndexes,
   sessionSummaryIndexes,
+  modelObject,
 ];

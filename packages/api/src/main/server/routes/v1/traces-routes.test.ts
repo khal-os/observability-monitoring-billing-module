@@ -227,6 +227,7 @@ describe('Traces Routes', () => {
 
       expect(response.body.status).toBe('error');
       expect(response.body.session_id).toBe('sess-cobranca-002');
+      // Stored structured, served as the compatible recomposed string.
       expect(response.body.model).toBe('anthropic/claude-sonnet-5');
 
       expect(
