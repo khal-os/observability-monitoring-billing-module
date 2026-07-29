@@ -14,9 +14,11 @@ export interface TraceQueryRepository {
   findTraceDetail(traceId: string): Promise<TraceModel | null>;
 
   /**
-   * Distinct values per filterable field, cascading with SELF-EXCLUSION:
-   * field X's options honor every filter except X's own, so a selected
-   * dropdown still lists its alternatives instead of collapsing.
+   * Stored values + counts per filterable field, cascading with
+   * SELF-EXCLUSION: field X's options honor every filter except X's own,
+   * so a selected dropdown still lists its alternatives instead of
+   * collapsing. Each count is a "what-if": traces matching that value
+   * combined with the OTHER fields' active filters.
    */
   findFilterOptions(filters: TraceListFilters): Promise<TraceFilterOptions>;
 }

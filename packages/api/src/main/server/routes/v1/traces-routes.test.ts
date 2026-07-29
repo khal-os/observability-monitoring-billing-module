@@ -102,17 +102,35 @@ describe('Traces Routes', () => {
   });
 
   describe('GET /api/v1/traces/filters', () => {
-    it('MUST list the distinct stored values per filterable field', async () => {
+    it('MUST list the stored values per filterable field with trace counts', async () => {
       const response = await request(app)
         .get('/api/v1/traces/filters')
         .expect(200);
 
       expect(response.body).toEqual({
-        domains: ['financeiro', 'suporte', 'varejo'],
-        subdomains: ['cobranca', 'loja-sp'],
-        types: ['chat'],
-        agents: ['agent-atendimento', 'agent-cobranca', 'agent-suporte'],
-        channels: ['web', 'whatsapp'],
+        domains: [
+          { value: 'financeiro', count: 2 },
+          { value: 'suporte', count: 2 },
+          { value: 'varejo', count: 5 },
+        ],
+        subdomains: [
+          { value: 'cobranca', count: 2 },
+          { value: 'loja-sp', count: 4 },
+        ],
+        types: [{ value: 'chat', count: 9 }],
+        agents: [
+          { value: 'agent-atendimento', count: 5 },
+          { value: 'agent-cobranca', count: 2 },
+          { value: 'agent-suporte', count: 2 },
+        ],
+        channels: [
+          { value: 'web', count: 3 },
+          { value: 'whatsapp', count: 6 },
+        ],
+        statuses: [
+          { value: 'error', count: 1 },
+          { value: 'ok', count: 8 },
+        ],
       });
     });
 
@@ -121,30 +139,43 @@ describe('Traces Routes', () => {
         .get('/api/v1/traces/filters?domain=varejo')
         .expect(200);
 
-      // Every other field narrows to the varejo traces...
-      expect(response.body.subdomains).toEqual(['loja-sp']);
-      expect(response.body.agents).toEqual(['agent-atendimento']);
-      expect(response.body.channels).toEqual(['web', 'whatsapp']);
+      // Every other field narrows to the 5 varejo traces ("what-if" counts)...
+      expect(response.body.subdomains).toEqual([
+        { value: 'loja-sp', count: 4 },
+      ]);
+      expect(response.body.agents).toEqual([
+        { value: 'agent-atendimento', count: 5 },
+      ]);
+      expect(response.body.channels).toEqual([
+        { value: 'web', count: 1 },
+        { value: 'whatsapp', count: 4 },
+      ]);
+      expect(response.body.statuses).toEqual([{ value: 'ok', count: 5 }]);
       // ...while the domain dropdown itself still lists the alternatives.
       expect(response.body.domains).toEqual([
-        'financeiro',
-        'suporte',
-        'varejo',
+        { value: 'financeiro', count: 2 },
+        { value: 'suporte', count: 2 },
+        { value: 'varejo', count: 5 },
       ]);
     });
 
-    it('MUST apply dropdown-less filters (status) to every field', async () => {
+    it('MUST self-exclude status too — the status dropdown never collapses', async () => {
       const response = await request(app)
         .get('/api/v1/traces/filters?status=error')
         .expect(200);
 
       // The only error trace is trace-w1-005 (agent-cobranca, financeiro).
       expect(response.body).toEqual({
-        domains: ['financeiro'],
-        subdomains: ['cobranca'],
-        types: ['chat'],
-        agents: ['agent-cobranca'],
-        channels: ['whatsapp'],
+        domains: [{ value: 'financeiro', count: 1 }],
+        subdomains: [{ value: 'cobranca', count: 1 }],
+        types: [{ value: 'chat', count: 1 }],
+        agents: [{ value: 'agent-cobranca', count: 1 }],
+        channels: [{ value: 'whatsapp', count: 1 }],
+        // Self-excluded: both statuses stay visible with full counts.
+        statuses: [
+          { value: 'error', count: 1 },
+          { value: 'ok', count: 8 },
+        ],
       });
     });
 

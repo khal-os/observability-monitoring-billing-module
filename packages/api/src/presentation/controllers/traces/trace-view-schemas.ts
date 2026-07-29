@@ -63,18 +63,29 @@ export const traceListItemSchema = z.strictObject({
 
 export const traceListResponseSchema = paginatedSchema(traceListItemSchema);
 
+const traceFilterOptionSchema = z.strictObject({
+  value: z.string(),
+  count: z.number().int(),
+});
+
 /**
- * Filter-bar dropdown options: distinct STORED values per filterable
- * field (agents = agent ids, channels = channel types), cascading with
- * self-exclusion. Status is not listed — its options are the static
- * ok/error enum.
+ * Filter-bar dropdown options: STORED values per filterable field
+ * (agents = agent ids, channels = channel types), cascading with
+ * self-exclusion. Each count is the "what-if" number: traces matching
+ * the value combined with the OTHER fields' active filters.
  */
 export const traceFilterOptionsResponseSchema = z.strictObject({
-  domains: z.array(z.string()),
-  subdomains: z.array(z.string()),
-  types: z.array(z.string()),
-  agents: z.array(z.string()),
-  channels: z.array(z.string()),
+  domains: z.array(traceFilterOptionSchema),
+  subdomains: z.array(traceFilterOptionSchema),
+  types: z.array(traceFilterOptionSchema),
+  agents: z.array(traceFilterOptionSchema),
+  channels: z.array(traceFilterOptionSchema),
+  statuses: z.array(
+    z.strictObject({
+      value: executionStatusSchema,
+      count: z.number().int(),
+    }),
+  ),
 });
 
 const waterfallGeometrySchema = z.strictObject({

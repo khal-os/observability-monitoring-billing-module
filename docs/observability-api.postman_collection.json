@@ -64,7 +64,7 @@
                 { "key": "search", "value": "{{sessionId}}", "description": "Busca exata por id de trace OU de sessão.", "disabled": true }
               ]
             },
-            "description": "Valores distintos ARMAZENADOS por campo filtrável (`domains`, `subdomains`, `types`, `agents` = agent.id, `channels` = channel.type), ordenados, nulls fora.\n\nCascata com auto-exclusão: as opções do campo X honram todos os filtros EXCETO o do próprio X — um dropdown selecionado continua listando suas alternativas. `status` não entra na resposta (enum fixo ok/error, a UI hardcoda). Sem paginação."
+            "description": "Valores ARMAZENADOS por campo filtrável com contagem por opção — `{value, count}[]` em `domains`, `subdomains`, `types`, `agents` (= agent.id), `channels` (= channel.type) e `statuses` — ordenados, nulls fora.\n\nCascata com auto-exclusão: as opções do campo X honram todos os filtros EXCETO o do próprio X — um dropdown selecionado continua listando suas alternativas. Cada `count` é um \"e se\": traces que casariam com aquele valor combinado aos filtros dos OUTROS campos. Sem paginação."
           }
         },
         {

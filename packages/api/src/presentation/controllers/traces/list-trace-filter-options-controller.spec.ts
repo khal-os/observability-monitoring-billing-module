@@ -7,11 +7,27 @@ import {
 import { InvalidParamError } from '../../errors/index.js';
 
 const makeOptions = (): TraceFilterOptions => ({
-  domains: ['financeiro', 'varejo'],
-  subdomains: ['cobranca', 'loja-sp'],
-  types: ['chat'],
-  agents: ['agent-atendimento', 'agent-cobranca'],
-  channels: ['web', 'whatsapp'],
+  domains: [
+    { value: 'financeiro', count: 2 },
+    { value: 'varejo', count: 5 },
+  ],
+  subdomains: [
+    { value: 'cobranca', count: 2 },
+    { value: 'loja-sp', count: 4 },
+  ],
+  types: [{ value: 'chat', count: 9 }],
+  agents: [
+    { value: 'agent-atendimento', count: 5 },
+    { value: 'agent-cobranca', count: 2 },
+  ],
+  channels: [
+    { value: 'web', count: 3 },
+    { value: 'whatsapp', count: 6 },
+  ],
+  statuses: [
+    { value: 'error', count: 1 },
+    { value: 'ok', count: 8 },
+  ],
 });
 
 class ListTraceFilterOptionsStub implements ListTraceFilterOptionsUseCase {

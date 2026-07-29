@@ -4,6 +4,7 @@ import {
   HttpRequest,
   HttpResponse,
   ListTraceFilterOptionsUseCase,
+  TraceFilterOption,
 } from './traces-protocols.js';
 import { buildSuccess } from '../../helpers/http-helper.js';
 import { parseQuery } from '../../helpers/query-validation.js';
@@ -13,6 +14,9 @@ import {
 } from './trace-filter-query.js';
 
 const querySchema = z.object(traceFilterQueryShape);
+
+const toOptionViews = (options: TraceFilterOption[]) =>
+  options.map(({ value, count }) => ({ value, count }));
 
 export class ListTraceFilterOptionsController implements Controller {
   private readonly listTraceFilterOptions: ListTraceFilterOptionsUseCase;
@@ -36,11 +40,12 @@ export class ListTraceFilterOptionsController implements Controller {
 
     // Explicit whitelist (invariant 4) — traceFilterOptionsResponseSchema.
     return buildSuccess({
-      domains: options.domains,
-      subdomains: options.subdomains,
-      types: options.types,
-      agents: options.agents,
-      channels: options.channels,
+      domains: toOptionViews(options.domains),
+      subdomains: toOptionViews(options.subdomains),
+      types: toOptionViews(options.types),
+      agents: toOptionViews(options.agents),
+      channels: toOptionViews(options.channels),
+      statuses: toOptionViews(options.statuses),
     });
   }
 }

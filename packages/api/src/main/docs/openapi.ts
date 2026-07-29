@@ -141,12 +141,14 @@ export const buildOpenApiDocument = (clientName?: string) => ({
     '/api/v1/traces/filters': {
       get: {
         tags: ['Traces'],
-        summary: 'Opções dos dropdowns de filtro (valores armazenados)',
+        summary: 'Opções dos dropdowns de filtro (valores armazenados + contagens)',
         description:
-          'Valores distintos por campo filtrável, calculados do armazenamento. ' +
-          'Cascata com auto-exclusão: as opções do campo X honram todos os ' +
-          'filtros EXCETO o do próprio X — um dropdown selecionado continua ' +
-          'listando suas alternativas. Status não é listado (enum fixo ok/error).',
+          'Valores distintos por campo filtrável (incluindo statuses), com ' +
+          'contagem por opção, calculados do armazenamento. Cascata com ' +
+          'auto-exclusão: as opções do campo X honram todos os filtros ' +
+          'EXCETO o do próprio X — um dropdown selecionado continua ' +
+          'listando suas alternativas. Cada contagem é um "e se": traces ' +
+          'que casariam com aquele valor combinado aos filtros dos OUTROS campos.',
         parameters: [...traceFilterParams],
         responses: {
           '200': okResponse(
