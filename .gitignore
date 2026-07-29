@@ -6,3 +6,6 @@ node_modules
 clients/*.env
 !clients/example.env
 demo-data/
+
+# Generated load-test archives (scripts/generate-loadtest-traces.mjs) — GBs
+loadtest/
