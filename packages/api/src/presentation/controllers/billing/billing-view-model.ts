@@ -58,6 +58,7 @@ const toLineView = (
 const toAgentGroups = (
   lines: BillingSummaryLine[],
   lineViews: LineView[],
+  partsCents: number[],
 ): BillingSummaryView['agents'] => {
   interface Group {
     agentId: string | null;
@@ -89,9 +90,10 @@ const toAgentGroups = (
     }
 
     group.costMicrocents += line.costMicrocents;
-    group.displayCents += Math.round(
-      Number((lineViews[index] as LineView).cost_brl_display) * 100,
-    );
+    // The reconciled integer cents, straight from reconcileDisplayCents —
+    // never recovered by parsing the formatted string back through floats
+    // (money is integers end to end).
+    group.displayCents += partsCents[index] as number;
     group.tokens += line.tokens;
     group.byType.set(
       line.tokenType,
@@ -153,7 +155,7 @@ export const toBillingSummaryView = (
     (sum, line) => sum + line.tokens,
     0,
   );
-  const agents = toAgentGroups(summary.lines, lineViews);
+  const agents = toAgentGroups(summary.lines, lineViews, partsCents);
   const pendingTokensTotal =
     (summary.pendingPrice.tokens.input ?? 0) +
     (summary.pendingPrice.tokens.output ?? 0) +
