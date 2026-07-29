@@ -47,7 +47,10 @@ const errorBox = document.getElementById('error');
 
 /* ---------- Traces list ---------- */
 
-const state = { page: 1 };
+const state = {
+  page: 1,
+  filters: { domain: '', subdomain: '', type: '', agent: '', status: '' },
+};
 const tbody = document.getElementById('traces-body');
 const totalLabel = document.getElementById('total-label');
 const pageLabel = document.getElementById('page-label');
@@ -100,9 +103,10 @@ const load = async (background = false) => {
     tbody.innerHTML = '<tr><td colspan="8" class="empty">Carregando…</td></tr>';
   }
   try {
-    const res = await fetch(
-      `${API_BASE}/traces?page=${state.page}&page_size=${PAGE_SIZE}`,
-    );
+    const params = buildTraceFilterParams();
+    params.set('page', state.page);
+    params.set('page_size', PAGE_SIZE);
+    const res = await fetch(`${API_BASE}/traces?${params}`);
     if (!res.ok) throw new Error(`API respondeu ${res.status}`);
     const data = await res.json();
     if (seq !== loadSeq) return;
@@ -130,6 +134,107 @@ const goToPage = (page) => {
 prevBtn.addEventListener('click', () => goToPage(state.page - 1));
 nextBtn.addEventListener('click', () =>
   goToPage(Math.min(state.page + 1, lastGoodTotalPages)));
+
+/* ---------- Traces filter bar ---------- */
+/* Dropdowns come from GET /traces/filters: stored values + "what-if"
+   counts per option, cascading with self-exclusion (the API computes
+   everything — this file only binds options to <select>s). */
+
+const FILTER_FIELDS = [
+  { key: 'domain', optionsKey: 'domains', label: 'Domínio' },
+  { key: 'subdomain', optionsKey: 'subdomains', label: 'Subdomínio' },
+  { key: 'type', optionsKey: 'types', label: 'Tipo' },
+  { key: 'agent', optionsKey: 'agents', label: 'Agente' },
+];
+
+const filterSelects = Object.fromEntries(
+  [...FILTER_FIELDS.map((f) => f.key), 'status'].map((key) => [
+    key,
+    document.getElementById(`filter-${key}`),
+  ]),
+);
+
+const buildTraceFilterParams = () => {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(state.filters)) {
+    if (value) params.set(key, value);
+  }
+  return params;
+};
+
+const optionHtml = (value, text, selected) =>
+  `<option value="${escapeHtml(value)}"${selected ? ' selected' : ''}>${escapeHtml(text)}</option>`;
+
+const renderFilterSelect = (select, label, options, current, valueLabel) => {
+  const parts = [
+    optionHtml('', `${label}: todos (${options.length})`, current === ''),
+    ...options.map((option) =>
+      optionHtml(
+        option.value,
+        `${label}: ${valueLabel(option.value)} (${option.count})`,
+        option.value === current,
+      ),
+    ),
+  ];
+  // A selected value can leave the option list when OTHER filters exclude
+  // it — keep it selectable so the user can still see and clear it.
+  if (current && !options.some((option) => option.value === current)) {
+    parts.push(optionHtml(current, `${label}: ${valueLabel(current)} (0)`, true));
+  }
+  select.innerHTML = parts.join('');
+};
+
+const renderFilterOptions = (data) => {
+  for (const field of FILTER_FIELDS) {
+    renderFilterSelect(
+      filterSelects[field.key],
+      field.label,
+      data[field.optionsKey],
+      state.filters[field.key],
+      (value) => value,
+    );
+  }
+  renderFilterSelect(
+    filterSelects.status,
+    'Status',
+    data.statuses,
+    state.filters.status,
+    (value) => STATUS_LABELS[value] ?? value,
+  );
+};
+
+let filterOptionsSeq = 0;
+
+const loadFilterOptions = async (background = false) => {
+  const seq = ++filterOptionsSeq;
+  try {
+    const res = await fetch(`${API_BASE}/traces/filters?${buildTraceFilterParams()}`);
+    if (!res.ok) throw new Error(`API respondeu ${res.status}`);
+    const data = await res.json();
+    if (seq !== filterOptionsSeq) return;
+    // Background refreshes never repaint under a focused select — the
+    // dropdown could be open and would snap shut mid-choice. Explicit
+    // changes repaint always: the user just closed the dropdown.
+    if (
+      background &&
+      Object.values(filterSelects).includes(document.activeElement)
+    ) {
+      return;
+    }
+    renderFilterOptions(data);
+  } catch {
+    /* Dropdowns keep their last options; the next reload recovers. */
+  }
+};
+
+for (const [key, select] of Object.entries(filterSelects)) {
+  select.addEventListener('change', () => {
+    state.filters[key] = select.value;
+    state.page = 1;
+    load();
+    loadFilterOptions();
+  });
+}
 
 /* ---------- Trace detail side panel ---------- */
 
@@ -692,6 +797,7 @@ fetch('/client.json')
   .catch(() => {});
 
 load();
+loadFilterOptions();
 
 /* ---------- Auto-refresh ---------- */
 /* The trace-ingestion-worker ingests continuously, so the ACTIVE list keeps itself
@@ -705,6 +811,7 @@ setInterval(() => {
   if (document.hidden) return;
   if (TABS.traces.button.classList.contains('active')) {
     load(true);
+    loadFilterOptions(true);
   } else if (TABS.sessions.button.classList.contains('active')) {
     // First visit loads via loadOnce; only refresh once that has run.
     if (!TABS.sessions.loadOnce) loadSessions(true);
