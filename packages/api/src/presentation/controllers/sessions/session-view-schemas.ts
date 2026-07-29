@@ -44,9 +44,22 @@ export const sessionListItemSchema = z.strictObject({
   age_display: z.string(),
 });
 
-export const sessionListResponseSchema = paginatedSchema(sessionListItemSchema);
+/**
+ * Sessions carry the same capped-total contract as traces (decision
+ * 77/79): counting the grouped set stops at the cap and displays carry a
+ * trailing "+".
+ */
+export const sessionListResponseSchema = paginatedSchema(
+  sessionListItemSchema,
+).extend({
+  total_capped: z.boolean(),
+  total_display: z.string(),
+  total_pages_display: z.string(),
+});
 
 export const sessionDetailResponseSchema = sessionListItemSchema.extend({
+  /** True when the chain was cut at the read bound (decision 79). */
+  chain_truncated: z.boolean(),
   chain: z.array(
     traceListItemSchema.extend({
       input: z.unknown(),

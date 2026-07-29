@@ -40,6 +40,7 @@ const makeDetail = (): SessionDetail => ({
       spans: [],
     },
   ],
+  chainTruncated: false,
 });
 
 class GetSessionDetailStub implements GetSessionDetailUseCase {

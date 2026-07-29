@@ -83,6 +83,7 @@ export const toSessionDetail = (
   now: Date,
 ): SessionDetailView => ({
   ...toSessionListItem(detail.summary, now),
+  chain_truncated: detail.chainTruncated,
   // The conversation chain (US22): each step carries its own stamped cost
   // and content — the session cost is visibly the sum of its traces.
   chain: detail.chain.map((trace) => ({

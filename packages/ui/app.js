@@ -453,8 +453,10 @@ const renderSessionRow = (session) => `<tr class="clickable" data-session-id="${
   </tr>`;
 
 const renderSessions = (data) => {
-  sessionsTotalLabel.textContent = `${data.total} sessões`;
-  sessionsPageLabel.textContent = `Página ${data.page} de ${data.total_pages}`;
+  // Capped-total displays (decisão 77/79), same contract as traces: the
+  // label carries the "+", the pager keeps the raw capped numbers.
+  sessionsTotalLabel.textContent = `${data.total_display} sessões`;
+  sessionsPageLabel.textContent = `Página ${data.page} de ${data.total_pages_display}`;
   sessionsPrevBtn.disabled = data.page <= 1;
   sessionsNextBtn.disabled = data.page >= data.total_pages;
 
@@ -550,6 +552,7 @@ const renderSessionDetail = (session) => {
         <span class="section-note">· ordem cronológica · clique para abrir o trace</span>
       </h3>
       ${session.chain.map(renderChainItem).join('')}
+      ${session.chain_truncated ? `<div class="empty">Cadeia truncada: exibindo os primeiros ${session.chain.length} traces desta sessão (os totais acima cobrem a sessão inteira).</div>` : ''}
     </section>`;
 
   document.getElementById('panel-close').addEventListener('click', closePanel);

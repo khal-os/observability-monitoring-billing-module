@@ -9,6 +9,12 @@ export interface SessionDetail {
    * transcript (US22); spans are projected out of this read (detail-only).
    */
   chain: TraceModel[];
+  /**
+   * True when the chain was cut at the read bound (decision 79) — a
+   * runaway session would otherwise assemble an unbounded transcript in
+   * memory. Truncation is never silent: the flag reaches the client.
+   */
+  chainTruncated: boolean;
 }
 
 export interface GetSessionDetailUseCase {
