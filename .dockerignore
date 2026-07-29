@@ -10,6 +10,11 @@ packages/ui
 !packages/ui/app.js
 !packages/ui/styles.css
 clients
+# Never build context: the 1M-trace archive (~577 MB) and per-client demo
+# fixtures would stream to the daemon on every build.
+loadtest
+demo-data
+scripts
 compose.*.yml
 Makefile
 CLAUDE.md
