@@ -1,6 +1,7 @@
 import { Document, Filter } from 'mongodb';
 import { TraceQueryRepository } from '../../../../application/interfaces/trace-query-repository.js';
 import { TraceListFilters } from '../../../../domain/useCases/list-traces-use-case.js';
+import { TraceFilterOptions } from '../../../../domain/useCases/list-trace-filter-options-use-case.js';
 import { Paginated, Pagination } from '../../../../domain/models/pagination.js';
 import { TraceModel } from '../../../../domain/models/trace-model.js';
 import { MongoDb } from '../mongo-db.js';
@@ -69,5 +70,40 @@ export class MongoDbTraceQueryRepository implements TraceQueryRepository {
     });
 
     return trace as unknown as TraceModel | null;
+  }
+
+  // QA15: unfiltered distincts ride DISTINCT_SCAN on the field-led indexes
+  // (migrations 003 + 012). If cascaded facets get slow at real volume, the
+  // fallback is precomputing the unfiltered options at ingestion and keeping
+  // live queries only for cascaded requests.
+  async findFilterOptions(
+    filters: TraceListFilters,
+  ): Promise<TraceFilterOptions> {
+    const traces = MongoDb.getCollection(TRACES_COLLECTION);
+
+    const distinctFor = async (
+      field: string,
+      selfKey: keyof TraceListFilters,
+    ): Promise<string[]> => {
+      // Self-exclusion cascade (see TraceQueryRepository.findFilterOptions).
+      const match = buildFilter({ ...filters, [selfKey]: undefined });
+
+      // Optional fields are stored as null, never absent — keep them out.
+      match[field] = { $ne: null };
+
+      const values = await traces.distinct(field, match);
+
+      return (values as string[]).sort();
+    };
+
+    const [domains, subdomains, types, agents, channels] = await Promise.all([
+      distinctFor('domain', 'domains'),
+      distinctFor('subdomain', 'subdomains'),
+      distinctFor('type', 'types'),
+      distinctFor('agent.id', 'agentIds'),
+      distinctFor('channel.type', 'channels'),
+    ]);
+
+    return { domains, subdomains, types, agents, channels };
   }
 }

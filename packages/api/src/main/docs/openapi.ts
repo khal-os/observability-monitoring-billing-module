@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { apiErrorSchema } from '../../presentation/helpers/docs-schemas.js';
 import {
   traceDetailResponseSchema,
+  traceFilterOptionsResponseSchema,
   traceListResponseSchema,
 } from '../../presentation/controllers/traces/trace-view-schemas.js';
 import {
@@ -78,6 +79,7 @@ const periodParams = [
   }),
 ];
 
+/** Shared by GET /traces and GET /traces/filters (decision 76). */
 const traceFilterParams = [
   ...periodParams,
   listQueryParam('agent', 'Ids de agente (repita o parâmetro para OR).'),
@@ -131,6 +133,26 @@ export const buildOpenApiDocument = (clientName?: string) => ({
         parameters: [...traceFilterParams, ...paginationParams],
         responses: {
           '200': okResponse('Página de traces.', traceListResponseSchema),
+          '400': errorResponse('Parâmetro de consulta inválido.'),
+          '500': errorResponse('Erro interno.'),
+        },
+      },
+    },
+    '/api/v1/traces/filters': {
+      get: {
+        tags: ['Traces'],
+        summary: 'Opções dos dropdowns de filtro (valores armazenados)',
+        description:
+          'Valores distintos por campo filtrável, calculados do armazenamento. ' +
+          'Cascata com auto-exclusão: as opções do campo X honram todos os ' +
+          'filtros EXCETO o do próprio X — um dropdown selecionado continua ' +
+          'listando suas alternativas. Status não é listado (enum fixo ok/error).',
+        parameters: [...traceFilterParams],
+        responses: {
+          '200': okResponse(
+            'Opções por campo.',
+            traceFilterOptionsResponseSchema,
+          ),
           '400': errorResponse('Parâmetro de consulta inválido.'),
           '500': errorResponse('Erro interno.'),
         },

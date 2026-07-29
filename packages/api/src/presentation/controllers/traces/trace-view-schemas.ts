@@ -63,6 +63,20 @@ export const traceListItemSchema = z.strictObject({
 
 export const traceListResponseSchema = paginatedSchema(traceListItemSchema);
 
+/**
+ * Filter-bar dropdown options: distinct STORED values per filterable
+ * field (agents = agent ids, channels = channel types), cascading with
+ * self-exclusion. Status is not listed — its options are the static
+ * ok/error enum.
+ */
+export const traceFilterOptionsResponseSchema = z.strictObject({
+  domains: z.array(z.string()),
+  subdomains: z.array(z.string()),
+  types: z.array(z.string()),
+  agents: z.array(z.string()),
+  channels: z.array(z.string()),
+});
+
 const waterfallGeometrySchema = z.strictObject({
   left_percent: z.number(),
   width_percent: z.number(),

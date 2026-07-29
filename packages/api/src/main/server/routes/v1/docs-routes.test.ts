@@ -8,6 +8,7 @@ import { server } from '../../app.js';
 import { routeDbHarness } from './helpers/route-db-harness.js';
 import {
   traceDetailResponseSchema,
+  traceFilterOptionsResponseSchema,
   traceListResponseSchema,
 } from '../../../../presentation/controllers/traces/trace-view-schemas.js';
 import {
@@ -50,6 +51,7 @@ describe('API Docs (OpenAPI)', () => {
         '/api/v1/sessions',
         '/api/v1/sessions/{id}',
         '/api/v1/traces',
+        '/api/v1/traces/filters',
         '/api/v1/traces/{id}',
       ]);
     });
@@ -81,6 +83,16 @@ describe('API Docs (OpenAPI)', () => {
       const response = await request(app).get('/api/v1/traces').expect(200);
 
       expect(() => traceListResponseSchema.parse(response.body)).not.toThrow();
+    });
+
+    it('GET /traces/filters MUST match the published options schema (strict)', async () => {
+      const response = await request(app)
+        .get('/api/v1/traces/filters')
+        .expect(200);
+
+      expect(() =>
+        traceFilterOptionsResponseSchema.parse(response.body),
+      ).not.toThrow();
     });
 
     it('GET /traces/:id MUST match the published detail schema — stamped and pending', async () => {

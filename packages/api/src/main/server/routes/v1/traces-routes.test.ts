@@ -101,6 +101,61 @@ describe('Traces Routes', () => {
     });
   });
 
+  describe('GET /api/v1/traces/filters', () => {
+    it('MUST list the distinct stored values per filterable field', async () => {
+      const response = await request(app)
+        .get('/api/v1/traces/filters')
+        .expect(200);
+
+      expect(response.body).toEqual({
+        domains: ['financeiro', 'suporte', 'varejo'],
+        subdomains: ['cobranca', 'loja-sp'],
+        types: ['chat'],
+        agents: ['agent-atendimento', 'agent-cobranca', 'agent-suporte'],
+        channels: ['web', 'whatsapp'],
+      });
+    });
+
+    it('MUST cascade with self-exclusion: a selected field keeps its alternatives', async () => {
+      const response = await request(app)
+        .get('/api/v1/traces/filters?domain=varejo')
+        .expect(200);
+
+      // Every other field narrows to the varejo traces...
+      expect(response.body.subdomains).toEqual(['loja-sp']);
+      expect(response.body.agents).toEqual(['agent-atendimento']);
+      expect(response.body.channels).toEqual(['web', 'whatsapp']);
+      // ...while the domain dropdown itself still lists the alternatives.
+      expect(response.body.domains).toEqual([
+        'financeiro',
+        'suporte',
+        'varejo',
+      ]);
+    });
+
+    it('MUST apply dropdown-less filters (status) to every field', async () => {
+      const response = await request(app)
+        .get('/api/v1/traces/filters?status=error')
+        .expect(200);
+
+      // The only error trace is trace-w1-005 (agent-cobranca, financeiro).
+      expect(response.body).toEqual({
+        domains: ['financeiro'],
+        subdomains: ['cobranca'],
+        types: ['chat'],
+        agents: ['agent-cobranca'],
+        channels: ['whatsapp'],
+      });
+    });
+
+    it('MUST answer 400 (not 500) for invalid query params', async () => {
+      await request(app).get('/api/v1/traces/filters?from=banana').expect(400);
+      await request(app)
+        .get('/api/v1/traces/filters?status=pending')
+        .expect(400);
+    });
+  });
+
   describe('GET /api/v1/traces/:id', () => {
     it('MUST return the full anatomy: metrics, ordered spans, content, session link', async () => {
       const response = await request(app)
@@ -192,9 +247,15 @@ describe('Traces Routes', () => {
       const detail = await request(app)
         .get('/api/v1/traces/trace-w1-001')
         .expect(200);
+      const filters = await request(app)
+        .get('/api/v1/traces/filters')
+        .expect(200);
 
       expect(JSON.stringify(list.body)).not.toMatch(FORBIDDEN_INTERNAL_KEYS);
       expect(JSON.stringify(detail.body)).not.toMatch(FORBIDDEN_INTERNAL_KEYS);
+      expect(JSON.stringify(filters.body)).not.toMatch(
+        FORBIDDEN_INTERNAL_KEYS,
+      );
     });
   });
 });
