@@ -68,8 +68,14 @@ endpoints `GET /traces`, `GET /traces/:id`, `GET /sessions`,
 one billing aggregate endpoint (month × agent × model) that visibly equals
 the sum of stamped costs.
 
-OUT: month close/snapshot, exports, trends/projection, RBAC/auth, voice,
+OUT: month close/snapshot, exports, trends/projection, RBAC, voice,
 masking/retention, admin UIs, alerts.
+
+Auth (added post-PoC): env-gated M2M bearer auth on `/api/v1` — with
+`AUTH_SYSTEM_URL` set, every request needs a token the khal Auth System
+accepts (introspection, authenticated-or-not ONLY). The module holds no
+scope/tenant logic — that is a platform invariant, not an omission. Unset →
+API open (PoC behavior).
 
 ## Working agreements
 

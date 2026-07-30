@@ -43,6 +43,9 @@ const envSchema = z
       .string()
       .regex(/^\d+$/, 'SERVER_PORT must be a valid integer string'),
     CLIENT_NAME: z.string().optional(),
+    AUTH_SYSTEM_URL: z.string().optional(),
+    AUTH_SYSTEM_CLIENT_ID: z.string().optional(),
+    AUTH_SYSTEM_CLIENT_SECRET: z.string().optional(),
     MONGO_DB_PORT: z
       .string()
       .regex(/^\d+$/, 'MONGO_DB_PORT must be a valid integer string')
@@ -109,6 +112,9 @@ export const environment: EnvironmentVariables = {
   Environment: safeEnvironment.ENVIRONMENT,
   serverPort: safeEnvironment.SERVER_PORT,
   clientName: safeEnvironment.CLIENT_NAME || undefined,
+  authSystemUrl: safeEnvironment.AUTH_SYSTEM_URL || undefined,
+  authSystemClientId: safeEnvironment.AUTH_SYSTEM_CLIENT_ID || undefined,
+  authSystemClientSecret: safeEnvironment.AUTH_SYSTEM_CLIENT_SECRET || undefined,
   mongoDbAtlas: safeEnvironment.MONGO_DB_ATLAS,
   mongoDbHost: safeEnvironment.MONGO_DB_HOST,
   mongoDbName: safeEnvironment.MONGO_DB_NAME,

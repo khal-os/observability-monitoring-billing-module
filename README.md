@@ -112,6 +112,21 @@ configured) still needs windows under ~100 traces (QA14 finding:
 LangWatch's search API ignores `pageOffset`, silently capping at the
 newest 100).
 
+## API auth (env-gated, off by default)
+
+Set `AUTH_SYSTEM_URL` (the khal Auth System base URL) in the client env and
+every `/api/v1` request must carry `Authorization: Bearer <M2M token>`. The
+module validates by **introspection** (RFC 7662): it forwards the token and
+reads only `active` — authenticated-or-not, no scope or tenant logic here
+(that's the platform's M2M model). Introspection is itself a protected
+endpoint, so the module needs its **own** M2M credential
+(`AUTH_SYSTEM_CLIENT_ID` / `AUTH_SYSTEM_CLIENT_SECRET`, sent as Basic) —
+without it, and whenever the Auth System is unreachable, requests answer 401
+(fail closed). Unset URL → the API is open, the original PoC behavior.
+`/api/v1/docs` stays open either way (container healthcheck). Note: the
+bundled UI does not send a token yet — turn auth on only for API-only
+deployments for now.
+
 ## LangWatch (per client, inside the deployment)
 
 Each client's stack carries its own LangWatch (pinned

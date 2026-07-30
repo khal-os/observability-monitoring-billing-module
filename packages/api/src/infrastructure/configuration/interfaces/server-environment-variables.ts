@@ -8,4 +8,19 @@ export interface ServerEnvironmentVariables {
    * absent in tests/bare dev runs.
    */
   clientName?: string;
+  /**
+   * Base URL of the khal Auth System (M2M). When set, every /api/v1 request
+   * must carry a Bearer token the Auth System accepts (introspection —
+   * authenticated-or-not only; the module never inspects claims, scopes or
+   * tenant). Unset → API open (PoC behavior).
+   */
+  authSystemUrl?: string;
+  /**
+   * This module's own M2M credential — the Auth System's /introspect is a
+   * protected endpoint (RFC 7662): the module must authenticate itself
+   * (Basic) to ask "is this token active". Without them every introspection
+   * fails closed (all requests 401).
+   */
+  authSystemClientId?: string;
+  authSystemClientSecret?: string;
 }

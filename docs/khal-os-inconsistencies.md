@@ -79,11 +79,26 @@ US-M5: *"dado o `endpoint`/`requiredScopes` (`tracing:read`) descobertos, **quan
 Racional de segurança: *"o module **ainda** exige o token de escopo próprio (defesa em profundidade)"*
 ADR-77: escopos `tracing:read`.
 
-**Código:** nenhuma autenticação em `/api/v1`. A única ocorrência de `Authorization` é a lista de headers permitidos do CORS, e o CORS é wildcard (`access-control-allow-origin: *`) sobre conteúdo integral de conversas. `CLAUDE.md` corta auth do escopo do PoC — é lacuna conhecida, não descuido.
+**Código:** ~~nenhuma autenticação em `/api/v1`~~ **RESOLVIDO (parcial)** — a API
+ganhou auth gateada por env: com `AUTH_SYSTEM_URL` setada, todo request a
+`/api/v1` exige `Authorization: Bearer <token M2M>`, validado por
+**introspection no Auth System** (RFC 7662, só `active` é lido — fail closed).
+Sem a env, a API segue aberta (compat PoC). Implementação:
+`main/server/middlewares/auth.ts` + `infrastructure/auth/http-token-authenticator.ts`.
 
-**Ação (dois itens separáveis):**
-1. Validação de JWT por JWKS (`iss`/`aud`/`exp`, RS256, sem chamar o Auth a cada request) + checagem de escopo `tracing:read`. Gatilho: integração com a plataforma.
-2. Restringir o CORS — independente da plataforma, vale antes.
+> Nota: o desenho implementado segue a simplificação M2M da plataforma
+> (spec `spec-simplificacao-m2m-discovery-versao.md` — claims
+> `{tenant, client_id, client_secret}`, **sem scopes**) e SUPERSEDE a proposta
+> original abaixo (JWKS local + checagem de escopo `tracing:read`): o module
+> pergunta ao Auth System "autenticado ou não" a cada request e não carrega
+> nenhuma lógica de scope/tenant.
+
+**Ação restante:**
+1. ~~Validação de JWT por JWKS + checagem de escopo `tracing:read`~~ — superada
+   pela introspection sem scopes (acima).
+2. Restringir o CORS — independente da plataforma, vale antes. **(ainda aberto)**
+3. Quando a auth for ligada num cliente, a UI/nginx precisa passar a enviar o
+   token (hoje chama a API sem header). **(aberto)**
 
 ## 6 — O module não é registrável · **FIX CODE**
 
