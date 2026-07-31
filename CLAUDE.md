@@ -46,7 +46,9 @@ content) → live views (traces/sessions) + monthly aggregates (billing).
 7. **Attribution (agent/metadata) is mutable in open periods; the price stamp
    is not.** Corrections re-aggregate, never re-price.
 8. **Billing period = calendar month.** Current month is always partial and
-   must be labeled so. Month close/snapshot (T6) is OUT of PoC scope.
+   must be labeled so. A month closes (T6) only when fully past, via the
+   audited runbook flow; a closed month is served exclusively from its
+   immutable snapshot — never recomputed.
 9. **Prices are versioned data** (no admin UI in v1), registered via
    `POST /api/v1/prices` or the `price:insert` runbook job — both share ONE
    use case (canonical model key + immediate reprocess, decisions 82/57/83).
@@ -68,8 +70,21 @@ endpoints `GET /traces`, `GET /traces/:id`, `GET /sessions`,
 one billing aggregate endpoint (month × agent × model) that visibly equals
 the sum of stamped costs.
 
-OUT: month close/snapshot, exports, trends/projection, RBAC, voice,
-masking/retention, admin UIs, alerts.
+OUT: RBAC, voice, masking/retention, admin UIs, alerts.
+
+Billing épicos 5–8 (added post-PoC, decisions 87–95 —
+`docs/produto/billing-implementacao.md` is the working doc): T6 month
+lifecycle (open→closed; runbook-only `make billing-close`/`billing-reopen`;
+close blocked while pending_price exists; snapshot = inputs + outputs +
+audit, all versions kept; reproducibility is an automated acceptance test) ·
+T7 statement read layer (`GET /billing/summary` serves a CLOSED month
+exclusively from its snapshot, open months live via the SAME pure engine —
+`statement-engine.ts` is the one calculation; `/bills` carries period
+status) · T8 series + current-month run-rate projection (estimate only,
+never persisted) · T9 composition (model mix, cache savings with explicit
+write cost) · US17 exports (CSV + printable HTML; current month watermarked
+PARCIAL). Post-close arrivals are archived but `billingQuarantine`-flagged;
+reprocess skips closed months.
 
 Auth (added post-PoC): env-gated M2M bearer auth on `/api/v1` — with
 `AUTH_SYSTEM_URL` set, every request needs a token the khal Auth System
