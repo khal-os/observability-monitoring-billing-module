@@ -116,6 +116,31 @@
         <span id="bills-total-label" class="total-label"></span>
       </header>
 
+      <div id="billing-projection" class="projection-card hidden"></div>
+
+      <div id="billing-evolution" class="evolution-panel hidden">
+        <h2 class="section-title">Evolução do custo
+          <span class="section-note">· barras empilhadas por tipo de token · fechado bate com o extrato; parcial listrado</span>
+        </h2>
+        <div class="chart-controls">
+          <div class="granularity-seg" role="group" aria-label="Granularidade">
+            <button id="gran-month" class="seg-btn active">Meses</button>
+            <button id="gran-day" class="seg-btn">Dias</button>
+          </div>
+          <div id="day-range-seg" class="granularity-seg hidden" role="group" aria-label="Janela de dias">
+            <button class="seg-btn" data-days="7">7 dias</button>
+            <button class="seg-btn active" data-days="30">30 dias</button>
+            <button class="seg-btn" data-days="90">90 dias</button>
+          </div>
+        </div>
+        <div id="billing-series-chips" class="series-chips"></div>
+        <div class="billing-chart-wrap">
+          <div id="billing-chart" class="billing-chart"></div>
+          <div id="billing-chart-x" class="billing-chart-x"></div>
+        </div>
+        <div id="billing-chart-legend" class="tk-legend" style="margin-top:10px"></div>
+      </div>
+
       <div class="table-wrap">
         <table>
           <thead>
@@ -135,8 +160,9 @@
       </div>
 
       <p class="billing-note">
-        Uma fatura por mês-calendário. Total ≡ soma dos custos carimbados dos
-        traces do mês; traces com preço pendente ficam fora do total até o
+        Uma fatura por mês-calendário. Fechado = final, servido do snapshot de
+        auditoria; em andamento = parcial. Total ≡ soma dos custos carimbados
+        dos traces do mês; traces com preço pendente ficam fora do total até o
         carimbo. Clique em uma fatura para ver o extrato.
       </p>
     </section>

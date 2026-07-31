@@ -709,10 +709,145 @@ const openSessionPanel = async (sessionId) => {
 onRowActivate(sessionsBody, 'tr[data-session-id]', (row) =>
   openSessionPanel(row.dataset.sessionId));
 
-/* ---------- Faturas (bills) ---------- */
+/* ---------- Faturas (bills + extrato T7) ---------- */
 
 const billsBody = document.getElementById('bills-body');
 const billsTotalLabel = document.getElementById('bills-total-label');
+
+/* Presentation constant (like SPAN_COLORS): slice colors for the model mix
+   donut — geometry (start/end percents) comes ready from the API. */
+const MIX_COLORS = ['#a78bfa', '#60a5fa', '#4ade80', '#fbbf24', '#f472b6', '#2dd4bf', '#fb923c', '#8f867b'];
+
+const statusPillHtml = (data) => {
+  if (data.final) return `<span class="final-badge">${escapeHtml(data.status_label)}</span>`;
+  if (data.partial) return `<span class="partial-badge" style="margin-left:0">${escapeHtml(data.status_label)}</span>`;
+  return `<span class="open-badge">${escapeHtml(data.status_label)}</span>`;
+};
+
+const deltaClass = (direction) =>
+  direction === 'up' ? 'delta-up' : direction === 'down' ? 'delta-down' : 'delta-flat';
+
+const renderComparison = (comparison) => {
+  if (!comparison) return '';
+  const agentRows = comparison.by_agent.map((agent) => `<tr>
+    <td>${escapeHtml(agent.agent_label)}${agent.version_label ? ` <span class="agent-sub">${escapeHtml(agent.version_label)}</span>` : ''}</td>
+    <td class="num">${escapeHtml(agent.previous_cost_brl_display)}</td>
+    <td class="num">${escapeHtml(agent.current_cost_brl_display)}</td>
+    <td class="num ${deltaClass(agent.direction)}">${escapeHtml(agent.delta_brl_display)}${agent.delta_percent_display ? ` (${escapeHtml(agent.delta_percent_display)})` : ''}</td>
+  </tr>`).join('');
+
+  return `<section class="panel-section">
+    <h3 class="section-title">Vs. ${escapeHtml(comparison.previous_month_label)}
+      <span class="section-note">· informativo${comparison.previous_partial ? ' · mês anterior parcial' : ''}</span>
+    </h3>
+    <div class="comparison-card">
+      <span>Mês anterior: <b>${escapeHtml(comparison.previous_total_cost_brl_display)}</b></span>
+      · variação <b class="${deltaClass(comparison.direction)}">${escapeHtml(comparison.delta_brl_display)}${comparison.delta_percent_display ? ` (${escapeHtml(comparison.delta_percent_display)})` : ''}</b>
+      <table class="comparison-table">
+        <thead><tr><th>Agente</th><th class="num">Anterior</th><th class="num">Atual</th><th class="num">Δ</th></tr></thead>
+        <tbody>${agentRows}</tbody>
+      </table>
+    </div>
+  </section>`;
+};
+
+/* One color per MODEL, assigned from the total mix (which contains every
+   model of the month) — the same model paints the same color in every
+   donut, total and per agent alike. */
+const buildMixColorOf = (totalShares) => {
+  const colors = new Map(
+    totalShares.map((share, index) => [
+      share.model_label,
+      MIX_COLORS[index % MIX_COLORS.length],
+    ]),
+  );
+  return (label) => colors.get(label) ?? MIX_COLORS[MIX_COLORS.length - 1];
+};
+
+const donutHtml = (shares, colorOf) => {
+  if (!shares.length) return '';
+  const stops = shares.map((share) =>
+    `${colorOf(share.model_label)} ${share.donut_start_percent}% ${share.donut_end_percent}%`,
+  ).join(', ');
+  // Money first (pedido do Matheus): each model's R$ and its slice of the
+  // MONTH'S COST — token share stays available in the API, not shown here.
+  const legend = shares.map((share) => `<div class="mix-legend-item">
+      <i style="background:${colorOf(share.model_label)}"></i>
+      <span>${escapeHtml(share.model_label)}</span>
+      <span class="mix-tokens">${escapeHtml(share.cost_brl_display)}</span>
+      <span class="mix-share">${escapeHtml(share.cost_share_percent_display)}</span>
+    </div>`).join('');
+
+  return `<div class="mix-wrap">
+    <div class="mix-donut" style="background:conic-gradient(${stops})"></div>
+    <div class="mix-legend">${legend}</div>
+  </div>`;
+};
+
+/* ONE donut: each agent's slice of the month cost — above the model mix. */
+const renderAgentMix = (agentMix) => {
+  if (!agentMix.length) return '';
+
+  const stops = agentMix.map((slice, index) =>
+    `${MIX_COLORS[index % MIX_COLORS.length]} ${slice.donut_start_percent}% ${slice.donut_end_percent}%`,
+  ).join(', ');
+  const legend = agentMix.map((slice, index) => `<div class="mix-legend-item">
+      <i style="background:${MIX_COLORS[index % MIX_COLORS.length]}"></i>
+      <span>${escapeHtml(slice.agent_label)}</span>
+      <span class="mix-tokens">${escapeHtml(slice.cost_brl_display)}</span>
+      <span class="mix-share">${escapeHtml(slice.cost_share_percent_display)}</span>
+    </div>`).join('');
+
+  return `<section class="panel-section">
+    <h3 class="section-title">Participação por agente
+      <span class="section-note">· quanto do custo do mês cada agente representa</span>
+    </h3>
+    <div class="mix-wrap">
+      <div class="mix-donut" style="background:conic-gradient(${stops})"></div>
+      <div class="mix-legend">${legend}</div>
+    </div>
+  </section>`;
+};
+
+const renderModelMix = (mix) => {
+  if (!mix.total.length) return '';
+  const colorOf = buildMixColorOf(mix.total);
+
+  return `<section class="panel-section">
+    <h3 class="section-title">Mix de modelos
+      <span class="section-note">· participação no custo do mês (US15)</span>
+    </h3>
+    ${donutHtml(mix.total, colorOf)}
+  </section>`;
+};
+
+const renderCacheSavings = (cache) => {
+  if (cache.cache_read_tokens === 0 && cache.cache_write_cost_brl_display === 'R$ 0,00') {
+    return '';
+  }
+
+  return `<section class="panel-section">
+    <h3 class="section-title">Economia de cache
+      <span class="section-note">· contrafactual aos preços contratados (QA7: escrita explícita)</span>
+    </h3>
+    <div class="cache-card">
+      <div class="cache-grid">
+        <div><div class="stat-label">Cache leitura</div>${escapeHtml(cache.cache_read_tokens_display)} tokens</div>
+        <div><div class="stat-label">Custo real (leitura)</div>${escapeHtml(cache.actual_cache_read_cost_brl_display)}</div>
+        <div><div class="stat-label">Se fosse input normal</div>${escapeHtml(cache.counterfactual_input_cost_brl_display)}</div>
+        <div><div class="stat-label">Economia bruta</div>${escapeHtml(cache.savings_brl_display)}</div>
+        <div><div class="stat-label">Cache escrita (custo real)</div>${escapeHtml(cache.cache_write_cost_brl_display)}</div>
+        <div><div class="stat-label">Economia líquida</div>
+          <span class="${cache.net_positive ? 'savings-positive' : 'savings-negative'}">${escapeHtml(cache.net_savings_brl_display)}</span>
+        </div>
+      </div>
+      <p class="billing-note" style="margin-top:10px">${escapeHtml(cache.basis_text)}${
+        cache.unpriceable_cache_read_traces > 0
+          ? ` ${cache.unpriceable_cache_read_traces} trace(s) com cache read sem preço de input carimbado ficaram fora do contrafactual.`
+          : ''}</p>
+    </div>
+  </section>`;
+};
 
 const renderBillPanel = (data) => {
   const legend = Object.entries(TOKEN_TYPE_LABELS).map(([type, label]) =>
@@ -723,10 +858,12 @@ const renderBillPanel = (data) => {
     const segments = group.segments.map((segment) =>
       `<div class="cost-seg" style="width:${segment.width_percent}%;background:${TOKEN_TYPE_COLORS[segment.token_type]}" title="${escapeHtml(segment.label)}"></div>`,
     ).join('');
+    // US8: every line shows quantidade × preço contratado = custo.
     const rows = group.lines.map((line) => `<tr>
       <td>${escapeHtml(line.model_label)}</td>
-      <td>${escapeHtml(line.token_type)}</td>
+      <td>${escapeHtml(line.token_type_label)}</td>
       <td class="num">${escapeHtml(line.tokens_display)}</td>
+      <td class="num mono" title="vigente desde ${escapeHtml(line.unit_price_effective_from_display)}">${escapeHtml(line.unit_price_brl_per_million_display)}</td>
       <td class="num mono">${escapeHtml(line.cost_brl_exact_display)}</td>
       <td class="num">${escapeHtml(line.cost_brl_display_brl)}</td>
     </tr>`).join('');
@@ -738,12 +875,15 @@ const renderBillPanel = (data) => {
           <span class="agent-sub">${group.version_label ? escapeHtml(group.version_label) : ''} · ${escapeHtml(group.tokens_total_display)} tokens</span>
         </span>
         <div class="cost-track">${segments}</div>
-        <span class="agent-total">${escapeHtml(group.cost_brl_display)}</span>
+        <span class="agent-total">${escapeHtml(group.cost_brl_display)}
+          <span class="agent-share">${escapeHtml(group.percent_of_total_display)}</span>
+        </span>
       </summary>
       <div class="agent-lines">
         <table class="cost-table">
           <thead><tr>
             <th>Modelo</th><th>Tipo</th><th class="num">Tokens</th>
+            <th class="num">Preço (R$/M)</th>
             <th class="num">Custo exato</th><th class="num">Custo exibido</th>
           </tr></thead>
           <tbody>${rows}</tbody>
@@ -752,18 +892,46 @@ const renderBillPanel = (data) => {
     </details>`;
   }).join('');
 
+  const reopenNotes = data.reopen_notes.map((note) =>
+    `<div class="reopen-note">Reaberto em ${escapeHtml(note.at_display)} — ${escapeHtml(note.reason)}</div>`,
+  ).join('');
+
+  const versions = data.snapshot_versions.length > 1
+    ? `<span>· versões: ${data.snapshot_versions.map((version) =>
+        `v${version.version} (${escapeHtml(version.created_at_display)})`).join(', ')}</span>`
+    : '';
+
+  const exportQuery = `year=${data.year}&month=${data.month}`;
+
   panelContent.innerHTML = `
     <div class="panel-topbar">
       <span class="panel-eyebrow">Fatura · extrato do mês</span>
       <button class="panel-close" id="panel-close" aria-label="Fechar">✕</button>
     </div>
     <div class="panel-trace-id">${escapeHtml(data.month_label)}</div>
+    <div class="panel-meta">
+      ${statusPillHtml(data)}
+      ${data.closed_at_display ? `<span>fechado em ${escapeHtml(data.closed_at_display)}${data.snapshot_version !== null ? ` · snapshot v${data.snapshot_version}` : ''}</span>` : ''}
+      ${versions}
+      ${data.watermark_display ? `<span>· ${escapeHtml(data.watermark_display)}</span>` : ''}
+    </div>
+    ${reopenNotes}
+
+    <div class="export-row">
+      <a class="export-btn" href="${API_BASE}/billing/statement?${exportQuery}&format=csv" download>⬇ CSV${data.partial ? ' (parcial)' : ''}</a>
+      <a class="export-btn" href="${API_BASE}/billing/statement?${exportQuery}&format=html" target="_blank" rel="noopener">🖨 Imprimir / PDF</a>
+    </div>
+
     <div class="billing-hero">
       <div class="stat">
-        <div class="stat-label">Total do mês${data.partial ? ' (parcial)' : ''}</div>
+        <div class="stat-label">Total do mês${data.partial ? ' (parcial)' : data.final ? ' (final)' : ''}</div>
         <div class="stat-value hero">${escapeHtml(data.total_cost_brl_display)}
           ${data.partial ? '<span class="partial-badge">mês em andamento</span>' : ''}
         </div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Execuções</div>
+        <div class="stat-value">${data.stamped_trace_count}</div>
       </div>
       <div class="stat">
         <div class="stat-label">Tokens carimbados</div>
@@ -787,19 +955,32 @@ const renderBillPanel = (data) => {
         O custo entra no mês quando o preço for cadastrado.
       </div>` : ''}
 
+    ${data.quarantined_trace_count > 0 ? `
+      <div class="pending-card">
+        <strong>${data.quarantined_trace_count} trace(s) em quarentena</strong> —
+        chegaram DEPOIS do fechamento do mês. Ficam fora da fatura congelada;
+        entram só via reabertura auditada (runbook).
+      </div>` : ''}
+
     ${data.agents.length ? `
       <section class="panel-section">
         <h3 class="section-title">Custo por agente
-          <span class="section-note">· barra proporcional ao custo · clique para detalhar por modelo e tipo de token</span>
+          <span class="section-note">· % do total · clique para ver a conta: quantidade × preço = custo</span>
         </h3>
         <div class="tk-legend">${legend}</div>
         ${agentGroups}
       </section>` : '<p class="empty">Nenhum custo carimbado neste mês.</p>'}
 
+    ${renderComparison(data.comparison)}
+    ${renderAgentMix(data.agent_mix)}
+    ${renderModelMix(data.model_mix)}
+    ${renderCacheSavings(data.cache_savings)}
+
     <p class="billing-note">
       Total ≡ soma dos custos carimbados dos traces do mês (uma única fonte de
       verdade). Valores exibidos arredondados half-up em 2 casas; as partes
-      exibidas fecham exatamente com o total exibido.
+      exibidas fecham exatamente com o total exibido. Mês fechado é servido do
+      snapshot de auditoria — o número nunca muda depois do fechamento.
     </p>`;
 
   wirePanelClose();
@@ -830,10 +1011,10 @@ const openBillPanel = async (year, month) => {
 };
 
 const renderBillRow = (bill) => `<tr class="clickable" role="button" tabindex="0" data-year="${bill.year}" data-month="${bill.month}">
-  <td class="agent-name">${escapeHtml(bill.month_label)}</td>
-  <td>${bill.partial
-    ? `<span class="partial-badge">${escapeHtml(bill.status_label)}</span>`
-    : `<span class="when">${escapeHtml(bill.status_label)}</span>`}</td>
+  <td class="agent-name">${escapeHtml(bill.month_label)}${bill.snapshot_version !== null && bill.snapshot_version > 1 ? ` <span class="when">snapshot v${bill.snapshot_version}</span>` : ''}</td>
+  <td>${statusPillHtml(bill)}${bill.quarantined_trace_count > 0
+    ? ` <span class="pending" title="traces chegados após o fechamento — fora da fatura congelada">${bill.quarantined_trace_count} em quarentena</span>`
+    : ''}</td>
   <td class="num">${bill.stamped_trace_count}</td>
   <td class="num">${bill.pending_trace_count > 0
     ? `<span class="pending">${bill.pending_trace_count}</span>`
@@ -868,6 +1049,160 @@ const loadBills = async () => {
 onRowActivate(billsBody, 'tr[data-year]', (row) =>
   openBillPanel(row.dataset.year, row.dataset.month));
 
+/* ---------- Projeção do mês corrente (US12) ---------- */
+
+const projectionCard = document.getElementById('billing-projection');
+
+const loadBillingProjection = async () => {
+  try {
+    const res = await fetch(`${API_BASE}/billing/projection`);
+    if (!res.ok) throw new Error(`API respondeu ${res.status}`);
+    const data = await res.json();
+    projectionCard.innerHTML = `
+      <div class="projection-label">Projeção de ${escapeHtml(data.month_label)} · estimativa — não é fatura</div>
+      ${data.insufficient_data
+        ? `<div>Dados insuficientes para projetar (${data.complete_days} dia(s) completo(s)).</div>`
+        : `<span class="projection-value">${escapeHtml(data.projected_cost_brl_display)}</span>
+           <span class="when">projetado · ${escapeHtml(data.accrued_cost_brl_display)} até agora</span>`}
+      <div class="projection-basis">${escapeHtml(data.basis_text)}</div>`;
+    projectionCard.classList.remove('hidden');
+  } catch {
+    /* Estimate only — absence is fine; the card just stays hidden. */
+    projectionCard.classList.add('hidden');
+  }
+};
+
+/* ---------- Evolução do custo (US11 + visão diária, decisão 97) ---------- */
+/* Every series arrives with bar heights AND stacked segment geometry
+   precomputed on ONE shared scale — toggling series or granularity is a
+   pure re-bind, no client math (decision 51). */
+
+const evolutionPanel = document.getElementById('billing-evolution');
+const seriesChips = document.getElementById('billing-series-chips');
+const billingChart = document.getElementById('billing-chart');
+const billingChartX = document.getElementById('billing-chart-x');
+const billingChartLegend = document.getElementById('billing-chart-legend');
+const granMonthBtn = document.getElementById('gran-month');
+const granDayBtn = document.getElementById('gran-day');
+const dayRangeSeg = document.getElementById('day-range-seg');
+
+const MAX_SERIES_CHIPS = 9;
+
+const billingSeriesState = {
+  granularity: 'month',
+  days: 30,
+  series: [],
+  selectedKey: 'total',
+};
+
+const renderBillingChart = () => {
+  const series = billingSeriesState.series.find(
+    (candidate) => candidate.key === billingSeriesState.selectedKey,
+  ) ?? billingSeriesState.series[0];
+  if (!series) return;
+
+  const daily = billingSeriesState.granularity === 'day';
+
+  billingChart.innerHTML = series.points.map((point) => {
+    const segments = point.segments.map((segment) =>
+      `<div class="billing-seg tk-${segment.token_type}" style="height:${segment.stack_percent}%" title="${escapeHtml(point.month_label)} · ${escapeHtml(segment.label)}"></div>`,
+    ).join('');
+    return `
+    <div class="billing-bar-col" title="${escapeHtml(point.month_label)} · ${escapeHtml(point.cost_brl_display)}${point.partial ? ' (parcial)' : ''}">
+      <span class="bar-value">${escapeHtml(point.cost_brl_display)}</span>
+      <div class="billing-stack${point.partial ? ' partial' : ''}" style="height:${point.height_percent}%">${segments}</div>
+    </div>`;
+  }).join('');
+
+  // Daily x-axis: label every Nth day so 90 bars stay readable.
+  const labelEvery = daily ? Math.ceil(series.points.length / 12) : 1;
+  billingChartX.innerHTML = series.points.map((point, index) =>
+    `<span>${index % labelEvery === 0 ? escapeHtml(point.short_label) : ''}${point.partial && index % labelEvery === 0 ? '*' : ''}</span>`,
+  ).join('');
+
+  billingChartLegend.innerHTML = Object.entries(TOKEN_TYPE_LABELS).map(([type, label]) =>
+    `<span><span class="tk-swatch" style="background:${TOKEN_TYPE_COLORS[type]}"></span>${label}</span>`,
+  ).join('');
+};
+
+const renderSeriesChips = () => {
+  // Agent/model toggles exist on the monthly lens; the daily lens is the
+  // total only (decision 97).
+  if (billingSeriesState.granularity === 'day') {
+    seriesChips.innerHTML = '';
+    return;
+  }
+  const chips = billingSeriesState.series
+    .filter((series) => series.kind !== 'model')
+    .slice(0, MAX_SERIES_CHIPS);
+  seriesChips.innerHTML = chips.map((series) =>
+    `<button class="series-chip${series.key === billingSeriesState.selectedKey ? ' active' : ''}" data-series-key="${escapeHtml(series.key)}">${escapeHtml(series.label)}</button>`,
+  ).join('');
+};
+
+seriesChips.addEventListener('click', (event) => {
+  const chip = event.target.closest('button[data-series-key]');
+  if (!chip) return;
+  billingSeriesState.selectedKey = chip.dataset.seriesKey;
+  renderSeriesChips();
+  renderBillingChart();
+});
+
+const setGranularity = (granularity) => {
+  billingSeriesState.granularity = granularity;
+  billingSeriesState.selectedKey = 'total';
+  granMonthBtn.classList.toggle('active', granularity === 'month');
+  granDayBtn.classList.toggle('active', granularity === 'day');
+  dayRangeSeg.classList.toggle('hidden', granularity !== 'day');
+  loadBillingSeries();
+};
+
+granMonthBtn.addEventListener('click', () => setGranularity('month'));
+granDayBtn.addEventListener('click', () => setGranularity('day'));
+
+dayRangeSeg.addEventListener('click', (event) => {
+  const btn = event.target.closest('button[data-days]');
+  if (!btn) return;
+  billingSeriesState.days = Number(btn.dataset.days);
+  dayRangeSeg.querySelectorAll('.seg-btn').forEach((candidate) =>
+    candidate.classList.toggle('active', candidate === btn));
+  loadBillingSeries();
+});
+
+let billingSeriesSeq = 0;
+
+const loadBillingSeries = async (initial = false) => {
+  const seq = ++billingSeriesSeq;
+  try {
+    const params = billingSeriesState.granularity === 'day'
+      ? `granularity=day&days=${billingSeriesState.days}`
+      : 'granularity=month&months=12';
+    const res = await fetch(`${API_BASE}/billing/series?${params}`);
+    if (!res.ok) throw new Error(`API respondeu ${res.status}`);
+    const data = await res.json();
+    if (seq !== billingSeriesSeq) return;
+    if (initial && data.granularity === 'month' && data.months.length < 2) {
+      // A one-month monthly chart says nothing yet (history "nasce raso e
+      // engorda", T8) — fall back to the DAILY lens instead of hiding the
+      // panel: hiding it would also hide the granularity toggle, making
+      // the daily view unreachable. An explicit "Meses" click still
+      // renders whatever exists.
+      setGranularity('day');
+      return;
+    }
+    billingSeriesState.series = data.series;
+    if (!data.series.some((series) => series.key === billingSeriesState.selectedKey)) {
+      billingSeriesState.selectedKey = 'total';
+    }
+    renderSeriesChips();
+    renderBillingChart();
+    evolutionPanel.classList.remove('hidden');
+  } catch {
+    if (seq !== billingSeriesSeq) return;
+    evolutionPanel.classList.add('hidden');
+  }
+};
+
 /* ---------- Tabs ---------- */
 
 const TABS = {
@@ -886,7 +1221,11 @@ const TABS = {
   billing: {
     button: document.getElementById('tab-billing'),
     view: document.getElementById('view-billing'),
-    loadOnce: loadBills,
+    loadOnce: () => {
+      loadBills();
+      loadBillingSeries(true);
+      loadBillingProjection();
+    },
   },
 };
 

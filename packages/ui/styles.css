@@ -495,6 +495,266 @@ tbody tr.clickable:focus-visible { outline: 2px solid #60a5fa; outline-offset: -
   line-height: 1.5;
 }
 
+/* Period status pills (US6): final vs partial vs waiting-close. */
+.final-badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  color: var(--green);
+  background: var(--green-bg);
+  border: 1px solid rgba(74, 222, 128, 0.3);
+  vertical-align: middle;
+}
+
+.open-badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+/* US12: the projection card — an estimate, visually NOT an invoice. */
+.projection-card {
+  border: 1px dashed rgba(96, 165, 250, 0.5);
+  background: rgba(96, 165, 250, 0.07);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.projection-card .projection-value { font-size: 20px; font-weight: 700; }
+.projection-card .projection-label {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #60a5fa;
+  margin-bottom: 4px;
+}
+.projection-card .projection-basis { color: var(--muted); font-size: 12px; margin-top: 6px; }
+
+/* US11: monthly evolution — bar heights come READY from the API. */
+.evolution-panel {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.series-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 14px; }
+
+.series-chip {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 3px 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.series-chip:hover { border-color: var(--muted); color: var(--text); }
+.series-chip.active { color: var(--text); border-color: #60a5fa; background: rgba(96, 165, 250, 0.12); }
+
+.chart-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 10px 0 4px;
+}
+
+.granularity-seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.seg-btn {
+  background: var(--surface);
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 5px 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.seg-btn:hover { color: var(--text); }
+.seg-btn.active { background: rgba(96, 165, 250, 0.15); color: var(--text); font-weight: 600; }
+
+.billing-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 150px;
+  border-bottom: 1px solid var(--border);
+}
+
+.billing-bar-col {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  height: 100%;
+  position: relative;
+  min-width: 0;
+}
+
+/* Stacked bar (decision 97): outer height = the point's share of the
+   chart; segments split it bottom-up in statement-line colors — all
+   geometry comes ready from the API. */
+.billing-stack {
+  width: 100%;
+  min-height: 2px;
+  border-radius: 3px 3px 0 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column-reverse;
+  position: relative;
+}
+
+.billing-seg { width: 100%; }
+.billing-seg.tk-input { background: var(--tk-input); }
+.billing-seg.tk-output { background: var(--tk-output); }
+.billing-seg.tk-cache_read { background: var(--tk-cache-read); }
+.billing-seg.tk-cache_write { background: var(--tk-cache-write); }
+
+/* Partial (current month / today): visibly provisional (US6/US11). */
+.billing-stack.partial::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(22, 19, 15, 0.45) 0 5px,
+    transparent 5px 10px
+  );
+  pointer-events: none;
+}
+
+.billing-bar-col .bar-value {
+  position: absolute;
+  top: -18px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+  opacity: 0;
+}
+
+.billing-bar-col:hover .bar-value { opacity: 1; }
+
+.billing-chart-x { display: flex; gap: 6px; margin-top: 6px; }
+.billing-chart-x span { flex: 1; text-align: center; font-size: 10px; color: var(--muted); }
+
+/* US7: share of the month per agent. */
+.agent-share { color: var(--muted); font-size: 11px; margin-left: 8px; }
+
+/* US10: previous-month comparison. */
+.comparison-card {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 24px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.delta-up { color: var(--red); }
+.delta-down { color: var(--green); }
+.delta-flat { color: var(--muted); }
+
+.comparison-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+.comparison-table th { padding: 6px 8px; font-size: 10px; }
+.comparison-table td { padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+
+/* US15: model mix donut — slices painted from API start/end percents. */
+.mix-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; }
+
+.mix-donut {
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.mix-donut::after {
+  content: "";
+  position: absolute;
+  inset: 22px;
+  border-radius: 50%;
+  background: var(--bg);
+}
+
+.mix-legend { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 6px; }
+
+.mix-legend-item { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.mix-legend-item i { width: 9px; height: 9px; border-radius: 3px; flex-shrink: 0; }
+.mix-legend-item .mix-share { margin-left: auto; font-weight: 600; }
+.mix-legend-item .mix-tokens { color: var(--muted); font-size: 11px; }
+
+
+/* T9/QA7: cache savings. */
+.cache-card {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 24px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.cache-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.savings-positive { color: var(--green); font-weight: 700; }
+.savings-negative { color: var(--red); font-weight: 700; }
+
+/* US17: export buttons. */
+.export-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+
+.export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: none;
+  font-family: inherit;
+}
+
+.export-btn:hover { border-color: var(--muted); }
+
+/* US5: reopen audit notes. */
+.reopen-note {
+  border-left: 3px solid var(--amber);
+  padding: 4px 10px;
+  margin: 6px 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .content-block {
   background: var(--surface);
   border: 1px solid var(--border);
