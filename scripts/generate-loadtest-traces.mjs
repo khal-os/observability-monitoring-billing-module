@@ -79,6 +79,14 @@ const PRICE_TABLE = Object.fromEntries(
    traces land as pending_price, tokens kept, cost open (invariant 2). */
 const UNPRICED_MODEL = 'acme/unpriced-experimental-1';
 
+/* Stored shape (decision 82): the trace carries the model as a structured
+   { id, provider } ref — the `provider/id` string is only the price-table
+   key. All keys here have the slash form, so the parse is a single split. */
+const modelRef = (key) => {
+  const slash = key.indexOf('/');
+  return { id: key.slice(slash + 1), provider: key.slice(0, slash) };
+};
+
 const WINDOW_START = Date.UTC(2026, 1, 1); // 2026-02-01
 const WINDOW_END = Date.UTC(2026, 6, 29);  // 2026-07-29 -> 6 billing months
 
@@ -186,7 +194,7 @@ const buildTrace = (session, startedMs) => {
       version: session.agentVersion,
       instance: `${session.agentId}-${session.instanceSuffix}`,
     },
-    model,
+    model: model ? modelRef(model) : null,
     type: session.type,
     channel: {
       type: session.channelType,
