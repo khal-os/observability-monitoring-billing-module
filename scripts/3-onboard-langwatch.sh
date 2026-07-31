@@ -31,7 +31,7 @@ if [[ -n "$(get LANGWATCH_API_KEY)" ]]; then
       -c 'SELECT id FROM mydb."Project" ORDER BY "createdAt" DESC LIMIT 1' 2>/dev/null | head -1 || true)"
     if [[ -n "$PROJECT_ID" ]]; then
       if grep -q '^LANGWATCH_PROJECT_ID=' "$ENVFILE"; then
-        sed -i "s|^LANGWATCH_PROJECT_ID=.*|LANGWATCH_PROJECT_ID=${PROJECT_ID}|" "$ENVFILE"
+        sed -i "s|^LANGWATCH_PROJECT_ID=.*|LANGWATCH_PROJECT_ID=$(sed_escape "$PROJECT_ID")|" "$ENVFILE"
       else
         sed -i "/^LANGWATCH_API_KEY=/a LANGWATCH_PROJECT_ID=${PROJECT_ID}" "$ENVFILE"
       fi
@@ -75,6 +75,9 @@ else
   step "onboarding do LangWatch (admin: ${LW_ADMIN_EMAIL})"
   BASE="http://localhost:${LANGWATCH_PORT}"
   JAR="$(mktemp)"
+  # The jar holds an authenticated session cookie — never leave it in /tmp,
+  # success or failure (every die/curl-failure path exits through this trap).
+  trap 'rm -f "$JAR"' EXIT
 
   # Senha persistida no env (gitignored) ANTES de qualquer passo que possa
   # falhar — um crash no meio nunca perde a senha de um usuário já criado.
@@ -111,7 +114,6 @@ else
     -H 'Content-Type: application/json' -H "Origin: ${BASE}" \
     -d "{\"0\":{\"json\":{\"organizationId\":\"${ORG_ID}\",\"teamId\":\"${TEAM_ID}\",\"name\":\"${NAME}\",\"language\":\"other\",\"framework\":\"other\"}}}")
   trpc_ok "$proj" || die "criação do projeto falhou: ${proj:0:200}"
-  rm -f "$JAR"
   sub "projeto criado"
 
   KEY_NOW="$(lw_project_key || true)"
@@ -119,14 +121,16 @@ else
   sub "API key extraída do Postgres do LangWatch"
 fi
 
-sed -i "s|^LANGWATCH_API_KEY=.*|LANGWATCH_API_KEY=${KEY_NOW}|" "$ENVFILE"
+# sed_escape: the replacement side treats & \ | as metacharacters — a key
+# containing any of them would silently corrupt the env file.
+sed -i "s|^LANGWATCH_API_KEY=.*|LANGWATCH_API_KEY=$(sed_escape "$KEY_NOW")|" "$ENVFILE"
 
 # Also stamp the project id — the sync's optional tenant filter. Costless
 # now, protective the day a second project appears on the instance.
 PROJECT_ID="$(lw_project_id || true)"
 if [[ -n "$PROJECT_ID" ]]; then
   if grep -q '^LANGWATCH_PROJECT_ID=' "$ENVFILE"; then
-    sed -i "s|^LANGWATCH_PROJECT_ID=.*|LANGWATCH_PROJECT_ID=${PROJECT_ID}|" "$ENVFILE"
+    sed -i "s|^LANGWATCH_PROJECT_ID=.*|LANGWATCH_PROJECT_ID=$(sed_escape "$PROJECT_ID")|" "$ENVFILE"
   else
     sed -i "/^LANGWATCH_API_KEY=/a LANGWATCH_PROJECT_ID=${PROJECT_ID}" "$ENVFILE"
   fi

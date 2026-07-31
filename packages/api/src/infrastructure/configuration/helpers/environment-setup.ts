@@ -32,6 +32,17 @@ const optionalIntString = (name: string) =>
     .regex(/^\d+$/, `${name} must be a valid integer string`)
     .optional();
 
+/**
+ * Optional env string where EMPTY means unset. Compose forwards these vars
+ * with `${VAR:-}` defaults, so an env file that omits them delivers '' to
+ * the container — which must behave exactly like the var not existing
+ * (e.g. an empty AUTH_SYSTEM_URL must not half-enable auth).
+ */
+const optionalNonEmptyString = z
+  .string()
+  .optional()
+  .transform((value) => value || undefined);
+
 const envSchema = z
   .object({
     ENVIRONMENT: z.enum([
@@ -43,14 +54,16 @@ const envSchema = z
       .string()
       .regex(/^\d+$/, 'SERVER_PORT must be a valid integer string'),
     CLIENT_NAME: z.string().optional(),
-    AUTH_SYSTEM_URL: z.string().optional(),
-    AUTH_SYSTEM_CLIENT_ID: z.string().optional(),
-    AUTH_SYSTEM_CLIENT_SECRET: z.string().optional(),
+    AUTH_SYSTEM_URL: optionalNonEmptyString,
+    AUTH_SYSTEM_CLIENT_ID: optionalNonEmptyString,
+    AUTH_SYSTEM_CLIENT_SECRET: optionalNonEmptyString,
     MONGO_DB_PORT: z
       .string()
       .regex(/^\d+$/, 'MONGO_DB_PORT must be a valid integer string')
       .optional(),
-    MONGO_DB_ATLAS: z.boolean().optional(),
+    // env vars are always strings — a boolean here would reject every set
+    // value and crash the boot; the transform below maps to boolean.
+    MONGO_DB_ATLAS: z.enum(['true', 'false']).optional(),
     MONGO_DB_HOST: z.string().optional(),
     MONGO_DB_NAME: z.string().optional(),
     MONGO_DB_PASSWORD: z.string().optional(),
@@ -72,6 +85,9 @@ const envSchema = z
     SERVER_PORT: parseInt(env.SERVER_PORT, 10),
     MONGO_DB_PORT: env.MONGO_DB_PORT
       ? parseInt(env.MONGO_DB_PORT, 10)
+      : undefined,
+    MONGO_DB_ATLAS: env.MONGO_DB_ATLAS
+      ? env.MONGO_DB_ATLAS === 'true'
       : undefined,
     TRACE_INGESTION_INTERVAL_SECONDS: env.TRACE_INGESTION_INTERVAL_SECONDS
       ? parseInt(env.TRACE_INGESTION_INTERVAL_SECONDS, 10)
@@ -112,9 +128,10 @@ export const environment: EnvironmentVariables = {
   Environment: safeEnvironment.ENVIRONMENT,
   serverPort: safeEnvironment.SERVER_PORT,
   clientName: safeEnvironment.CLIENT_NAME || undefined,
-  authSystemUrl: safeEnvironment.AUTH_SYSTEM_URL || undefined,
-  authSystemClientId: safeEnvironment.AUTH_SYSTEM_CLIENT_ID || undefined,
-  authSystemClientSecret: safeEnvironment.AUTH_SYSTEM_CLIENT_SECRET || undefined,
+  // '' → undefined already guaranteed by optionalNonEmptyString above.
+  authSystemUrl: safeEnvironment.AUTH_SYSTEM_URL,
+  authSystemClientId: safeEnvironment.AUTH_SYSTEM_CLIENT_ID,
+  authSystemClientSecret: safeEnvironment.AUTH_SYSTEM_CLIENT_SECRET,
   mongoDbAtlas: safeEnvironment.MONGO_DB_ATLAS,
   mongoDbHost: safeEnvironment.MONGO_DB_HOST,
   mongoDbName: safeEnvironment.MONGO_DB_NAME,

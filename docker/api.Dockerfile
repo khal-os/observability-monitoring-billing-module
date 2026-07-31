@@ -44,5 +44,6 @@ WORKDIR /app/packages/api
 EXPOSE 3000
 # The app has no signal handlers; compose sets init: true so PID 1 forwards
 # SIGTERM to node. Required env: ENVIRONMENT, SERVER_PORT (+ MONGO_DB_* to be
-# useful). Never set MONGO_DB_ATLAS from env — z.boolean() rejects strings.
+# useful). MONGO_DB_ATLAS takes the strings 'true'/'false' (mapped to boolean
+# by environment-setup.ts).
 CMD ["node", "dist/main/index.js"]

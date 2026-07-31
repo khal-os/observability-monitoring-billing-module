@@ -21,6 +21,20 @@ check_ui() { curl -sf -o /dev/null -m 3 "http://localhost:${UI_PORT}/"; }
 wait_live "aguardando UI" "http://localhost:${UI_PORT}" check_ui 15 2 \
   || die "UI não respondeu em http://localhost:${UI_PORT} — veja: make logs CLIENT=${NAME}"
 
+# ---------- health: auth ----------
+# When the env file enables auth (AUTH_SYSTEM_URL descomentado), prove it
+# actually reached the container: a tokenless request MUST answer 401. Any
+# other answer means the API is serving the archive open despite the env —
+# the exact silent-fail this check exists to catch.
+AUTH_SYSTEM_URL="$(get AUTH_SYSTEM_URL)"
+if [[ -n "$AUTH_SYSTEM_URL" ]]; then
+  step "auth habilitado no env — verificando fail-closed sem token"
+  AUTH_CODE="$(curl -s -o /dev/null -m 8 -w '%{http_code}' "http://localhost:${API_PORT}/api/v1/traces" || true)"
+  [[ "$AUTH_CODE" == "401" ]] \
+    || die "AUTH_SYSTEM_URL está definido em ${ENVFILE}, mas GET /api/v1/traces SEM token respondeu ${AUTH_CODE} (esperado: 401) — o auth não chegou ao container (recrie a stack: make up CLIENT=${NAME})"
+  sub "sem token → 401 (fail closed)"
+fi
+
 # ---------- summary ----------
 LW_ADMIN_EMAIL="admin@${NAME}.com"
 LW_ADMIN_PASSWORD="$(grep -oP "(?<=^# LangWatch admin \(gerado pelo deploy\): ${LW_ADMIN_EMAIL} / ).*" "$ENVFILE" | head -1 || true)"
@@ -59,5 +73,6 @@ printf '  %s\n' "${CYN}OPERAÇÃO${RST}"
 row "logs"     "make logs CLIENT=${NAME}   ${DIM}(trace-ingestion-worker: linhas 'Sync: batch')${RST}"
 row "backfill" "make sync CLIENT=${NAME} FROM=YYYY-MM-DD TO=YYYY-MM-DD   ${DIM}(manual/opcional)${RST}"
 row "parar"    "make down CLIENT=${NAME}   ${DIM}(dados preservados)${RST}"
-row "apagar"   "docker compose -f compose.module.yml -f compose.connector.yml -f compose.mongodb.yml --env-file ${ENVFILE} down -v"
+row "backup"   "make backup CLIENT=${NAME}   ${DIM}(mongodump -> backups/ — o arquivo permanente)${RST}"
+row "apagar"   "docker compose -f compose.module.yml -f compose.connector.yml -f compose.mongodb.yml --env-file ${ENVFILE} down -v   ${DIM}(faça make backup antes)${RST}"
 line

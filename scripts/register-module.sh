@@ -48,7 +48,7 @@ MANIFEST=$(cat <<EOF
     "name": { "pt-BR": "Módulo de Observabilidade (Tracing)" },
     "protocol": "rest"
   },
-  "connection": { "endpoint": "${ENDPOINT}", "health": "/health" },
+  "connection": { "endpoint": "${ENDPOINT}", "health": "/api/v1/docs/openapi.json" },
   "auth": { "requiredScopes": ["monitoring.trace:read"] }
 }
 EOF

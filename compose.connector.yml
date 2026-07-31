@@ -135,6 +135,14 @@ services:
     depends_on:
       clickhouse:
         condition: service_healthy
+    healthcheck:
+      # No port to probe (loop, not server) — process-level check: the loop
+      # is a node process; gone means wedged/crashed, not idling.
+      test: ["CMD-SHELL", "pgrep node > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
     deploy:
       resources:
@@ -152,9 +160,22 @@ services:
     environment:
       <<: *langwatch-env
     ports:
-      - "${LANGWATCH_PORT:-5560}:5560"
+      # Loopback by default: NEXTAUTH_PROVIDER=email means open signup, so
+      # a LAN-reachable LangWatch lets outsiders self-register. Exposing it
+      # is an explicit opt-in — LANGWATCH_BIND=0.0.0.0 + a firewall
+      # (see clients/example.env).
+      - "${LANGWATCH_BIND:-127.0.0.1}:${LANGWATCH_PORT:-5560}:5560"
     depends_on:
       <<: *langwatch-deps
+    healthcheck:
+      # The app answers on / once Next.js is up (redirects included — wget
+      # follows them locally). start_period is generous: first boot runs
+      # prisma migrations before the server listens.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5560/ > /dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
     restart: unless-stopped
     deploy:
       resources:
@@ -173,6 +194,14 @@ services:
       <<: *langwatch-env
     depends_on:
       <<: *langwatch-deps
+    healthcheck:
+      # No port to probe — process-level check: the queue consumers are node
+      # processes; none left alive means the container is wedged, not working.
+      test: ["CMD-SHELL", "pgrep node > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     restart: unless-stopped
     deploy:
       replicas: ${LANGWATCH_WORKERS_REPLICAS:-1}

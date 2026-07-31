@@ -9,3 +9,6 @@ demo-data/
 
 # Generated load-test archives (scripts/generate-loadtest-traces.mjs) — GBs
 loadtest/
+
+# Mongo backups (make backup) — client data, never committed
+backups/

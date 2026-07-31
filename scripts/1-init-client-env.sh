@@ -101,11 +101,15 @@ REPROCESS_INTERVAL_SECONDS=60
 # Dev-only: host port for Compass/mongosh (compose.dev.yml, localhost-bound)
 MONGO_HOST_PORT=${MONGO_HOST_PORT}
 EOF
+  # Secrets live here (LangWatch secrets now, admin password later) —
+  # owner-only from the first write.
+  chmod 600 "$ENVFILE"
 fi
 
 # Apply --langwatch-key to an existing deployment (the idempotent second run).
+# sed_escape: the replacement side treats & \ | as metacharacters.
 if [[ -n "$LANGWATCH_KEY" ]]; then
-  sed -i "s|^LANGWATCH_API_KEY=.*|LANGWATCH_API_KEY=${LANGWATCH_KEY}|" "$ENVFILE"
+  sed -i "s|^LANGWATCH_API_KEY=.*|LANGWATCH_API_KEY=$(sed_escape "$LANGWATCH_KEY")|" "$ENVFILE"
   step "LANGWATCH_API_KEY aplicado em ${ENVFILE}"
 fi
 
@@ -113,7 +117,7 @@ fi
 for override in "${ENV_OVERRIDES[@]}"; do
   key="${override%%=*}"
   if grep -q "^${key}=" "$ENVFILE"; then
-    sed -i "s|^${key}=.*|${override}|" "$ENVFILE"
+    sed -i "s|^${key}=.*|$(sed_escape "$override")|" "$ENVFILE"
   else
     append_env_line "$override"
   fi

@@ -95,7 +95,8 @@ summary_operation() {
   row "logs"     "make logs CLIENT=${NAME}   ${DIM}(trace-ingestion-worker: linhas 'Sync: batch')${RST}"
   row "backfill" "make sync CLIENT=${NAME} FROM=YYYY-MM-DD TO=YYYY-MM-DD   ${DIM}(manual/opcional)${RST}"
   row "parar"    "make down CLIENT=${NAME}   ${DIM}(dados preservados)${RST}"
-  row "apagar"   "docker compose -f compose.module.yml -f compose.connector.yml -f compose.mongodb.yml --env-file ${ENVFILE} down -v"
+  row "backup"   "make backup CLIENT=${NAME}   ${DIM}(mongodump -> backups/ — o arquivo permanente)${RST}"
+  row "apagar"   "docker compose -f compose.module.yml -f compose.connector.yml -f compose.mongodb.yml --env-file ${ENVFILE} down -v   ${DIM}(faça make backup antes)${RST}"
 }
 
 # ---------- client name + env file ----------
@@ -111,7 +112,16 @@ require_envfile() {
   [[ -f "$ENVFILE" ]] || die "faltando ${ENVFILE} — rode ./scripts/1-init-client-env.sh ${NAME} primeiro"
 }
 
-get() { grep -oP "(?<=^$1=).*" "$ENVFILE" | head -1; }
+# `|| true`: a var absent from the env file is a NORMAL state (the contract
+# invites omitting optional knobs) — without it, grep's exit 1 rides
+# pipefail/set -e and kills the caller with no message, turning every
+# `${VAR:-default}` fallback after a get() into dead code.
+get() { grep -oP "(?<=^$1=).*" "$ENVFILE" | head -1 || true; }
+
+# Escape a value for the REPLACEMENT side of a sed s|…|…| on the env file:
+# `&` (whole-match), `\` (escape) and `|` (our delimiter) are metacharacters
+# there — an API key containing any of them would corrupt the write.
+sed_escape() { printf '%s' "$1" | sed -e 's/[&\|]/\\&/g'; }
 
 # Append a line to the env file, healing a missing trailing newline first —
 # appending onto a file whose last line lacks \n would CONCATENATE onto it

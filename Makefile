@@ -12,6 +12,7 @@
 #   make billing-close CLIENT=vivo YEAR=2026 MONTH=6   # T6: fecha o mês (snapshot)
 #   make billing-reopen CLIENT=vivo YEAR=2026 MONTH=6 REASON='...'
 #   make logs CLIENT=vivo
+#   make backup CLIENT=vivo                     # mongodump of the permanent archive -> backups/
 #   make down CLIENT=claro                      # stop one client (volumes preserved)
 #   make ps                                     # all compose projects on this host
 #
@@ -37,6 +38,8 @@ ENVFILE = clients/$(CLIENT).env
 SCRUB = env -u COMPOSE_PROJECT_NAME -u CLIENT_NAME -u API_PORT \
           -u LANGWATCH_PORT -u LANGWATCH_API_KEY -u LANGWATCH_ENDPOINT \
           -u LANGWATCH_PROJECT_ID \
+          -u API_BIND -u LANGWATCH_BIND -u UI_BIND \
+          -u AUTH_SYSTEM_URL -u AUTH_SYSTEM_CLIENT_ID -u AUTH_SYSTEM_CLIENT_SECRET \
           -u MONGO_DB_HOST -u MONGO_DB_PORT -u MONGO_MEMORY_LIMIT \
           -u MONGO_DB_USER -u MONGO_DB_PASSWORD -u MONGO_HOST_PORT \
           -u API_IMAGE -u UI_IMAGE -u UI_PORT \
@@ -65,7 +68,7 @@ JOB = $(COMPOSE_PROD) run --rm --no-deps api node
 # form exactly when generated fixtures exist, the prod form otherwise.
 SYNC_COMPOSE = $(if $(wildcard demo-data/$(CLIENT)/*.json),$(COMPOSE_DEV),$(COMPOSE_PROD))
 
-.PHONY: help build up up-prod down logs ps migrate seed-prices sync price reprocess rebuild-filter-counters rebuild-session-summaries billing-close billing-reopen require-client
+.PHONY: help build up up-prod down logs ps backup migrate seed-prices sync price reprocess rebuild-filter-counters rebuild-session-summaries billing-close billing-reopen require-client
 
 help:
 	@grep -E '^#( |$$)' Makefile | sed 's/^# \?//'
@@ -73,6 +76,8 @@ help:
 require-client:
 	@test "$(origin CLIENT)" = "command line" || { echo "pass CLIENT=<name> explicitly on the make command line (env file: clients/<name>.env)"; exit 1; }
 	@test -f "$(ENVFILE)" || { echo "missing $(ENVFILE) — copy clients/example.env and fill it in"; exit 1; }
+	@grep -qx "CLIENT_NAME=$(CLIENT)" "$(ENVFILE)" || { echo "$(ENVFILE) must contain exactly CLIENT_NAME=$(CLIENT) — a mismatch would split the stack across two identities (e.g. \`make up\` pre-creates demo-data/$(CLIENT) while compose mounts demo-data/\$${CLIENT_NAME})"; exit 1; }
+	@grep -qx "COMPOSE_PROJECT_NAME=$(CLIENT)" "$(ENVFILE)" || { echo "$(ENVFILE) must contain exactly COMPOSE_PROJECT_NAME=$(CLIENT) — otherwise this client's containers land in another compose project"; exit 1; }
 
 build:
 	docker build -f docker/api.Dockerfile -t platform-api:local .
@@ -100,6 +105,25 @@ logs: require-client
 
 ps:
 	@docker compose ls
+
+# Backup of the permanent archive (invariant 6: this store is the archive —
+# LangWatch only retains ~49 days). mongodump streamed out of the client's
+# mongo container into backups/<client>-<timestamp>.gz; auth flags expand
+# inside the container from its own MONGO_INITDB_ROOT_* env, so this works
+# with or without mongo credentials. Run it before any `down -v`.
+# Restore into a running stack:
+#   docker exec -i <client>-mongo sh -c 'mongorestore --archive --gzip \
+#     ${MONGO_INITDB_ROOT_USERNAME:+-u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin}' \
+#     < backups/<file>.gz
+# then `make rebuild-filter-counters` + `make rebuild-session-summaries`.
+backup: require-client
+	@mkdir -p backups
+	@out="backups/$(CLIENT)-$$(date +%Y%m%dT%H%M%S).gz"; \
+	if docker exec $(CLIENT)-mongo sh -c 'mongodump --archive --gzip $${MONGO_INITDB_ROOT_USERNAME:+-u "$$MONGO_INITDB_ROOT_USERNAME" -p "$$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin}' > "$$out"; then \
+	  echo "backup: $$out ($$(du -h "$$out" | cut -f1))"; \
+	else \
+	  rm -f "$$out"; echo "backup falhou — a stack do cliente está no ar? (make up CLIENT=$(CLIENT))"; exit 1; \
+	fi
 
 # ---- one-off jobs ----
 
@@ -133,9 +157,12 @@ billing-close: require-client
 	$(JOB) dist/main/jobs/close-billing-period.js --year $(YEAR) --month $(MONTH)
 
 # Audited reopen (T6): REASON is mandatory and lands in the period's audit
-# trail. Prior snapshots stay; the next close writes version+1.
+# trail. Prior snapshots stay; the next close writes version+1. Interactive
+# confirmation (reopening a closed month is the exceptional flow) — pass
+# FORCE=1 to skip it in automation.
 billing-reopen: require-client
-	@test -n "$(YEAR)" -a -n "$(MONTH)" -a -n "$(REASON)" || { echo "usage: make billing-reopen CLIENT=<name> YEAR=YYYY MONTH=1-12 REASON='<motivo>'"; exit 1; }
+	@test -n "$(YEAR)" -a -n "$(MONTH)" -a -n "$(REASON)" || { echo "usage: make billing-reopen CLIENT=<name> YEAR=YYYY MONTH=1-12 REASON='<motivo>' [FORCE=1]"; exit 1; }
+	@test -n "$(FORCE)" || { printf 'Reabrir %s-%s de %s? [y/N] ' "$(YEAR)" "$(MONTH)" "$(CLIENT)"; read ans; case "$$ans" in [yY]) ;; *) echo "abortado (FORCE=1 pula a confirmação)"; exit 1;; esac; }
 	$(JOB) dist/main/jobs/reopen-billing-period.js --year $(YEAR) --month $(MONTH) --reason "$(REASON)"
 
 # Recompute the facet cube (decision 77) from the traces collection —

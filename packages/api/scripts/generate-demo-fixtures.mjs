@@ -493,6 +493,13 @@ let grandTotal = 0;
 const summary = [];
 
 for (const [name, profile] of Object.entries(TARGETS)) {
+  /* The client name becomes a directory under demo-data/ that gets rm -rf'd
+     below — validate the slug (same rule as deploy-lib.sh) BEFORE any
+     filesystem write: `--client ..` must never resolve to the repo root. */
+  if (!/^[a-z][a-z0-9-]{1,30}$/.test(name)) {
+    throw new Error(`invalid client slug: ${name}`);
+  }
+
   const traces = generateClient(name, profile);
 
   const byMonth = new Map();
@@ -503,6 +510,10 @@ for (const [name, profile] of Object.entries(TARGETS)) {
   }
 
   const dir = path.join(OUT_ROOT, name);
+  /* Belt and braces for the same traversal: only ever delete INSIDE demo-data. */
+  if (!path.resolve(dir).startsWith(OUT_ROOT + path.sep)) {
+    throw new Error(`refusing to delete outside demo-data/: ${dir}`);
+  }
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
 
