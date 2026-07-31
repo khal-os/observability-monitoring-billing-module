@@ -1,219 +1,542 @@
 {
-  "info": {
-    "name": "Módulo de Observabilidade — API",
-    "description": "Uma API, três faces: Billing (quanto custou), Traces (as execuções reais) e Sessions (as conversas).\n\nTodos os valores client-facing são em R$; custos vêm do carimbo de preço aplicado na ingestão (imutável). Traces sem preço aplicável aparecem como `pending_price` — nunca R$ 0,00.\n\n**Convenções de query**\n- Datas/período: ISO 8601 em UTC, janelas half-open `[from, to)`.\n- Filtros multi-valor (decisão 76): repita o parâmetro para OR — `?agent=a&agent=b`. OR dentro do campo, AND entre campos.\n- Paginação: `page` (1-based) e `page_size` (máx. 100), server-side, mais recente primeiro.\n\nAjuste a variável `baseUrl` para o deployment desejado (padrão: stack local do cliente em `http://localhost:3002`).",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+ "info": {
+  "name": "Módulo de Observabilidade — API",
+  "description": "Uma API, três faces: Billing (quanto custou), Traces (as execuções reais) e Sessions (as conversas).\n\nTodos os valores client-facing são em R$; custos vêm do carimbo de preço aplicado na ingestão (imutável). Traces sem preço aplicável aparecem como `pending_price` — nunca R$ 0,00.\n\n**Convenções de query**\n- Datas/período: ISO 8601 em UTC, janelas half-open `[from, to)`.\n- Filtros multi-valor (decisão 76): repita o parâmetro para OR — `?agent=a&agent=b`. OR dentro do campo, AND entre campos.\n- Paginação: `page` (1-based) e `page_size` (máx. 100), server-side, mais recente primeiro.\n\nAjuste a variável `baseUrl` para o deployment desejado (padrão: stack local do cliente em `http://localhost:3002`).",
+  "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+ },
+ "variable": [
+  {
+   "key": "baseUrl",
+   "value": "http://localhost:3002",
+   "type": "string"
   },
-  "variable": [
-    { "key": "baseUrl", "value": "http://localhost:3002", "type": "string" },
-    { "key": "traceId", "value": "trace-w1-001", "type": "string" },
-    { "key": "sessionId", "value": "sess-checkout-001", "type": "string" },
-    { "key": "year", "value": "2026", "type": "string" },
-    { "key": "month", "value": "6", "type": "string" }
-  ],
-  "item": [
+  {
+   "key": "traceId",
+   "value": "trace-w1-001",
+   "type": "string"
+  },
+  {
+   "key": "sessionId",
+   "value": "sess-checkout-001",
+   "type": "string"
+  },
+  {
+   "key": "year",
+   "value": "2026",
+   "type": "string"
+  },
+  {
+   "key": "month",
+   "value": "6",
+   "type": "string"
+  }
+ ],
+ "item": [
+  {
+   "name": "Traces",
+   "description": "Execuções reais por trás dos números.",
+   "item": [
     {
-      "name": "Traces",
-      "description": "Execuções reais por trás dos números.",
-      "item": [
+     "name": "Lista traces",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/api/v1/traces?page=1&page_size=20",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "api",
+        "v1",
+        "traces"
+       ],
+       "query": [
         {
-          "name": "Lista traces",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/traces?page=1&page_size=20",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "traces"],
-              "query": [
-                { "key": "from", "value": "2026-06-01T00:00:00.000Z", "description": "Início do período (inclusivo, ISO 8601, UTC).", "disabled": true },
-                { "key": "to", "value": "2026-07-01T00:00:00.000Z", "description": "Fim do período (exclusivo, ISO 8601, UTC).", "disabled": true },
-                { "key": "agent", "value": "agent-atendimento", "description": "Id de agente. Repita o parâmetro para OR.", "disabled": true },
-                { "key": "agent", "value": "agent-cobranca", "description": "Segundo valor do OR (exemplo de parâmetro repetido).", "disabled": true },
-                { "key": "status", "value": "ok", "description": "Status de execução: ok | error (valor único).", "disabled": true },
-                { "key": "type", "value": "chat", "description": "Tipo de trace. Repita o parâmetro para OR.", "disabled": true },
-                { "key": "channel", "value": "whatsapp", "description": "Tipo de canal (whatsapp/web/...). Repita o parâmetro para OR.", "disabled": true },
-                { "key": "domain", "value": "varejo", "description": "Domínio (match exato). Repita o parâmetro para OR.", "disabled": true },
-                { "key": "subdomain", "value": "loja-sp", "description": "Subdomínio (match exato). Repita o parâmetro para OR.", "disabled": true },
-                { "key": "search", "value": "{{sessionId}}", "description": "Busca exata por id de trace OU de sessão.", "disabled": true },
-                { "key": "page", "value": "1", "description": "Página (1-based)." },
-                { "key": "page_size", "value": "20", "description": "Itens por página (máx. 100)." }
-              ]
-            },
-            "description": "Lista paginada, mais recente primeiro. Filtros combináveis (AND entre campos); os multi-valor aceitam parâmetro repetido para OR (decisão 76). Trace pendente de preço expõe `cost_brl: null` + `pricing_status: pending_price` — nunca R$ 0,00.\n\nTotais limitados (decisão 77): com filtros a contagem para em 10.000 — `total_capped: true` e displays com sufixo \"+\" (`total_display: \"10.000+\"`). Sem filtros o total é exato.\n\nParâmetros opcionais estão desabilitados — habilite os que quiser usar."
-          }
+         "key": "from",
+         "value": "2026-06-01T00:00:00.000Z",
+         "description": "Início do período (inclusivo, ISO 8601, UTC).",
+         "disabled": true
         },
         {
-          "name": "Opções dos dropdowns de filtro",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/traces/filters",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "traces", "filters"],
-              "query": [
-                { "key": "from", "value": "2026-06-01T00:00:00.000Z", "description": "Início do período (inclusivo, ISO 8601, UTC).", "disabled": true },
-                { "key": "to", "value": "2026-07-01T00:00:00.000Z", "description": "Fim do período (exclusivo, ISO 8601, UTC).", "disabled": true },
-                { "key": "agent", "value": "agent-atendimento", "description": "Id de agente. Repita o parâmetro para OR.", "disabled": true },
-                { "key": "status", "value": "ok", "description": "Status de execução: ok | error (valor único).", "disabled": true },
-                { "key": "type", "value": "chat", "description": "Tipo de trace. Repita o parâmetro para OR.", "disabled": true },
-                { "key": "channel", "value": "whatsapp", "description": "Tipo de canal. Repita o parâmetro para OR.", "disabled": true },
-                { "key": "domain", "value": "varejo", "description": "Domínio (match exato). Repita o parâmetro para OR.", "disabled": true },
-                { "key": "subdomain", "value": "loja-sp", "description": "Subdomínio (match exato). Repita o parâmetro para OR.", "disabled": true },
-                { "key": "search", "value": "{{sessionId}}", "description": "Busca exata por id de trace OU de sessão.", "disabled": true }
-              ]
-            },
-            "description": "Valores ARMAZENADOS por campo filtrável com contagem por opção — `{value, count}[]` em `domains`, `subdomains`, `types`, `agents` (= agent.id), `channels` (= channel.type) e `statuses` — ordenados, nulls fora. Servidos pelo cubo de contadores mantido na ingestão (decisão 77) — sub-segundo mesmo com milhões de traces.\n\nCascata com auto-exclusão: as opções do campo X honram todos os filtros EXCETO o do próprio X — um dropdown selecionado continua listando suas alternativas. Cada `count` é um \"e se\": traces que casariam com aquele valor combinado aos filtros dos OUTROS campos.\n\nPeríodo (from/to) arredondado PARA FORA em dias UTC inteiros neste endpoint; `search` usa o caminho live. Sem paginação."
-          }
+         "key": "to",
+         "value": "2026-07-01T00:00:00.000Z",
+         "description": "Fim do período (exclusivo, ISO 8601, UTC).",
+         "disabled": true
         },
         {
-          "name": "Anatomia completa de um trace",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/traces/{{traceId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "traces", "{{traceId}}"]
-            },
-            "description": "Métricas, blocos de agente/canal (build e instância que serviram a execução), spans ordenados (waterfall), conteúdo integral e a conta do custo (preço aplicado × tokens, precisão cheia por linha). 404 se o trace não existir."
-          }
+         "key": "agent",
+         "value": "agent-atendimento",
+         "description": "Id de agente. Repita o parâmetro para OR.",
+         "disabled": true
+        },
+        {
+         "key": "agent",
+         "value": "agent-cobranca",
+         "description": "Segundo valor do OR (exemplo de parâmetro repetido).",
+         "disabled": true
+        },
+        {
+         "key": "status",
+         "value": "ok",
+         "description": "Status de execução: ok | error (valor único).",
+         "disabled": true
+        },
+        {
+         "key": "type",
+         "value": "chat",
+         "description": "Tipo de trace. Repita o parâmetro para OR.",
+         "disabled": true
+        },
+        {
+         "key": "channel",
+         "value": "whatsapp",
+         "description": "Tipo de canal (whatsapp/web/...). Repita o parâmetro para OR.",
+         "disabled": true
+        },
+        {
+         "key": "domain",
+         "value": "varejo",
+         "description": "Domínio (match exato). Repita o parâmetro para OR.",
+         "disabled": true
+        },
+        {
+         "key": "subdomain",
+         "value": "loja-sp",
+         "description": "Subdomínio (match exato). Repita o parâmetro para OR.",
+         "disabled": true
+        },
+        {
+         "key": "search",
+         "value": "{{sessionId}}",
+         "description": "Busca exata por id de trace OU de sessão.",
+         "disabled": true
+        },
+        {
+         "key": "page",
+         "value": "1",
+         "description": "Página (1-based)."
+        },
+        {
+         "key": "page_size",
+         "value": "20",
+         "description": "Itens por página (máx. 100)."
         }
-      ]
+       ]
+      },
+      "description": "Lista paginada, mais recente primeiro. Filtros combináveis (AND entre campos); os multi-valor aceitam parâmetro repetido para OR (decisão 76). Trace pendente de preço expõe `cost_brl: null` + `pricing_status: pending_price` — nunca R$ 0,00.\n\nTotais limitados (decisão 77): com filtros a contagem para em 10.000 — `total_capped: true` e displays com sufixo \"+\" (`total_display: \"10.000+\"`). Sem filtros o total é exato.\n\nParâmetros opcionais estão desabilitados — habilite os que quiser usar."
+     }
     },
     {
-      "name": "Sessions",
-      "description": "Conversas: traces agrupados por sessão (read-model derivado — GROUP BY session_id).",
-      "item": [
+     "name": "Opções dos dropdowns de filtro",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/api/v1/traces/filters",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "api",
+        "v1",
+        "traces",
+        "filters"
+       ],
+       "query": [
         {
-          "name": "Lista sessões",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/sessions?page=1&page_size=20",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "sessions"],
-              "query": [
-                { "key": "from", "value": "2026-06-01T00:00:00.000Z", "description": "Início do período (inclusivo, UTC). Filtra pelo INÍCIO da sessão (QA17).", "disabled": true },
-                { "key": "to", "value": "2026-07-01T00:00:00.000Z", "description": "Fim do período (exclusivo, UTC).", "disabled": true },
-                { "key": "agent", "value": "agent-atendimento", "description": "Id do agente da sessão (valor único).", "disabled": true },
-                { "key": "status", "value": "error", "description": "error se QUALQUER trace da sessão falhou (valor único).", "disabled": true },
-                { "key": "page", "value": "1", "description": "Página (1-based)." },
-                { "key": "page_size", "value": "20", "description": "Itens por página (máx. 100)." }
-              ]
-            },
-            "description": "Sessões com nº de traces, duração somada, tokens somados, custo somado, início e última atividade. Sessão com traces pendentes de preço expõe `cost_brl: null` + parcial + `pending_price_count` — nunca um total que se leia como R$ 0,00 final. Traces sem session_id ficam fora deste endpoint."
-          }
+         "key": "from",
+         "value": "2026-06-01T00:00:00.000Z",
+         "description": "Início do período (inclusivo, ISO 8601, UTC).",
+         "disabled": true
         },
         {
-          "name": "Sessão com a cadeia de traces",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/sessions/{{sessionId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "sessions", "{{sessionId}}"]
-            },
-            "description": "Agregados da sessão + cadeia cronológica de traces (transcrição). 404 se a sessão não existir."
-          }
-        }
-      ]
-    },
-    {
-      "name": "Billing",
-      "description": "Agregados mensais — soma dos custos carimbados, por construção.",
-      "item": [
-        {
-          "name": "Lista faturas",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/bills",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "bills"]
-            },
-            "description": "Uma fatura por mês-calendário (UTC) com ao menos um trace, recente primeiro. Total ≡ soma dos carimbos do mês; pendentes contados à parte, fora do total. Mês corrente sempre parcial (in_progress)."
-          }
+         "key": "to",
+         "value": "2026-07-01T00:00:00.000Z",
+         "description": "Fim do período (exclusivo, ISO 8601, UTC).",
+         "disabled": true
         },
         {
-          "name": "Extrato do mês",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/billing/summary?year={{year}}&month={{month}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "billing", "summary"],
-              "query": [
-                { "key": "year", "value": "{{year}}", "description": "Ano-calendário (UTC), 1970-9999. Obrigatório." },
-                { "key": "month", "value": "{{month}}", "description": "Mês-calendário (1-12, UTC). Obrigatório." }
-              ]
-            },
-            "description": "Total do mês + quebra agente × versão × modelo × tipo de token. Total ≡ soma dos custos carimbados dos traces do mês (checado por teste automatizado); linhas exibidas fecham com o total exibido (largest remainder). 400 se ano/mês ausentes ou malformados."
-          }
-        }
-      ]
-    },
-    {
-      "name": "Prices",
-      "description": "Tabela de preços contratados (T4) — versões imutáveis por vigência.",
-      "item": [
-        {
-          "name": "Registra versão de preço",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"model\": \"openai/gpt-5-mini\",\n  \"token_type\": \"input\",\n  \"price_brl_per_million\": \"2.75\",\n  \"effective_from\": \"2026-06-01\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/prices",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "prices"]
-            },
-            "description": "Registra uma NOVA versão de preço — sempre insert, nunca update (invariante 9): duplicata de (model, token_type, effective_from) responde 409; mudança de preço é um novo effective_from.\n\n- `model`: canonicalizado para a MESMA chave `provider/id` que o carimbo consulta (decisão 82) — `gemini-2.5-pro` vira `google/gemini-2.5-pro`.\n- `token_type`: input | output | cache_read | cache_write.\n- `price_brl_per_million`: STRING decimal (até 8 casas) — dinheiro nunca é float; número JSON responde 400.\n- `effective_from`: data/datetime ISO 8601.\n\nContrato ESTRITO: campo desconhecido responde 400 (um typo nunca registra preço errado).\n\nEfeito imediato (decisão 57): traces pending_price desbloqueados pelo novo preço são carimbados na hora — o relatório (`reprocess.examined/stamped/still_pending/failed`) vem na resposta 201. Preços já aplicados NUNCA mudam (invariante 1)."
-          }
-        }
-      ]
-    },
-    {
-      "name": "Docs",
-      "description": "Documento OpenAPI gerado dos MESMOS schemas zod estritos que os testes de contrato usam.",
-      "item": [
-        {
-          "name": "OpenAPI 3.1 (JSON)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/docs/openapi.json",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "docs", "openapi.json"]
-            },
-            "description": "O documento OpenAPI vivo, gerado em memória a partir dos schemas de projeção."
-          }
+         "key": "agent",
+         "value": "agent-atendimento",
+         "description": "Id de agente. Repita o parâmetro para OR.",
+         "disabled": true
         },
         {
-          "name": "Swagger UI",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/api/v1/docs/",
-              "host": ["{{baseUrl}}"],
-              "path": ["api", "v1", "docs", ""]
-            },
-            "description": "UI navegável da documentação (HTML)."
-          }
+         "key": "status",
+         "value": "ok",
+         "description": "Status de execução: ok | error (valor único).",
+         "disabled": true
+        },
+        {
+         "key": "type",
+         "value": "chat",
+         "description": "Tipo de trace. Repita o parâmetro para OR.",
+         "disabled": true
+        },
+        {
+         "key": "channel",
+         "value": "whatsapp",
+         "description": "Tipo de canal. Repita o parâmetro para OR.",
+         "disabled": true
+        },
+        {
+         "key": "domain",
+         "value": "varejo",
+         "description": "Domínio (match exato). Repita o parâmetro para OR.",
+         "disabled": true
+        },
+        {
+         "key": "subdomain",
+         "value": "loja-sp",
+         "description": "Subdomínio (match exato). Repita o parâmetro para OR.",
+         "disabled": true
+        },
+        {
+         "key": "search",
+         "value": "{{sessionId}}",
+         "description": "Busca exata por id de trace OU de sessão.",
+         "disabled": true
         }
-      ]
+       ]
+      },
+      "description": "Valores ARMAZENADOS por campo filtrável com contagem por opção — `{value, count}[]` em `domains`, `subdomains`, `types`, `agents` (= agent.id), `channels` (= channel.type) e `statuses` — ordenados, nulls fora. Servidos pelo cubo de contadores mantido na ingestão (decisão 77) — sub-segundo mesmo com milhões de traces.\n\nCascata com auto-exclusão: as opções do campo X honram todos os filtros EXCETO o do próprio X — um dropdown selecionado continua listando suas alternativas. Cada `count` é um \"e se\": traces que casariam com aquele valor combinado aos filtros dos OUTROS campos.\n\nPeríodo (from/to) arredondado PARA FORA em dias UTC inteiros neste endpoint; `search` usa o caminho live. Sem paginação."
+     }
+    },
+    {
+     "name": "Anatomia completa de um trace",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/api/v1/traces/{{traceId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "api",
+        "v1",
+        "traces",
+        "{{traceId}}"
+       ]
+      },
+      "description": "Métricas, blocos de agente/canal (build e instância que serviram a execução), spans ordenados (waterfall), conteúdo integral e a conta do custo (preço aplicado × tokens, precisão cheia por linha). 404 se o trace não existir."
+     }
     }
-  ]
+   ]
+  },
+  {
+   "name": "Sessions",
+   "description": "Conversas: traces agrupados por sessão (read-model derivado — GROUP BY session_id).",
+   "item": [
+    {
+     "name": "Lista sessões",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/api/v1/sessions?page=1&page_size=20",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "api",
+        "v1",
+        "sessions"
+       ],
+       "query": [
+        {
+         "key": "from",
+         "value": "2026-06-01T00:00:00.000Z",
+         "description": "Início do período (inclusivo, UTC). Filtra pelo INÍCIO da sessão (QA17).",
+         "disabled": true
+        },
+        {
+         "key": "to",
+         "value": "2026-07-01T00:00:00.000Z",
+         "description": "Fim do período (exclusivo, UTC).",
+         "disabled": true
+        },
+        {
+         "key": "agent",
+         "value": "agent-atendimento",
+         "description": "Id do agente da sessão (valor único).",
+         "disabled": true
+        },
+        {
+         "key": "status",
+         "value": "error",
+         "description": "error se QUALQUER trace da sessão falhou (valor único).",
+         "disabled": true
+        },
+        {
+         "key": "page",
+         "value": "1",
+         "description": "Página (1-based)."
+        },
+        {
+         "key": "page_size",
+         "value": "20",
+         "description": "Itens por página (máx. 100)."
+        }
+       ]
+      },
+      "description": "Sessões com nº de traces, duração somada, tokens somados, custo somado, início e última atividade. Sessão com traces pendentes de preço expõe `cost_brl: null` + parcial + `pending_price_count` — nunca um total que se leia como R$ 0,00 final. Traces sem session_id ficam fora deste endpoint."
+     }
+    },
+    {
+     "name": "Sessão com a cadeia de traces",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/api/v1/sessions/{{sessionId}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "api",
+        "v1",
+        "sessions",
+        "{{sessionId}}"
+       ]
+      },
+      "description": "Agregados da sessão + cadeia cronológica de traces (transcrição). 404 se a sessão não existir."
+     }
+    }
+   ]
+  },
+  {
+   "name": "Billing",
+   "description": "Agregados mensais — soma dos custos carimbados, por construção.",
+   "item": [
+    {
+     "name": "Lista faturas",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/api/v1/bills",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "api",
+        "v1",
+        "bills"
+       ]
+      },
+      "description": "Uma fatura por mês-calendário (UTC). Status (T6/T7): closed = final (números do snapshot, verbatim), in_progress = mês corrente (parcial), open = mês passado aguardando fechamento. Pendentes contados à parte; quarentena pós-fechamento visível."
+     }
+    },
+    {
+     "name": "Extrato do mês",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/api/v1/billing/summary?year={{year}}&month={{month}}",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "api",
+        "v1",
+        "billing",
+        "summary"
+       ],
+       "query": [
+        {
+         "key": "year",
+         "value": "{{year}}",
+         "description": "Ano-calendário (UTC), 1970-9999. Obrigatório."
+        },
+        {
+         "key": "month",
+         "value": "{{month}}",
+         "description": "Mês-calendário (1-12, UTC). Obrigatório."
+        }
+       ]
+      },
+      "description": "O EXTRATO do mês (T7): fechado servido exclusivamente do snapshot (nunca recalculado); aberto computado ao vivo pelo mesmo motor. Linhas US8 com preço unitário aplicado; % por agente (US7); mix de modelos (US15); economia de cache (T9/QA7); comparação com o mês anterior (US10); watermark e notas de reabertura (US2/US5/US6). 400 se ano/mês malformados."
+     }
+    },
+    {
+     "name": "Série mensal (US11/T8)",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/api/v1/billing/series?granularity=month&months=12",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "api",
+        "v1",
+        "billing",
+        "series"
+       ],
+       "query": [
+        {
+         "key": "granularity",
+         "value": "month",
+         "description": "'month' (default) ou 'day'."
+        },
+        {
+         "key": "months",
+         "value": "12",
+         "description": "1-24, default 12 (granularity=month)."
+        },
+        {
+         "key": "days",
+         "value": "30",
+         "description": "1-90, default 30 (granularity=day).",
+         "disabled": true
+        }
+       ]
+      },
+      "description": "Mensal (default): um total por mês — fechados do snapshot, abertos ao vivo. Diária (granularity=day, decisão 97): baldes de dia UTC, hoje parcial, quarentenados excluídos. Barras empilhadas por tipo de token (segments/stack_percent) nas cores do extrato."
+     }
+    },
+    {
+     "name": "Projeção do mês corrente (US12)",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/api/v1/billing/projection",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "api",
+        "v1",
+        "billing",
+        "projection"
+       ]
+      },
+      "description": "Run-rate linear documentado: acumulado ÷ dias UTC completos × dias do mês. Estimativa rotulada; nunca persiste; some no fechamento; <3 dias completos → insufficient_data."
+     }
+    },
+    {
+     "name": "Exportação do extrato (US17)",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/api/v1/billing/statement?year={{year}}&month={{month}}&format=csv",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "api",
+        "v1",
+        "billing",
+        "statement"
+       ],
+       "query": [
+        {
+         "key": "year",
+         "value": "{{year}}",
+         "description": "Ano-calendário (UTC). Obrigatório."
+        },
+        {
+         "key": "month",
+         "value": "{{month}}",
+         "description": "Mês-calendário (1-12). Obrigatório."
+        },
+        {
+         "key": "format",
+         "value": "csv",
+         "description": "'csv' (default, abre no Excel) ou 'html' (imprimível, Ctrl+P → PDF)."
+        }
+       ]
+      },
+      "description": "Um recurso, duas representações (decisão 98). Mês fechado exporta o snapshot verbatim; mês corrente sai com marca PARCIAL (QA13)."
+     }
+    }
+   ]
+  },
+  {
+   "name": "Prices",
+   "description": "Tabela de preços contratados (T4) — versões imutáveis por vigência.",
+   "item": [
+    {
+     "name": "Registra versão de preço",
+     "request": {
+      "method": "POST",
+      "header": [
+       {
+        "key": "Content-Type",
+        "value": "application/json"
+       }
+      ],
+      "body": {
+       "mode": "raw",
+       "raw": "{\n  \"model\": \"openai/gpt-5-mini\",\n  \"token_type\": \"input\",\n  \"price_brl_per_million\": \"2.75\",\n  \"effective_from\": \"2026-06-01\"\n}"
+      },
+      "url": {
+       "raw": "{{baseUrl}}/api/v1/prices",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "api",
+        "v1",
+        "prices"
+       ]
+      },
+      "description": "Registra uma NOVA versão de preço — sempre insert, nunca update (invariante 9): duplicata de (model, token_type, effective_from) responde 409; mudança de preço é um novo effective_from.\n\n- `model`: canonicalizado para a MESMA chave `provider/id` que o carimbo consulta (decisão 82) — `gemini-2.5-pro` vira `google/gemini-2.5-pro`.\n- `token_type`: input | output | cache_read | cache_write.\n- `price_brl_per_million`: STRING decimal (até 8 casas) — dinheiro nunca é float; número JSON responde 400.\n- `effective_from`: data/datetime ISO 8601.\n\nContrato ESTRITO: campo desconhecido responde 400 (um typo nunca registra preço errado).\n\nEfeito imediato (decisão 57): traces pending_price desbloqueados pelo novo preço são carimbados na hora — o relatório (`reprocess.examined/stamped/still_pending/failed`) vem na resposta 201. Preços já aplicados NUNCA mudam (invariante 1)."
+     }
+    }
+   ]
+  },
+  {
+   "name": "Docs",
+   "description": "Documento OpenAPI gerado dos MESMOS schemas zod estritos que os testes de contrato usam.",
+   "item": [
+    {
+     "name": "OpenAPI 3.1 (JSON)",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/api/v1/docs/openapi.json",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "api",
+        "v1",
+        "docs",
+        "openapi.json"
+       ]
+      },
+      "description": "O documento OpenAPI vivo, gerado em memória a partir dos schemas de projeção."
+     }
+    },
+    {
+     "name": "Swagger UI",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/api/v1/docs/",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "api",
+        "v1",
+        "docs",
+        ""
+       ]
+      },
+      "description": "UI navegável da documentação (HTML)."
+     }
+    }
+   ]
+  }
+ ]
 }

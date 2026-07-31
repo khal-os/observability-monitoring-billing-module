@@ -11,11 +11,20 @@ export interface BillListItem {
   /** 1-12. */
   month: number;
   periodStatus: BillingPeriodStatus;
+  /**
+   * Closed months: the SNAPSHOT total, verbatim (T7 — matches the frozen
+   * statement forever). Open months: live sum of the stamps.
+   */
   totalCostMicrocents: number;
   stampedTraceCount: number;
   pendingTraceCount: number;
   /** All token types summed, stamped and pending traces alike. */
   tokens: number;
+  /** Present iff periodStatus === 'closed'. */
+  closedAt?: Date;
+  snapshotVersion?: number;
+  /** Traces that arrived after the close (T6 quarantine) — admin visibility (US5). */
+  quarantinedTraceCount: number;
 }
 
 export interface ListBillsUseCase {

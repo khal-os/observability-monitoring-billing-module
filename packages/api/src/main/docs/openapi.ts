@@ -12,6 +12,8 @@ import {
 } from '../../presentation/controllers/sessions/session-view-schemas.js';
 import {
   billListResponseSchema,
+  billingProjectionResponseSchema,
+  billingSeriesResponseSchema,
   billingSummaryResponseSchema,
 } from '../../presentation/controllers/billing/billing-view-schemas.js';
 import {
@@ -256,11 +258,13 @@ export const buildOpenApiDocument = (clientName?: string) => ({
     '/api/v1/bills': {
       get: {
         tags: ['Billing'],
-        summary: 'Lista faturas (recente primeiro)',
+        summary: 'Lista de meses/faturas com status do período (recente primeiro)',
         description:
-          'Uma fatura por mês-calendário (UTC) com ao menos um trace. ' +
-          'Total ≡ soma dos carimbos do mês; pendentes contados à parte, ' +
-          'fora do total. Mês corrente sempre parcial (in_progress).',
+          'Uma fatura por mês-calendário (UTC). Status (T6/T7): closed = ' +
+          'final, servida do snapshot verbatim; in_progress = mês corrente, ' +
+          'parcial; open = mês passado aguardando fechamento. Total ≡ soma ' +
+          'dos carimbos (aberto) ou número congelado do snapshot (fechado); ' +
+          'pendentes contados à parte, fora do total; quarentena visível.',
         responses: {
           '200': okResponse('Faturas.', billListResponseSchema),
           '500': errorResponse('Erro interno.'),
@@ -271,11 +275,16 @@ export const buildOpenApiDocument = (clientName?: string) => ({
       get: {
         tags: ['Billing'],
         summary:
-          'Extrato do mês: total + quebra agente × versão × modelo × tipo de token',
+          'Extrato do mês: total, % por agente, linhas qty × preço, mix, cache, comparação',
         description:
-          'Total ≡ soma dos custos carimbados dos traces do mês (checado por ' +
-          'teste automatizado). Linhas exibidas fecham com o total exibido ' +
-          '(largest remainder). Pendentes reportados à parte, fora do total.',
+          'T7: mês FECHADO servido exclusivamente do snapshot (nunca ' +
+          'recalculado); mês aberto computado ao vivo pelo MESMO motor sobre ' +
+          'os mesmos carimbos. Linhas (US8) = agente × versão × modelo × ' +
+          'tipo de token × preço aplicado (troca de preço no mês gera linhas ' +
+          'separadas). Partes exibidas fecham com o total exibido (largest ' +
+          'remainder); % por agente reconciliada a 100%. Inclui mix de ' +
+          'modelos (US15), economia de cache (T9/QA7), comparação com o mês ' +
+          'anterior (US10), watermark (US2/US6) e notas de reabertura (US5).',
         parameters: [
           queryParam('year', 'Calendar year (UTC), e.g. 2026.', {
             type: 'integer',
@@ -289,8 +298,84 @@ export const buildOpenApiDocument = (clientName?: string) => ({
           }, true),
         ],
         responses: {
-          '200': okResponse('Resumo do mês.', billingSummaryResponseSchema),
+          '200': okResponse('Extrato do mês.', billingSummaryResponseSchema),
           '400': errorResponse('Ano/mês ausentes ou malformados.'),
+          '500': errorResponse('Erro interno.'),
+        },
+      },
+    },
+    '/api/v1/billing/series': {
+      get: {
+        tags: ['Billing'],
+        summary:
+          'Série de custo — mensal (total/agente/modelo) ou diária, barras empilhadas por tipo de token',
+        description:
+          'Mensal (default): um total por mês, em todo lugar — fechados vêm ' +
+          'do snapshot (batem com cada extrato para sempre), abertos ao ' +
+          'vivo. Diária (granularity=day, decisão 97): mesmos carimbos em ' +
+          'baldes de dia UTC, hoje sempre parcial, quarentenados excluídos ' +
+          '(os dias de um mês fechado somam a fatura congelada). Toda barra ' +
+          'vem com geometria pré-computada e segmentos empilhados por tipo ' +
+          'de token (stack_percent) nas cores das linhas do extrato.',
+        parameters: [
+          queryParam('granularity', "'month' (default) ou 'day'.", {
+            type: 'string',
+            enum: ['month', 'day'],
+          }),
+          queryParam('months', 'Meses mais recentes (1-24, default 12; só granularity=month).', {
+            type: 'integer',
+            minimum: 1,
+            maximum: 24,
+          }),
+          queryParam('days', 'Dias mais recentes até hoje (1-90, default 30; só granularity=day).', {
+            type: 'integer',
+            minimum: 1,
+            maximum: 90,
+          }),
+        ],
+        responses: {
+          '200': okResponse('Série de custo.', billingSeriesResponseSchema),
+          '400': errorResponse('Parâmetro granularity/months/days malformado.'),
+          '500': errorResponse('Erro interno.'),
+        },
+      },
+    },
+    '/api/v1/billing/projection': {
+      get: {
+        tags: ['Billing'],
+        summary: 'Projeção do mês corrente — run-rate linear (US12/T8)',
+        description:
+          'Estimativa DERIVADA e rotulada: acumulado ÷ dias UTC completos × ' +
+          'dias do mês. Nunca persiste, nunca entra em snapshot, some no ' +
+          'fechamento. < 3 dias completos → insufficient_data.',
+        responses: {
+          '200': okResponse('Projeção.', billingProjectionResponseSchema),
+          '500': errorResponse('Erro interno.'),
+        },
+      },
+    },
+    '/api/v1/billing/statement': {
+      get: {
+        tags: ['Billing'],
+        summary:
+          'Exportação do extrato (US17) — representação via ?format=csv|html',
+        description:
+          'Um recurso, duas representações (decisão 98): format=csv ' +
+          '(default) = linhas da US8 + cabeçalho com mês/status/timestamps, ' +
+          'UTF-8 com BOM, abre no Excel; format=html = página standalone ' +
+          'imprimível (Ctrl+P → PDF). Mês fechado exporta o snapshot ' +
+          'verbatim; mês corrente carrega a marca PARCIAL (QA13).',
+        parameters: [
+          queryParam('year', 'Calendar year (UTC).', { type: 'integer' }, true),
+          queryParam('month', 'Calendar month (1-12).', { type: 'integer' }, true),
+          queryParam('format', "'csv' (default) ou 'html'.", {
+            type: 'string',
+            enum: ['csv', 'html'],
+          }),
+        ],
+        responses: {
+          '200': { description: 'text/csv (attachment) ou text/html imprimível.' },
+          '400': errorResponse('Ano/mês/format ausentes ou malformados.'),
           '500': errorResponse('Erro interno.'),
         },
       },

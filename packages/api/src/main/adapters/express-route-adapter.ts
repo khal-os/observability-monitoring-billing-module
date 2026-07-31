@@ -14,6 +14,12 @@ export const adaptRoute = (controller: Controller) => {
     try {
       const httpResponse: HttpResponse = await controller.handle(httpRequest);
 
+      if (httpResponse.headers) {
+        res.status(httpResponse.statusCode).set(httpResponse.headers);
+        res.send(httpResponse.body);
+        return;
+      }
+
       res.status(httpResponse.statusCode).json(httpResponse.body);
     } catch (error) {
       console.error('Route handler error:', error);

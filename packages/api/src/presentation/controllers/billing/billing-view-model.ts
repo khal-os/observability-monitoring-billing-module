@@ -1,8 +1,20 @@
 import {
+  BillingMonthComparison,
+  BillingPeriodStatus,
   BillingSummary,
-  BillingSummaryLine,
 } from '../../../domain/useCases/get-billing-summary-use-case.js';
 import { BillListItem } from '../../../domain/useCases/list-bills-use-case.js';
+import {
+  BillingSeriesDay,
+  BillingSeriesMonth,
+} from '../../../domain/useCases/get-billing-series-use-case.js';
+import { BillingProjection } from '../../../domain/useCases/get-billing-projection-use-case.js';
+import {
+  StatementAgentGroup,
+  StatementLine,
+  StatementModelShare,
+  StatementProjection,
+} from '../../../domain/models/billing-snapshot-model.js';
 import { TokenType } from '../../../domain/models/price-version-model.js';
 import {
   formatBrlExactFromMicrocents,
@@ -12,10 +24,17 @@ import {
 } from '../../../common/helpers/money/money.js';
 import {
   formatBrlDisplay,
+  formatDateTimeDisplay,
   formatIntDisplay,
   formatMonthLabel,
+  formatUtcDateDisplay,
 } from '../../../common/helpers/display/display.js';
-import { BillListView, BillingSummaryView } from './billing-view-schemas.js';
+import {
+  BillListView,
+  BillingProjectionView,
+  BillingSeriesView,
+  BillingSummaryView,
+} from './billing-view-schemas.js';
 
 const TOKEN_TYPE_ORDER: TokenType[] = [
   'input',
@@ -24,90 +43,122 @@ const TOKEN_TYPE_ORDER: TokenType[] = [
   'cache_write',
 ];
 
+const TOKEN_TYPE_LABELS: Record<TokenType, string> = {
+  input: 'input',
+  output: 'output',
+  cache_read: 'cache leitura',
+  cache_write: 'cache escrita',
+};
+
+const STATUS_LABELS: Record<BillingPeriodStatus, string> = {
+  closed: 'Fechado — final',
+  in_progress: 'Em andamento — dados parciais',
+  open: 'Aberto — aguardando fechamento',
+};
+
+const MONTHS_PT_SHORT = [
+  'jan',
+  'fev',
+  'mar',
+  'abr',
+  'mai',
+  'jun',
+  'jul',
+  'ago',
+  'set',
+  'out',
+  'nov',
+  'dez',
+];
+
 const round2 = (value: number): number => Math.round(value * 100) / 100;
+
+/** 4325 bp -> "43,25%" (trailing zeros trimmed to keep tables calm: "43,2%" never lies). */
+const bpToPercentDisplay = (bp: number): string => {
+  const whole = Math.trunc(bp / 100);
+  const fraction = bp % 100;
+
+  if (fraction === 0) return `${whole}%`;
+
+  const fractionText = String(fraction).padStart(2, '0').replace(/0$/, '');
+
+  return `${whole},${fractionText}%`;
+};
+
+/** Signed BRL for deltas — the money helpers stay non-negative by contract. */
+const signedBrlDisplay = (microcents: number): string => {
+  const sign = microcents < 0 ? '−' : '+';
+
+  return `${sign} ${formatBrlDisplay(formatBrlFromMicrocents(Math.abs(microcents)))}`;
+};
+
+/** Signed EXACT BRL — cache savings keep line-level precision (T5 honesty). */
+const signedBrlExactDisplay = (microcents: number): string => {
+  const sign = microcents < 0 ? '−' : '+';
+
+  return `${sign} ${formatBrlDisplay(formatBrlExactFromMicrocents(Math.abs(microcents)))}`;
+};
+
+/** Delta as percent of the previous value; null when previous is zero. */
+const deltaPercentDisplay = (
+  delta: number,
+  previous: number,
+): string | null => {
+  if (previous === 0) return null;
+
+  const percentTimes10 = Math.round((Math.abs(delta) / previous) * 1000);
+  const whole = Math.trunc(percentTimes10 / 10);
+  const tenth = percentTimes10 % 10;
+  const sign = delta < 0 ? '−' : '+';
+  const body = tenth === 0 ? `${whole}` : `${whole},${tenth}`;
+
+  return `${sign}${body}%`;
+};
+
+const direction = (delta: number): 'up' | 'down' | 'flat' =>
+  delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat';
+
+/** "R$ 25,00 / M tokens" from a µ¢-per-million price. */
+const unitPriceDisplay = (priceMicrocentsPerMillion: number): string =>
+  `${formatBrlDisplay(formatBrlExactFromMicrocents(priceMicrocentsPerMillion))} / M tokens`;
 
 type LineView = BillingSummaryView['lines'][number];
 
-const toLineView = (
-  line: BillingSummaryLine,
-  displayCents: number,
-): LineView => ({
+const toLineView = (line: StatementLine): LineView => ({
   agent_id: line.agentId,
   agent_version: line.agentVersion,
   model: line.model,
   model_label: line.model ?? '(sem modelo)',
   token_type: line.tokenType,
+  token_type_label: TOKEN_TYPE_LABELS[line.tokenType],
   tokens: line.tokens,
   tokens_display: formatIntDisplay(line.tokens),
+  unit_price_brl_per_million_display: unitPriceDisplay(
+    line.appliedPriceMicrocentsPerMillion,
+  ),
+  unit_price_effective_from_display: formatUtcDateDisplay(
+    new Date(line.appliedPriceEffectiveFrom),
+  ),
   cost_brl_exact: formatBrlExactFromMicrocents(line.costMicrocents),
   cost_brl_exact_display: formatBrlDisplay(
     formatBrlExactFromMicrocents(line.costMicrocents),
   ),
-  cost_brl_display: formatBrlFromCents(displayCents),
-  cost_brl_display_brl: formatBrlDisplay(formatBrlFromCents(displayCents)),
+  cost_brl_display: formatBrlFromCents(line.displayCents),
+  cost_brl_display_brl: formatBrlDisplay(formatBrlFromCents(line.displayCents)),
 });
 
 /**
- * Agent × version groups with API-computed bar geometry (decision 51):
- * groups sort by exact cost desc; the most expensive agent's bar spans
- * 100% of the track and every segment width is a percent of that same
- * track, so the front lays them out with zero math. Group display values
- * are sums of the RECONCILED line cents — groups close with the total
- * exactly like the lines do (T5).
+ * Agent groups with API-computed bar geometry (decision 51): the most
+ * expensive agent's bar spans 100% of the track. Display cents come
+ * reconciled FROM THE ENGINE (frozen in snapshots) — groups close with
+ * the total exactly, forever (US6).
  */
-const toAgentGroups = (
-  lines: BillingSummaryLine[],
-  lineViews: LineView[],
-  partsCents: number[],
+const toAgentGroupViews = (
+  statement: StatementProjection,
 ): BillingSummaryView['agents'] => {
-  interface Group {
-    agentId: string | null;
-    agentVersion: string | null;
-    costMicrocents: number;
-    displayCents: number;
-    tokens: number;
-    byType: Map<TokenType, number>;
-    lineViews: LineView[];
-  }
+  const maxCost = statement.agents[0]?.costMicrocents ?? 0;
 
-  const groups = new Map<string, Group>();
-
-  lines.forEach((line, index) => {
-    const key = `${line.agentId ?? ''}@@${line.agentVersion ?? ''}`;
-    let group = groups.get(key);
-
-    if (!group) {
-      group = {
-        agentId: line.agentId,
-        agentVersion: line.agentVersion,
-        costMicrocents: 0,
-        displayCents: 0,
-        tokens: 0,
-        byType: new Map(),
-        lineViews: [],
-      };
-      groups.set(key, group);
-    }
-
-    group.costMicrocents += line.costMicrocents;
-    // The reconciled integer cents, straight from reconcileDisplayCents —
-    // never recovered by parsing the formatted string back through floats
-    // (money is integers end to end).
-    group.displayCents += partsCents[index] as number;
-    group.tokens += line.tokens;
-    group.byType.set(
-      line.tokenType,
-      (group.byType.get(line.tokenType) ?? 0) + line.costMicrocents,
-    );
-    group.lineViews.push(lineViews[index] as LineView);
-  });
-
-  const sorted = [...groups.values()].sort(
-    (a, b) => b.costMicrocents - a.costMicrocents,
-  );
-  const maxCost = sorted[0]?.costMicrocents ?? 0;
-
-  return sorted.map((group) => ({
+  return statement.agents.map((group) => ({
     agent_id: group.agentId,
     agent_version: group.agentVersion,
     agent_label: group.agentId ?? '(sem agente)',
@@ -115,47 +166,198 @@ const toAgentGroups = (
     tokens_total: group.tokens,
     tokens_total_display: formatIntDisplay(group.tokens),
     cost_brl_display: formatBrlDisplay(formatBrlFromCents(group.displayCents)),
+    percent_of_total_display: bpToPercentDisplay(group.percentOfTotalBp),
     bar_width_percent:
       maxCost > 0 ? round2((group.costMicrocents / maxCost) * 100) : 0,
     segments: TOKEN_TYPE_ORDER.filter(
-      (tokenType) => (group.byType.get(tokenType) ?? 0) > 0,
+      (tokenType) => (group.costByTokenTypeMicrocents[tokenType] ?? 0) > 0,
     ).map((tokenType) => ({
       token_type: tokenType,
       width_percent:
         maxCost > 0
-          ? round2(((group.byType.get(tokenType) ?? 0) / maxCost) * 100)
+          ? round2(
+              ((group.costByTokenTypeMicrocents[tokenType] ?? 0) / maxCost) *
+                100,
+            )
           : 0,
-      label: `${tokenType} · ${formatBrlDisplay(
-        formatBrlExactFromMicrocents(group.byType.get(tokenType) ?? 0),
+      label: `${TOKEN_TYPE_LABELS[tokenType]} · ${formatBrlDisplay(
+        formatBrlExactFromMicrocents(
+          group.costByTokenTypeMicrocents[tokenType] ?? 0,
+        ),
       )}`,
     })),
-    lines: group.lineViews,
+    lines: statement.lines
+      .filter(
+        (line) =>
+          line.agentId === group.agentId &&
+          line.agentVersion === group.agentVersion,
+      )
+      .map(toLineView),
   }));
+};
+
+/**
+ * The agent share donut (pedido do Matheus, 31/07): ONE chart, each
+ * agent's slice of the month cost. Versions merge (the per-version detail
+ * stays in the breakdown table); shares are the engine's reconciled basis
+ * points summed per agent — integer bp, so the slices still close at
+ * exactly 100%.
+ */
+const toAgentMixViews = (
+  statement: StatementProjection,
+): BillingSummaryView['agent_mix'] => {
+  const merged = new Map<
+    string,
+    { displayCents: number; shareBp: number; costMicrocents: number }
+  >();
+
+  for (const group of statement.agents) {
+    const label = group.agentId ?? '(sem agente)';
+    let entry = merged.get(label);
+
+    if (!entry) {
+      entry = { displayCents: 0, shareBp: 0, costMicrocents: 0 };
+      merged.set(label, entry);
+    }
+
+    entry.displayCents += group.displayCents;
+    entry.shareBp += group.percentOfTotalBp;
+    entry.costMicrocents += group.costMicrocents;
+  }
+
+  let accumulatedBp = 0;
+
+  return [...merged.entries()]
+    .sort((a, b) => b[1].costMicrocents - a[1].costMicrocents)
+    .map(([label, entry]) => {
+      const start = accumulatedBp;
+      accumulatedBp += entry.shareBp;
+
+      return {
+        agent_label: label,
+        cost_brl_display: formatBrlDisplay(
+          formatBrlFromCents(entry.displayCents),
+        ),
+        cost_share_percent_display: bpToPercentDisplay(entry.shareBp),
+        donut_start_percent: round2(start / 100),
+        donut_end_percent: round2(accumulatedBp / 100),
+      };
+    });
+};
+
+/** Donut slices: cumulative start/end percents — the UI paints, never sums. */
+const toModelShareViews = (
+  shares: StatementModelShare[],
+): BillingSummaryView['model_mix']['total'] => {
+  // T5 everywhere: displayed parts are largest-remainder reconciled, so
+  // the model R$ values sum EXACTLY to the displayed total — independent
+  // per-model rounding once drifted a cent against the agent donut.
+  const { partsCents } = reconcileDisplayCents(
+    shares.map((share) => share.costMicrocents),
+  );
+
+  let accumulatedBp = 0;
+
+  return shares.map((share, index) => {
+    const start = accumulatedBp;
+    accumulatedBp += share.costShareBp;
+
+    return {
+      model: share.model,
+      model_label: share.model ?? '(sem modelo)',
+      cost_brl_display: formatBrlDisplay(
+        formatBrlFromCents(partsCents[index] as number),
+      ),
+      cost_share_percent_display: bpToPercentDisplay(share.costShareBp),
+      token_share_percent_display: bpToPercentDisplay(share.tokenShareBp),
+      donut_start_percent: round2(start / 100),
+      donut_end_percent: round2(accumulatedBp / 100),
+    };
+  });
+};
+
+const toCacheSavingsView = (
+  statement: StatementProjection,
+): BillingSummaryView['cache_savings'] => {
+  const cache = statement.cacheSavings;
+
+  return {
+    cache_read_tokens: cache.cacheReadTokens,
+    cache_read_tokens_display: formatIntDisplay(cache.cacheReadTokens),
+    actual_cache_read_cost_brl_display: formatBrlDisplay(
+      formatBrlExactFromMicrocents(cache.actualCacheReadCostMicrocents),
+    ),
+    counterfactual_input_cost_brl_display: formatBrlDisplay(
+      formatBrlExactFromMicrocents(cache.counterfactualInputCostMicrocents),
+    ),
+    savings_brl_display: signedBrlExactDisplay(cache.savingsMicrocents),
+    cache_write_cost_brl_display: formatBrlDisplay(
+      formatBrlExactFromMicrocents(cache.cacheWriteCostMicrocents),
+    ),
+    net_savings_brl_display: signedBrlExactDisplay(cache.netSavingsMicrocents),
+    net_positive: cache.netSavingsMicrocents >= 0,
+    unpriceable_cache_read_traces: cache.unpriceableCacheReadTraces,
+    basis_text:
+      'Contrafactual: cada leitura de cache cobrada como se fosse input ' +
+      'normal, ao preço contratado de input do próprio trace. Escrita de ' +
+      'cache é custo real, mostrada à parte e descontada no líquido.',
+  };
+};
+
+const toComparisonView = (
+  comparison: BillingMonthComparison | null,
+): BillingSummaryView['comparison'] => {
+  if (!comparison) return null;
+
+  return {
+    previous_month_label: formatMonthLabel(
+      comparison.previousYear,
+      comparison.previousMonth,
+    ),
+    previous_period_status: comparison.previousPeriodStatus,
+    previous_partial: comparison.previousPeriodStatus === 'in_progress',
+    previous_total_cost_brl_display: formatBrlDisplay(
+      formatBrlFromMicrocents(comparison.previousTotalCostMicrocents),
+    ),
+    delta_brl_display: signedBrlDisplay(comparison.totalDeltaMicrocents),
+    delta_percent_display: deltaPercentDisplay(
+      comparison.totalDeltaMicrocents,
+      comparison.previousTotalCostMicrocents,
+    ),
+    direction: direction(comparison.totalDeltaMicrocents),
+    by_agent: comparison.byAgent.map((agent) => ({
+      agent_label: agent.agentId ?? '(sem agente)',
+      version_label: agent.agentVersion ? `v${agent.agentVersion}` : null,
+      current_cost_brl_display: formatBrlDisplay(
+        formatBrlFromMicrocents(agent.currentCostMicrocents),
+      ),
+      previous_cost_brl_display: formatBrlDisplay(
+        formatBrlFromMicrocents(agent.previousCostMicrocents),
+      ),
+      delta_brl_display: signedBrlDisplay(agent.deltaMicrocents),
+      delta_percent_display: deltaPercentDisplay(
+        agent.deltaMicrocents,
+        agent.previousCostMicrocents,
+      ),
+      direction: direction(agent.deltaMicrocents),
+    })),
+  };
 };
 
 /**
  * Whitelist projection, R$ only by construction (invariant 4) — internal
  * fields and µ¢ integers never leave the API.
  *
- * Display rule (T5): each line keeps its exact cost; displayed line values
- * are reconciled by largest remainder so the displayed parts sum EXACTLY
- * to the displayed total. Pending traces are reported apart — the total
- * never silently absorbs them as R$ 0 (invariant 2).
+ * Display rule (T5): each line keeps its exact cost; displayed cents come
+ * reconciled from the engine (largest remainder), so the displayed parts
+ * sum EXACTLY to the displayed total. Pending traces are reported apart —
+ * the total never silently absorbs them as R$ 0 (invariant 2).
  */
 export const toBillingSummaryView = (
   summary: BillingSummary,
 ): BillingSummaryView => {
-  const { totalCents, partsCents } = reconcileDisplayCents(
-    summary.lines.map((line) => line.costMicrocents),
-  );
-  const lineViews = summary.lines.map((line, index) =>
-    toLineView(line, partsCents[index] as number),
-  );
-  const stampedTokensTotal = summary.lines.reduce(
-    (sum, line) => sum + line.tokens,
-    0,
-  );
-  const agents = toAgentGroups(summary.lines, lineViews, partsCents);
+  const { statement } = summary;
+
   const pendingTokensTotal =
     (summary.pendingPrice.tokens.input ?? 0) +
     (summary.pendingPrice.tokens.output ?? 0) +
@@ -168,16 +370,56 @@ export const toBillingSummaryView = (
     month_label: formatMonthLabel(summary.year, summary.month),
     period_status: summary.periodStatus,
     partial: summary.periodStatus === 'in_progress',
-    total_cost_brl: formatBrlFromCents(totalCents),
-    total_cost_brl_display: formatBrlDisplay(formatBrlFromCents(totalCents)),
-    stamped_tokens_total: stampedTokensTotal,
-    stamped_tokens_total_display: formatIntDisplay(stampedTokensTotal),
-    agent_count: agents.length,
+    final: summary.periodStatus === 'closed',
+    status_label: STATUS_LABELS[summary.periodStatus],
+    watermark_display: summary.ingestionWatermark
+      ? `dados até ${formatDateTimeDisplay(new Date(summary.ingestionWatermark))}`
+      : null,
+    closed_at_display: summary.closedAt
+      ? formatDateTimeDisplay(new Date(summary.closedAt))
+      : null,
+    snapshot_version: summary.snapshotVersion ?? null,
+    snapshot_versions: (summary.snapshotVersions ?? []).map((version) => ({
+      version: version.version,
+      created_at_display: formatDateTimeDisplay(new Date(version.createdAt)),
+    })),
+    reopen_notes: [...summary.reopenNotes]
+      .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+      .map((note) => ({
+        at_display: formatDateTimeDisplay(new Date(note.at)),
+        reason: note.reason,
+      })),
+    quarantined_trace_count: summary.quarantinedTraceCount,
+    total_cost_brl: formatBrlFromCents(statement.totalDisplayCents),
+    total_cost_brl_display: formatBrlDisplay(
+      formatBrlFromCents(statement.totalDisplayCents),
+    ),
+    stamped_trace_count: statement.stampedTraceCount,
+    stamped_tokens_total: statement.stampedTokensTotal,
+    stamped_tokens_total_display: formatIntDisplay(
+      statement.stampedTokensTotal,
+    ),
+    agent_count: statement.agents.length,
     model_count: new Set(
-      summary.lines.map((line) => line.model).filter(Boolean),
+      statement.lines.map((line) => line.model).filter(Boolean),
     ).size,
-    lines: lineViews,
-    agents,
+    lines: statement.lines.map(toLineView),
+    agents: toAgentGroupViews(statement),
+    agent_mix: toAgentMixViews(statement),
+    model_mix: {
+      total: toModelShareViews(statement.modelMixTotal),
+      by_agent: statement.modelMixByAgent.map((mix) => ({
+        agent_label: mix.agentId ?? '(sem agente)',
+        version_label: mix.agentVersion ? `v${mix.agentVersion}` : null,
+        blended_price_brl_per_million_display:
+          mix.blendedPricePerMillionMicrocents !== null
+            ? unitPriceDisplay(mix.blendedPricePerMillionMicrocents)
+            : null,
+        models: toModelShareViews(mix.models),
+      })),
+    },
+    cache_savings: toCacheSavingsView(statement),
+    comparison: toComparisonView(summary.comparison),
     pending_price: {
       trace_count: summary.pendingPrice.traceCount,
       tokens: {
@@ -202,8 +444,13 @@ export const toBillListView = (bills: BillListItem[]): BillListView => ({
     month_label: formatMonthLabel(bill.year, bill.month),
     period_status: bill.periodStatus,
     partial: bill.periodStatus === 'in_progress',
-    status_label:
-      bill.periodStatus === 'in_progress' ? 'mês em andamento' : 'aberto',
+    final: bill.periodStatus === 'closed',
+    status_label: STATUS_LABELS[bill.periodStatus],
+    closed_at_display: bill.closedAt
+      ? formatDateTimeDisplay(new Date(bill.closedAt))
+      : null,
+    snapshot_version: bill.snapshotVersion ?? null,
+    quarantined_trace_count: bill.quarantinedTraceCount,
     total_cost_brl: formatBrlFromMicrocents(bill.totalCostMicrocents),
     total_cost_brl_display: formatBrlDisplay(
       formatBrlFromMicrocents(bill.totalCostMicrocents),
@@ -213,4 +460,218 @@ export const toBillListView = (bills: BillListItem[]): BillListView => ({
     tokens: bill.tokens,
     tokens_display: formatIntDisplay(bill.tokens),
   })),
+});
+
+const shortMonthLabel = (year: number, month: number): string =>
+  `${MONTHS_PT_SHORT[month - 1]}/${String(year).slice(2)}`;
+
+const TOKEN_SPLIT_ORDER: TokenType[] = [
+  'input',
+  'output',
+  'cache_read',
+  'cache_write',
+];
+
+/**
+ * Stacked-bar geometry (decision 97): segments in statement-line order,
+ * each with its share OF THE BAR — the UI stacks them bottom-up inside a
+ * bar whose height is the point's `height_percent` of the chart.
+ */
+const toSegments = (
+  byTokenType: { tokenType: TokenType; costMicrocents: number }[],
+  totalCostMicrocents: number,
+): BillingSeriesView['series'][number]['points'][number]['segments'] =>
+  TOKEN_SPLIT_ORDER.flatMap((tokenType) => {
+    const entry = byTokenType.find(
+      (candidate) => candidate.tokenType === tokenType,
+    );
+
+    if (!entry || entry.costMicrocents <= 0 || totalCostMicrocents <= 0) {
+      return [];
+    }
+
+    return [
+      {
+        token_type: tokenType,
+        stack_percent: round2(
+          (entry.costMicrocents / totalCostMicrocents) * 100,
+        ),
+        label: `${TOKEN_TYPE_LABELS[tokenType]} · ${formatBrlDisplay(
+          formatBrlExactFromMicrocents(entry.costMicrocents),
+        )}`,
+      },
+    ];
+  });
+
+/**
+ * US11: one shared scale — every series' heights are percents of the
+ * tallest bar in the response, so toggling total/agent/model series never
+ * re-scales the chart (small agents honestly look small).
+ */
+export const toBillingSeriesView = (
+  months: BillingSeriesMonth[],
+): BillingSeriesView => {
+  const maxTotal = Math.max(
+    0,
+    ...months.map((month) => month.totalCostMicrocents),
+  );
+
+  const heightOf = (costMicrocents: number): number =>
+    maxTotal > 0 ? round2((costMicrocents / maxTotal) * 100) : 0;
+
+  const pointBase = (month: BillingSeriesMonth) => ({
+    year: month.year,
+    month: month.month,
+    month_label: formatMonthLabel(month.year, month.month),
+    short_label: shortMonthLabel(month.year, month.month),
+    period_status: month.periodStatus,
+    partial: month.periodStatus === 'in_progress',
+  });
+
+  const totalSeries = {
+    key: 'total',
+    label: 'Total',
+    kind: 'total' as const,
+    points: months.map((month) => ({
+      ...pointBase(month),
+      cost_brl_display: formatBrlDisplay(
+        formatBrlFromMicrocents(month.totalCostMicrocents),
+      ),
+      height_percent: heightOf(month.totalCostMicrocents),
+      segments: toSegments(month.byTokenType, month.totalCostMicrocents),
+    })),
+  };
+
+  const agentIds = new Map<string | null, number>();
+  const modelIds = new Map<string | null, number>();
+
+  for (const month of months) {
+    for (const agent of month.byAgent) {
+      agentIds.set(
+        agent.agentId,
+        (agentIds.get(agent.agentId) ?? 0) + agent.costMicrocents,
+      );
+    }
+    for (const model of month.byModel) {
+      modelIds.set(
+        model.model,
+        (modelIds.get(model.model) ?? 0) + model.costMicrocents,
+      );
+    }
+  }
+
+  const seriesOf = (
+    kind: 'agent' | 'model',
+    id: string | null,
+  ): BillingSeriesView['series'][number] => ({
+    key: `${kind}:${id ?? '(nulo)'}`,
+    label: id ?? (kind === 'agent' ? '(sem agente)' : '(sem modelo)'),
+    kind,
+    points: months.map((month) => {
+      const entry =
+        kind === 'agent'
+          ? month.byAgent.find((agent) => agent.agentId === id)
+          : month.byModel.find((model) => model.model === id);
+      const cost = entry?.costMicrocents ?? 0;
+
+      return {
+        ...pointBase(month),
+        cost_brl_display: formatBrlDisplay(formatBrlFromMicrocents(cost)),
+        height_percent: heightOf(cost),
+        segments: toSegments(entry?.byTokenType ?? [], cost),
+      };
+    }),
+  });
+
+  const byCostDesc = (a: [string | null, number], b: [string | null, number]) =>
+    b[1] - a[1];
+
+  return {
+    granularity: 'month',
+    months: months.map((month) => ({
+      ...pointBase(month),
+      total_cost_brl_display: formatBrlDisplay(
+        formatBrlFromMicrocents(month.totalCostMicrocents),
+      ),
+    })),
+    series: [
+      totalSeries,
+      ...[...agentIds.entries()]
+        .sort(byCostDesc)
+        .map(([agentId]) => seriesOf('agent', agentId)),
+      ...[...modelIds.entries()]
+        .sort(byCostDesc)
+        .map(([model]) => seriesOf('model', model)),
+    ],
+  };
+};
+
+/** The daily lens (decision 97): total series only, same stacked geometry. */
+export const toBillingDailySeriesView = (
+  days: BillingSeriesDay[],
+): BillingSeriesView => {
+  const maxTotal = Math.max(0, ...days.map((day) => day.totalCostMicrocents));
+
+  return {
+    granularity: 'day',
+    months: [],
+    series: [
+      {
+        key: 'total',
+        label: 'Total',
+        kind: 'total',
+        points: days.map((day) => {
+          const date = new Date(day.date);
+
+          return {
+            year: date.getUTCFullYear(),
+            month: date.getUTCMonth() + 1,
+            day: date.getUTCDate(),
+            month_label: formatUtcDateDisplay(date),
+            short_label: `${String(date.getUTCDate()).padStart(2, '0')}/${String(
+              date.getUTCMonth() + 1,
+            ).padStart(2, '0')}`,
+            period_status: day.periodStatus,
+            partial: day.partial,
+            cost_brl_display: formatBrlDisplay(
+              formatBrlFromMicrocents(day.totalCostMicrocents),
+            ),
+            height_percent:
+              maxTotal > 0
+                ? round2((day.totalCostMicrocents / maxTotal) * 100)
+                : 0,
+            segments: toSegments(day.byTokenType, day.totalCostMicrocents),
+          };
+        }),
+      },
+    ],
+  };
+};
+
+export const toBillingProjectionView = (
+  projection: BillingProjection,
+): BillingProjectionView => ({
+  year: projection.year,
+  month: projection.month,
+  month_label: formatMonthLabel(projection.year, projection.month),
+  is_estimate: true,
+  insufficient_data: projection.insufficientData,
+  accrued_cost_brl_display: formatBrlDisplay(
+    formatBrlFromMicrocents(projection.accruedCostMicrocents),
+  ),
+  projected_cost_brl_display:
+    projection.projectedCostMicrocents !== null
+      ? formatBrlDisplay(
+          formatBrlFromMicrocents(projection.projectedCostMicrocents),
+        )
+      : null,
+  complete_days: projection.completeDays,
+  days_in_month: projection.daysInMonth,
+  basis_text: projection.insufficientData
+    ? `Dados insuficientes: só ${projection.completeDays} dia(s) completo(s) ` +
+      `no mês — a projeção aparece a partir de 3 dias completos.`
+    : `Conta simples: os ${projection.completeDays} dias completos custaram ` +
+      `${formatBrlDisplay(formatBrlFromMicrocents(projection.accruedCostMicrocents))}; ` +
+      `dividido por ${projection.completeDays} e multiplicado pelos ` +
+      `${projection.daysInMonth} dias do mês. Estimativa — não é fatura.`,
 });

@@ -217,6 +217,7 @@ describe('Billing Routes', () => {
         await priceRepository.insertVersion({
           model: 'meta/llama-4-scout',
           tokenType,
+          pricingType: 'fixed_brl',
           priceMicrocentsPerMillion: brlToMicrocents(price),
           effectiveFrom: new Date('2026-06-01T00:00:00.000Z'),
         });

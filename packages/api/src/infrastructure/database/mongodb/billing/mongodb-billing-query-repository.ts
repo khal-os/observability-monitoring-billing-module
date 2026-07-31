@@ -1,11 +1,14 @@
 import { Document } from 'mongodb';
 import {
-  BillingMonthAggregate,
   BillRow,
   BillingQueryRepository,
+  DailyRollupRow,
+  MonthlyRollupRow,
 } from '../../../../application/interfaces/billing-query-repository.js';
-import { BillingSummaryLine } from '../../../../domain/useCases/get-billing-summary-use-case.js';
 import { TokenType } from '../../../../domain/models/price-version-model.js';
+import { CostByTokenType } from '../../../../domain/useCases/get-billing-series-use-case.js';
+import { PendingPriceSummary } from '../../../../domain/useCases/get-billing-summary-use-case.js';
+import { BillingUsageRecord } from '../../../../domain/models/billing-snapshot-model.js';
 import { ModelRef, modelKey } from '../../../../domain/models/model-ref.js';
 import { MongoDb } from '../mongo-db.js';
 import { TRACES_COLLECTION } from '../trace/mongodb-trace-repository.js';
@@ -84,86 +87,58 @@ export class MongoDbBillingQueryRepository implements BillingQueryRepository {
     }));
   }
 
-  async aggregateMonth(
+  /**
+   * The statement engine's diet (decision 88): one record per stamped
+   * trace, stamps verbatim, never the payloads/spans (decision 47).
+   * Deterministic order by traceId — snapshots must reproduce exactly.
+   */
+  async fetchUsageRecords(
     monthStart: Date,
     monthEnd: Date,
-  ): Promise<BillingMonthAggregate> {
-    const traces = MongoDb.getCollection(TRACES_COLLECTION);
-    const windowMatch = { startedAt: { $gte: monthStart, $lt: monthEnd } };
-
-    const lineDocuments = (await traces
-      .aggregate([
-        { $match: { ...windowMatch, pricingStatus: 'stamped' } },
-        // Early projection: the pipeline never carries payloads/spans
-        // (merged into the trace document — decision 47).
-        { $project: { agent: 1, model: 1, stampedCosts: 1 } },
-        { $unwind: '$stampedCosts' },
+  ): Promise<BillingUsageRecord[]> {
+    const documents = await MongoDb.getCollection(TRACES_COLLECTION)
+      .find(
         {
-          $group: {
-            // Lines break down by agent id AND version (decision 48):
-            // cost per release is visible in the statement.
-            _id: {
-              agentId: { $ifNull: ['$agent.id', null] },
-              agentVersion: { $ifNull: ['$agent.version', null] },
-              model: { $ifNull: ['$model', null] },
-              tokenType: '$stampedCosts.tokenType',
-            },
-            tokens: { $sum: '$stampedCosts.tokens' },
-            costMicrocents: { $sum: '$stampedCosts.costMicrocents' },
-          },
+          startedAt: { $gte: monthStart, $lt: monthEnd },
+          pricingStatus: 'stamped',
         },
         {
-          $sort: {
-            '_id.agentId': 1,
-            '_id.agentVersion': 1,
-            '_id.model': 1,
-            '_id.tokenType': 1,
+          projection: {
+            traceId: 1,
+            startedAt: 1,
+            agent: 1,
+            model: 1,
+            stampedCosts: 1,
+            totalCostMicrocents: 1,
+          },
+          sort: { traceId: 1 },
+        },
+      )
+      .toArray();
+
+    return documents.map((document) => ({
+      traceId: document.traceId as string,
+      startedAt: document.startedAt as Date,
+      agentId: (document.agent?.id as string | undefined) ?? null,
+      agentVersion: (document.agent?.version as string | undefined) ?? null,
+      model: document.model ? modelKey(document.model as ModelRef) : null,
+      stampedCosts: (document.stampedCosts ?? []) as BillingUsageRecord['stampedCosts'],
+      totalCostMicrocents: (document.totalCostMicrocents as number) ?? 0,
+    }));
+  }
+
+  async pendingPriceSummary(
+    monthStart: Date,
+    monthEnd: Date,
+  ): Promise<PendingPriceSummary> {
+    const [pendingDocument] = (await MongoDb.getCollection(TRACES_COLLECTION)
+      .aggregate([
+        {
+          $match: {
+            startedAt: { $gte: monthStart, $lt: monthEnd },
+            pricingStatus: 'pending_price',
           },
         },
-      ])
-      .toArray()) as {
-      _id: {
-        agentId: string | null;
-        agentVersion: string | null;
-        model: ModelRef | null;
-        tokenType: TokenType;
-      };
-      tokens: number;
-      costMicrocents: number;
-    }[];
-
-    // The stored model is the structured ref; billing lines carry the
-    // canonical string key. Grouping happened on the object, so the
-    // model sort is redone here on the recomposed key (the pipeline's
-    // object order is BSON field order, not the key's lexical order).
-    const nullFirst = (a: string | null, b: string | null): number => {
-      if (a === b) return 0;
-      if (a === null) return -1;
-      if (b === null) return 1;
-
-      return a < b ? -1 : 1;
-    };
-
-    const lines: BillingSummaryLine[] = lineDocuments
-      .map((document) => ({
-        agentId: document._id.agentId,
-        agentVersion: document._id.agentVersion,
-        model: document._id.model ? modelKey(document._id.model) : null,
-        tokenType: document._id.tokenType,
-        tokens: document.tokens,
-        costMicrocents: document.costMicrocents,
-      }))
-      .sort(
-        (a, b) =>
-          nullFirst(a.agentId, b.agentId) ||
-          nullFirst(a.agentVersion, b.agentVersion) ||
-          nullFirst(a.model, b.model) ||
-          nullFirst(a.tokenType, b.tokenType),
-      );
-
-    const [pendingDocument] = (await traces
-      .aggregate([
-        { $match: { ...windowMatch, pricingStatus: 'pending_price' } },
         {
           $group: {
             _id: null,
@@ -179,20 +154,251 @@ export class MongoDbBillingQueryRepository implements BillingQueryRepository {
       .toArray()) as Document[];
 
     return {
-      lines,
-      pendingPrice: {
-        traceCount: pendingDocument?.traceCount ?? 0,
-        tokens: {
-          input: pendingDocument?.tokensInput ?? 0,
-          output: pendingDocument?.tokensOutput ?? 0,
-          cache_read: pendingDocument?.tokensCacheRead ?? 0,
-          cache_write: pendingDocument?.tokensCacheWrite ?? 0,
-        },
-        models: (pendingDocument?.models ?? [])
-          .filter((model: ModelRef | null): model is ModelRef => model !== null)
-          .map(modelKey)
-          .sort(),
+      traceCount: pendingDocument?.traceCount ?? 0,
+      tokens: {
+        input: pendingDocument?.tokensInput ?? 0,
+        output: pendingDocument?.tokensOutput ?? 0,
+        cache_read: pendingDocument?.tokensCacheRead ?? 0,
+        cache_write: pendingDocument?.tokensCacheWrite ?? 0,
       },
+      models: (pendingDocument?.models ?? [])
+        .filter((model: ModelRef | null): model is ModelRef => model !== null)
+        .map(modelKey)
+        .sort(),
     };
+  }
+
+  async monthlyRollup(): Promise<MonthlyRollupRow[]> {
+    const traces = MongoDb.getCollection(TRACES_COLLECTION);
+
+    const monthOf = {
+      year: { $year: '$startedAt' },
+      month: { $month: '$startedAt' },
+    };
+
+    // Two pipelines over the UNWOUND stamps — (month × agent × type) and
+    // (month × model × type); every coarser sum (agent totals, month
+    // totals, month type split) is assembled from them in JS.
+    const stampStages = [
+      { $match: { pricingStatus: 'stamped' } },
+      { $project: { startedAt: 1, agent: 1, model: 1, stampedCosts: 1 } },
+      { $unwind: '$stampedCosts' },
+    ];
+
+    const byAgentType = (await traces
+      .aggregate([
+        ...stampStages,
+        {
+          $group: {
+            _id: {
+              ...monthOf,
+              agentId: { $ifNull: ['$agent.id', null] },
+              tokenType: '$stampedCosts.tokenType',
+            },
+            costMicrocents: { $sum: '$stampedCosts.costMicrocents' },
+          },
+        },
+      ])
+      .toArray()) as Document[];
+
+    const byModelType = (await traces
+      .aggregate([
+        ...stampStages,
+        {
+          $group: {
+            _id: {
+              ...monthOf,
+              model: { $ifNull: ['$model', null] },
+              tokenType: '$stampedCosts.tokenType',
+            },
+            costMicrocents: { $sum: '$stampedCosts.costMicrocents' },
+          },
+        },
+      ])
+      .toArray()) as Document[];
+
+    const rows = new Map<string, MonthlyRollupRow>();
+
+    const rowOf = (year: number, month: number): MonthlyRollupRow => {
+      const key = `${year}-${month}`;
+      let row = rows.get(key);
+
+      if (!row) {
+        row = {
+          year,
+          month,
+          totalCostMicrocents: 0,
+          byTokenType: [],
+          byAgent: [],
+          byModel: [],
+        };
+        rows.set(key, row);
+      }
+
+      return row;
+    };
+
+    const addTokenCost = (
+      split: CostByTokenType,
+      tokenType: TokenType,
+      costMicrocents: number,
+    ): void => {
+      const entry = split.find((candidate) => candidate.tokenType === tokenType);
+
+      if (entry) {
+        entry.costMicrocents += costMicrocents;
+      } else {
+        split.push({ tokenType, costMicrocents });
+      }
+    };
+
+    for (const document of byAgentType) {
+      const row = rowOf(document._id.year, document._id.month);
+      const tokenType = document._id.tokenType as TokenType;
+
+      // Every stamped trace has an agent slot (null included), so the
+      // agent×type rows also feed the month total and its type split.
+      row.totalCostMicrocents += document.costMicrocents;
+      addTokenCost(row.byTokenType, tokenType, document.costMicrocents);
+
+      let agent = row.byAgent.find(
+        (candidate) => candidate.agentId === document._id.agentId,
+      );
+
+      if (!agent) {
+        agent = {
+          agentId: document._id.agentId,
+          costMicrocents: 0,
+          byTokenType: [],
+        };
+        row.byAgent.push(agent);
+      }
+
+      agent.costMicrocents += document.costMicrocents;
+      addTokenCost(agent.byTokenType, tokenType, document.costMicrocents);
+    }
+
+    for (const document of byModelType) {
+      const row = rowOf(document._id.year, document._id.month);
+      const model = document._id.model ? modelKey(document._id.model) : null;
+
+      let entry = row.byModel.find((candidate) => candidate.model === model);
+
+      if (!entry) {
+        entry = { model, costMicrocents: 0, byTokenType: [] };
+        row.byModel.push(entry);
+      }
+
+      entry.costMicrocents += document.costMicrocents;
+      addTokenCost(
+        entry.byTokenType,
+        document._id.tokenType as TokenType,
+        document.costMicrocents,
+      );
+    }
+
+    for (const row of rows.values()) {
+      row.byAgent.sort((a, b) => b.costMicrocents - a.costMicrocents);
+      row.byModel.sort((a, b) => b.costMicrocents - a.costMicrocents);
+    }
+
+    return [...rows.values()].sort(
+      (a, b) => a.year - b.year || a.month - b.month,
+    );
+  }
+
+  async dailyRollup(from: Date, toExclusive: Date): Promise<DailyRollupRow[]> {
+    const documents = (await MongoDb.getCollection(TRACES_COLLECTION)
+      .aggregate([
+        {
+          $match: {
+            startedAt: { $gte: from, $lt: toExclusive },
+            pricingStatus: 'stamped',
+            // Quarantined traces are outside every bill (T6) — excluding
+            // them keeps a closed month's days summing to its frozen
+            // total (decision 97).
+            'billingQuarantine.reason': { $exists: false },
+          },
+        },
+        { $project: { startedAt: 1, stampedCosts: 1 } },
+        { $unwind: '$stampedCosts' },
+        {
+          $group: {
+            _id: {
+              day: {
+                $dateTrunc: { date: '$startedAt', unit: 'day', timezone: 'UTC' },
+              },
+              tokenType: '$stampedCosts.tokenType',
+            },
+            costMicrocents: { $sum: '$stampedCosts.costMicrocents' },
+          },
+        },
+        { $sort: { '_id.day': 1 } },
+      ])
+      .toArray()) as Document[];
+
+    const rows = new Map<number, DailyRollupRow>();
+
+    for (const document of documents) {
+      const date = document._id.day as Date;
+      let row = rows.get(date.getTime());
+
+      if (!row) {
+        row = { date, totalCostMicrocents: 0, byTokenType: [] };
+        rows.set(date.getTime(), row);
+      }
+
+      row.totalCostMicrocents += document.costMicrocents;
+      row.byTokenType.push({
+        tokenType: document._id.tokenType as TokenType,
+        costMicrocents: document.costMicrocents,
+      });
+    }
+
+    return [...rows.values()].sort(
+      (a, b) => a.date.getTime() - b.date.getTime(),
+    );
+  }
+
+  async ingestionWatermark(
+    monthStart: Date,
+    monthEnd: Date,
+  ): Promise<Date | null> {
+    const [document] = (await MongoDb.getCollection(TRACES_COLLECTION)
+      .aggregate([
+        { $match: { startedAt: { $gte: monthStart, $lt: monthEnd } } },
+        { $group: { _id: null, watermark: { $max: '$ingestedAt' } } },
+      ])
+      .toArray()) as Document[];
+
+    return (document?.watermark as Date | undefined) ?? null;
+  }
+
+  async countQuarantined(monthStart: Date, monthEnd: Date): Promise<number> {
+    return MongoDb.getCollection(TRACES_COLLECTION).countDocuments({
+      startedAt: { $gte: monthStart, $lt: monthEnd },
+      'billingQuarantine.reason': { $exists: true },
+    });
+  }
+
+  async accruedCostMicrocents(monthStart: Date, upTo: Date): Promise<number> {
+    const [document] = (await MongoDb.getCollection(TRACES_COLLECTION)
+      .aggregate([
+        {
+          $match: {
+            startedAt: { $gte: monthStart, $lt: upTo },
+            pricingStatus: 'stamped',
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: { $ifNull: ['$totalCostMicrocents', 0] } },
+          },
+        },
+      ])
+      .toArray()) as Document[];
+
+    return (document?.total as number | undefined) ?? 0;
   }
 }

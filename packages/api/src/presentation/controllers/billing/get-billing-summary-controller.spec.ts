@@ -4,35 +4,61 @@ import {
   GetBillingSummaryUseCase,
 } from './billing-protocols.js';
 import { InvalidParamError, MissingParamError } from '../../errors/index.js';
+import { buildStatement } from '../../../application/useCases/billingStatement/statement-engine.js';
+import { usageRecord } from '../../../application/useCases/billingStatement/billing-test-fakes.js';
 
+/**
+ * Two lines of 0.5 centavo each (500_000 µ¢): naive per-line rounding
+ * would show 0.01 + 0.01 = 0.02 against a 0.01 total. The engine's
+ * largest-remainder reconciliation fixes it — asserted through the wire.
+ */
 const makeSummary = (): BillingSummary => ({
   year: 2026,
   month: 6,
   periodStatus: 'open',
-  totalCostMicrocents: 1_000_000,
-  lines: [
-    {
+  statement: buildStatement([
+    usageRecord({
+      traceId: 't-a',
       agentId: 'agent-a',
       agentVersion: null,
       model: 'model-x',
-      tokenType: 'input',
-      tokens: 100,
-      costMicrocents: 500_000,
-    },
-    {
+      stampedCosts: [
+        {
+          tokenType: 'input',
+          tokens: 100,
+          appliedPriceMicrocentsPerMillion: 5_000_000_000,
+          appliedPriceEffectiveFrom: new Date('2026-06-01T00:00:00.000Z'),
+          costMicrocents: 500_000,
+        },
+      ],
+      totalCostMicrocents: 500_000,
+    }),
+    usageRecord({
+      traceId: 't-b',
       agentId: 'agent-b',
       agentVersion: null,
       model: 'model-x',
-      tokenType: 'input',
-      tokens: 100,
-      costMicrocents: 500_000,
-    },
-  ],
+      stampedCosts: [
+        {
+          tokenType: 'input',
+          tokens: 100,
+          appliedPriceMicrocentsPerMillion: 5_000_000_000,
+          appliedPriceEffectiveFrom: new Date('2026-06-01T00:00:00.000Z'),
+          costMicrocents: 500_000,
+        },
+      ],
+      totalCostMicrocents: 500_000,
+    }),
+  ]),
   pendingPrice: { traceCount: 0, tokens: {}, models: [] },
+  ingestionWatermark: null,
+  reopenNotes: [],
+  quarantinedTraceCount: 0,
+  comparison: null,
 });
 
 class GetBillingSummaryStub implements GetBillingSummaryUseCase {
-  async get(year: number, month: number): Promise<BillingSummary> {
+  async get(_year: number, _month: number): Promise<BillingSummary> {
     return makeSummary();
   }
 }
@@ -93,8 +119,6 @@ describe('GetBillingSummaryController', () => {
     it('MUST make displayed line values sum EXACTLY to the displayed total', async () => {
       const { sut } = makeSut();
 
-      // Two lines of 0.5 centavo each: naive per-line rounding would show
-      // 0.01 + 0.01 = 0.02 against a 0.01 total. Largest remainder fixes it.
       const httpResponse = await sut.handle({
         query: { year: '2026', month: '6' },
       });
@@ -113,6 +137,26 @@ describe('GetBillingSummaryController', () => {
         '0.005',
         '0.005',
       ]);
+    });
+
+    it('carries the US8 unit price on every line', async () => {
+      const { sut } = makeSut();
+
+      const httpResponse = await sut.handle({
+        query: { year: '2026', month: '6' },
+      });
+      const body = httpResponse.body as {
+        lines: { unit_price_brl_per_million_display: string }[];
+        agents: { percent_of_total_display: string }[];
+      };
+
+      expect(body.lines[0]?.unit_price_brl_per_million_display).toBe(
+        'R$ 50,00 / M tokens',
+      );
+      // US7: shares reconcile to 100%.
+      expect(body.agents.map((agent) => agent.percent_of_total_display)).toEqual(
+        ['50%', '50%'],
+      );
     });
   });
 });

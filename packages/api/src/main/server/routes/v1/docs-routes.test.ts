@@ -47,6 +47,9 @@ describe('API Docs (OpenAPI)', () => {
       // No CLIENT_NAME in the test environment -> the generic module title.
       expect(response.body.info.title).toBe('Módulo de Observabilidade — API');
       expect(Object.keys(response.body.paths).sort()).toEqual([
+        '/api/v1/billing/projection',
+        '/api/v1/billing/series',
+        '/api/v1/billing/statement',
         '/api/v1/billing/summary',
         '/api/v1/bills',
         '/api/v1/prices',
