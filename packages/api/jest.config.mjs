@@ -151,8 +151,16 @@ const config = {
   // A list of paths to snapshot serializer modules Jest should use for snapshot testing
   // snapshotSerializers: [],
 
-  // The test environment that will be used for testing
-  // testEnvironment: "jest-environment-node",
+  // The test environment that will be used for testing.
+  // Deliberately overrides the @shelf/jest-mongodb preset's MongoEnvironment:
+  // that environment re-reads <rootDir>/globalConfig.json before EVERY suite,
+  // so any overlapping or aborted second jest run (its globalTeardown deletes
+  // the file) makes every remaining suite "fail to run" — the observed
+  // 46-of-50-suites collapse. Our suites never use its __MONGO_URI__ global;
+  // they read process.env.MONGO_URL, which the preset's globalSetup sets in
+  // the jest process itself (inherited by workers), so the plain node
+  // environment loses nothing and makes concurrent runs safe.
+  testEnvironment: 'jest-environment-node',
 
   // Options that will be passed to the testEnvironment
   // testEnvironmentOptions: {},

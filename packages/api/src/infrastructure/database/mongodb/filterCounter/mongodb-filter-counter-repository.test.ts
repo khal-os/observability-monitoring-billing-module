@@ -34,12 +34,32 @@ const makeTrace = (overrides: Partial<TraceModel> = {}): TraceModel => ({
   ...overrides,
 });
 
+// Canonical order = the domain tuple, never a serialization of the doc:
+// mongod does not guarantee BSON field order for upserted documents (it can
+// differ per operation), and the $out rebuild writes yet another order — so
+// a JSON.stringify sort key flips depending on which field happens to come
+// first, making the incremental-vs-rebuilt comparison order-flaky.
+const tupleKey = (row: Record<string, unknown>): string =>
+  JSON.stringify([
+    row['day'],
+    row['domain'],
+    row['subdomain'],
+    row['type'],
+    row['agentId'],
+    row['channelType'],
+    row['status'],
+  ]);
+
 const readCounters = async () => {
   const rows = await MongoDb.getCollection(TRACE_FILTER_COUNTERS_COLLECTION)
     .find({}, { projection: { _id: 0 } })
     .toArray();
 
-  return rows.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  return rows.sort((a, b) => {
+    const [keyA, keyB] = [tupleKey(a), tupleKey(b)];
+
+    return keyA < keyB ? -1 : keyA > keyB ? 1 : 0;
+  });
 };
 
 describe('MongoDbFilterCounterRepository (facet cube, decision 77)', () => {
