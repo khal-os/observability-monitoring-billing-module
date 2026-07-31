@@ -4,6 +4,7 @@ import {
   ReprocessReport,
   TraceRepository,
 } from './reprocess-pending-protocols.js';
+import { BillingPeriodRepository } from '../../interfaces/billing-period-repository.js';
 import { modelKey } from '../../../domain/models/model-ref.js';
 import { stampTokens } from '../syncTraces/price-stamper.js';
 
@@ -11,33 +12,50 @@ import { stampTokens } from '../syncTraces/price-stamper.js';
  * US3/T5: when the missing price is finally registered, pending traces get
  * stamped — with the SAME rule as ingestion.
  *
- * T6 (out of PoC scope): once month close exists, stamping pending traces
- * of a CLOSED month must be blocked here (only the audited reopen flow may
- * do it). In the PoC every period is open.
+ * T6 guard: a pending trace dated inside a CLOSED month is never stamped
+ * here — its bill is frozen; only the audited reopen flow unblocks it.
+ * Counted in the report (`blockedClosedMonth`) so the admin sees them.
  */
 export class ReprocessPendingToDbUseCase implements ReprocessPendingUseCase {
   private readonly priceVersionRepository: PriceVersionRepository;
   private readonly traceRepository: TraceRepository;
+  private readonly billingPeriodRepository: BillingPeriodRepository;
 
   constructor(args: {
     priceVersionRepository: PriceVersionRepository;
     traceRepository: TraceRepository;
+    billingPeriodRepository: BillingPeriodRepository;
   }) {
     this.priceVersionRepository = args.priceVersionRepository;
     this.traceRepository = args.traceRepository;
+    this.billingPeriodRepository = args.billingPeriodRepository;
   }
 
   async reprocess(): Promise<ReprocessReport> {
     const pendingTraces = await this.traceRepository.findPendingPrice();
+
+    const closedMonths = new Set(
+      (await this.billingPeriodRepository.listAll())
+        .filter((period) => period.status === 'closed')
+        .map((period) => `${period.year}-${period.month}`),
+    );
 
     const report: ReprocessReport = {
       examined: pendingTraces.length,
       stamped: 0,
       stillPending: 0,
       failed: 0,
+      blockedClosedMonth: 0,
     };
 
     for (const trace of pendingTraces) {
+      const monthKey = `${trace.startedAt.getUTCFullYear()}-${trace.startedAt.getUTCMonth() + 1}`;
+
+      if (closedMonths.has(monthKey)) {
+        report.blockedClosedMonth += 1;
+        continue;
+      }
+
       // Per-trace isolation (decision 79): one throwing trace must not
       // lose the whole run — the sweep is rerunnable and every other
       // trace's stamp is independent of this one.
@@ -77,7 +95,9 @@ export class ReprocessPendingToDbUseCase implements ReprocessPendingUseCase {
     }
 
     console.log(
-      `Reprocess pending: examined ${report.examined}, stamped ${report.stamped}, still pending ${report.stillPending}, failed ${report.failed}.`,
+      `Reprocess pending: examined ${report.examined}, stamped ${report.stamped}, ` +
+        `still pending ${report.stillPending}, failed ${report.failed}, ` +
+        `blocked (mês fechado) ${report.blockedClosedMonth}.`,
     );
 
     return report;

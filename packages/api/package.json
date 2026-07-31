@@ -13,6 +13,8 @@
     "sync": "ENVIRONMENT=development tsx src/main/jobs/run-sync.ts",
     "ingestion:loop": "ENVIRONMENT=development tsx src/main/jobs/run-trace-ingestion-loop.ts",
     "reprocess:pending": "ENVIRONMENT=development tsx src/main/jobs/reprocess-pending.ts",
+    "billing:close": "ENVIRONMENT=development tsx src/main/jobs/close-billing-period.ts",
+    "billing:reopen": "ENVIRONMENT=development tsx src/main/jobs/reopen-billing-period.ts",
     "test": "ENVIRONMENT=test jest --passWithNoTests --silent --noStackTrace --collectCoverage=false --runInBand",
     "test:verbose": "ENVIRONMENT=test jest --passWithNoTests",
     "test:unit": "npm test -- --watch --config=jest-unit.config.mjs",

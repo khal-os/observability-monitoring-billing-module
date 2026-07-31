@@ -26,7 +26,13 @@ class RegisterPriceVersionStub implements RegisterPriceVersionUseCase {
       tokenType: input.tokenType,
       priceMicrocentsPerMillion: input.priceMicrocentsPerMillion,
       effectiveFrom: input.effectiveFrom,
-      reprocess: { examined: 2, stamped: 2, stillPending: 0, failed: 0 },
+      reprocess: {
+        examined: 2,
+        stamped: 2,
+        stillPending: 0,
+        failed: 0,
+        blockedClosedMonth: 0,
+      },
     };
   }
 }
@@ -120,7 +126,13 @@ describe('RegisterPriceVersionController', () => {
       price_display: 'R$ 2,75/M',
       effective_from: '2026-06-01T00:00:00.000Z',
       effective_from_display: '01/06/2026',
-      reprocess: { examined: 2, stamped: 2, still_pending: 0, failed: 0 },
+      reprocess: {
+        examined: 2,
+        stamped: 2,
+        still_pending: 0,
+        failed: 0,
+        blocked_closed_month: 0,
+      },
     });
   });
 

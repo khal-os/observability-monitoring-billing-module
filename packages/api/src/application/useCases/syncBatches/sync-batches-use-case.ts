@@ -8,6 +8,7 @@ import {
   TraceRepository,
 } from './sync-batches-protocols.js';
 import { ingestSourceTrace } from '../syncTraces/trace-ingestor.js';
+import { BillingPeriodRepository } from '../../interfaces/billing-period-repository.js';
 
 /**
  * One bounded step of the watermark loop (T2 continuous form). The
@@ -26,6 +27,7 @@ export class SyncBatchesToDbUseCase implements SyncBatchesUseCase {
   private readonly syncStateRepository: SyncStateRepository;
   private readonly priceVersionRepository: PriceVersionRepository;
   private readonly traceRepository: TraceRepository;
+  private readonly billingPeriodRepository: BillingPeriodRepository;
   private readonly batchSize: number;
   private readonly quietPeriodMs: number;
   private readonly now: () => Date;
@@ -35,6 +37,7 @@ export class SyncBatchesToDbUseCase implements SyncBatchesUseCase {
     syncStateRepository: SyncStateRepository;
     priceVersionRepository: PriceVersionRepository;
     traceRepository: TraceRepository;
+    billingPeriodRepository: BillingPeriodRepository;
     batchSize: number;
     /** decision 61: only rows quiet for this long are eligible — the
      * source builds traces incrementally and the stamp is immutable. */
@@ -46,6 +49,7 @@ export class SyncBatchesToDbUseCase implements SyncBatchesUseCase {
     this.syncStateRepository = args.syncStateRepository;
     this.priceVersionRepository = args.priceVersionRepository;
     this.traceRepository = args.traceRepository;
+    this.billingPeriodRepository = args.billingPeriodRepository;
     this.batchSize = args.batchSize;
     this.quietPeriodMs = args.quietPeriodMs;
     this.now = args.now ?? ((): Date => new Date());
@@ -66,6 +70,7 @@ export class SyncBatchesToDbUseCase implements SyncBatchesUseCase {
       inserted: 0,
       skipped: 0,
       pendingPrice: 0,
+      quarantined: 0,
       caughtUp: batch.scanned < this.batchSize,
     };
 
@@ -74,9 +79,14 @@ export class SyncBatchesToDbUseCase implements SyncBatchesUseCase {
         {
           priceVersionRepository: this.priceVersionRepository,
           traceRepository: this.traceRepository,
+          billingPeriodRepository: this.billingPeriodRepository,
         },
         trace,
       );
+
+      if (result.quarantined) {
+        report.quarantined += 1;
+      }
 
       if (result.outcome === 'inserted') {
         report.inserted += 1;

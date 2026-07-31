@@ -89,6 +89,7 @@ export class RegisterPriceVersionController implements Controller {
           stamped: registered.reprocess.stamped,
           still_pending: registered.reprocess.stillPending,
           failed: registered.reprocess.failed,
+          blocked_closed_month: registered.reprocess.blockedClosedMonth,
         },
       };
 

@@ -7,20 +7,24 @@ import {
   TraceRepository,
 } from './sync-traces-protocols.js';
 import { ingestSourceTrace } from './trace-ingestor.js';
+import { BillingPeriodRepository } from '../../interfaces/billing-period-repository.js';
 
 export class SyncTracesToDbUseCase implements SyncTracesUseCase {
   private readonly traceSourceClient: TraceSourceClient;
   private readonly priceVersionRepository: PriceVersionRepository;
   private readonly traceRepository: TraceRepository;
+  private readonly billingPeriodRepository: BillingPeriodRepository;
 
   constructor(args: {
     traceSourceClient: TraceSourceClient;
     priceVersionRepository: PriceVersionRepository;
     traceRepository: TraceRepository;
+    billingPeriodRepository: BillingPeriodRepository;
   }) {
     this.traceSourceClient = args.traceSourceClient;
     this.priceVersionRepository = args.priceVersionRepository;
     this.traceRepository = args.traceRepository;
+    this.billingPeriodRepository = args.billingPeriodRepository;
   }
 
   async sync(window: SyncWindowInput): Promise<SyncReport> {
@@ -32,19 +36,25 @@ export class SyncTracesToDbUseCase implements SyncTracesUseCase {
       inserted: 0,
       skipped: 0,
       pendingPrice: 0,
+      quarantined: 0,
     };
 
     for (const trace of traces) {
       // Shared ingestion path (trace-ingestor.ts): stamping rules — QA19
-      // as-of pricing, invariant-7 attribution refresh — live there, once,
-      // for both the windowed and the continuous sync.
+      // as-of pricing, invariant-7 attribution refresh, T6 closed-month
+      // quarantine — live there, once, for both syncs.
       const result = await ingestSourceTrace(
         {
           priceVersionRepository: this.priceVersionRepository,
           traceRepository: this.traceRepository,
+          billingPeriodRepository: this.billingPeriodRepository,
         },
         trace,
       );
+
+      if (result.quarantined) {
+        report.quarantined += 1;
+      }
 
       if (result.outcome === 'inserted') {
         report.inserted += 1;

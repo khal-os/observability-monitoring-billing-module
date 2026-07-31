@@ -11,6 +11,7 @@ import {
 import { PriceVersionModel, TokenType } from '../../../domain/models/price-version-model.js';
 import { TraceModel } from '../../../domain/models/trace-model.js';
 import { SyncTracesToDbUseCase } from './sync-traces-use-case.js';
+import { InMemoryBillingPeriodRepository } from '../billingStatement/billing-test-fakes.js';
 
 const WINDOW = {
   from: new Date('2026-06-01T00:00:00.000Z'),
@@ -51,6 +52,7 @@ class PriceVersionRepositoryStub implements PriceVersionRepository {
     const price = (tokenType: TokenType): PriceVersionModel => ({
       model,
       tokenType,
+      pricingType: 'fixed_brl',
       priceMicrocentsPerMillion: 275_000_000,
       effectiveFrom: new Date('2026-06-01T00:00:00.000Z'),
     });
@@ -101,6 +103,7 @@ const makeSut = () => {
     traceSourceClient: traceSourceClientStub,
     priceVersionRepository: priceVersionRepositoryStub,
     traceRepository: traceRepositoryStub,
+    billingPeriodRepository: new InMemoryBillingPeriodRepository(),
   });
 
   return {

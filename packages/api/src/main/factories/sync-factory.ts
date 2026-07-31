@@ -8,6 +8,7 @@ import { ClickHouseLangWatchClient } from '../../infrastructure/traceSource/lang
 import { MongoDbPriceVersionRepository } from '../../infrastructure/database/mongodb/priceVersion/mongodb-price-version-repository.js';
 import { MongoDbTraceRepository } from '../../infrastructure/database/mongodb/trace/mongodb-trace-repository.js';
 import { MongoDbSyncStateRepository } from '../../infrastructure/database/mongodb/syncState/mongodb-sync-state-repository.js';
+import { MongoDbBillingPeriodRepository } from '../../infrastructure/database/mongodb/billing/mongodb-billing-period-repository.js';
 import { config } from '../../infrastructure/index.js';
 
 const INGESTION_DEFAULTS = {
@@ -54,12 +55,14 @@ export const makeSyncTracesUseCase = (): SyncTracesToDbUseCase =>
     traceSourceClient: makeTraceSourceClient(),
     priceVersionRepository: new MongoDbPriceVersionRepository(),
     traceRepository: new MongoDbTraceRepository(),
+    billingPeriodRepository: new MongoDbBillingPeriodRepository(),
   });
 
 export const makeReprocessPendingUseCase = (): ReprocessPendingToDbUseCase =>
   new ReprocessPendingToDbUseCase({
     priceVersionRepository: new MongoDbPriceVersionRepository(),
     traceRepository: new MongoDbTraceRepository(),
+    billingPeriodRepository: new MongoDbBillingPeriodRepository(),
   });
 
 export const traceIngestionWorkerSettings = {
@@ -92,6 +95,7 @@ export const makeSyncBatchesUseCase = ():
       syncStateRepository: new MongoDbSyncStateRepository(),
       priceVersionRepository: new MongoDbPriceVersionRepository(),
       traceRepository: new MongoDbTraceRepository(),
+      billingPeriodRepository: new MongoDbBillingPeriodRepository(),
       batchSize: config.traceIngestionBatchSize ?? INGESTION_DEFAULTS.batchSize,
       quietPeriodMs: quietPeriodMs(),
     }),

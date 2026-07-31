@@ -21,6 +21,7 @@ import {
 import { FakeTraceSourceClient } from '../../traceSource/fake-trace-source-client.js';
 import { SyncTracesToDbUseCase } from '../../../application/useCases/syncTraces/sync-traces-use-case.js';
 import { ReprocessPendingToDbUseCase } from '../../../application/useCases/reprocessPending/reprocess-pending-use-case.js';
+import { MongoDbBillingPeriodRepository } from './billing/mongodb-billing-period-repository.js';
 import { GetTraceDetailDbUseCase } from '../../../application/useCases/queryTraces/get-trace-detail-db-use-case.js';
 import { MongoDbTraceQueryRepository } from './trace/mongodb-trace-query-repository.js';
 import { brlToMicrocents } from '../../../common/helpers/money/money.js';
@@ -57,14 +58,17 @@ const findTrace = async (traceId: string): Promise<StoredTrace | null> =>
 const makeSut = () => {
   const priceVersionRepository = new MongoDbPriceVersionRepository();
   const traceRepository = new MongoDbTraceRepository();
+  const billingPeriodRepository = new MongoDbBillingPeriodRepository();
   const sut = new SyncTracesToDbUseCase({
     traceSourceClient: new FakeTraceSourceClient(),
     priceVersionRepository,
     traceRepository,
+    billingPeriodRepository,
   });
   const reprocess = new ReprocessPendingToDbUseCase({
     priceVersionRepository,
     traceRepository,
+    billingPeriodRepository,
   });
 
   return { sut, reprocess, priceVersionRepository };
@@ -189,6 +193,7 @@ describe('Sync + price stamping (integration)', () => {
       await priceVersionRepository.insertVersion({
         model: 'openai/gpt-5-mini',
         tokenType: 'input',
+        pricingType: 'fixed_brl',
         priceMicrocentsPerMillion: brlToMicrocents('99.00'),
         effectiveFrom: new Date('2026-06-16T00:00:00.000Z'),
       });
@@ -262,12 +267,14 @@ describe('Sync + price stamping (integration)', () => {
         await priceVersionRepository.insertVersion({
           model: 'meta/llama-4-scout',
           tokenType,
+          pricingType: 'fixed_brl',
           priceMicrocentsPerMillion: brlToMicrocents(priceV1),
           effectiveFrom: JUNE_1,
         });
         await priceVersionRepository.insertVersion({
           model: 'meta/llama-4-scout',
           tokenType,
+          pricingType: 'fixed_brl',
           priceMicrocentsPerMillion: brlToMicrocents(priceV2),
           effectiveFrom: JUNE_15,
         });
@@ -276,6 +283,7 @@ describe('Sync + price stamping (integration)', () => {
       const report = await reprocess.reprocess();
 
       expect(report).toEqual({
+        blockedClosedMonth: 0,
         examined: 2,
         stamped: 2,
         stillPending: 0,
@@ -325,6 +333,7 @@ describe('Sync + price stamping (integration)', () => {
       await priceVersionRepository.insertVersion({
         model: 'meta/llama-4-scout',
         tokenType: 'input',
+        pricingType: 'fixed_brl',
         priceMicrocentsPerMillion: brlToMicrocents('1.00'),
         effectiveFrom: JUNE_1,
       });
@@ -372,6 +381,7 @@ describe('Sync + price stamping (integration)', () => {
         traceSourceClient: client,
         priceVersionRepository,
         traceRepository: new MongoDbTraceRepository(),
+        billingPeriodRepository: new MongoDbBillingPeriodRepository(),
       });
 
       // First sync: the source does not report the model yet

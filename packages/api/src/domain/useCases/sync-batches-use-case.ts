@@ -6,6 +6,8 @@ export interface BatchSyncReport {
   skipped: number;
   /** Traces ingested WITHOUT an applicable price — kept, cost open, never R$ 0. */
   pendingPrice: number;
+  /** Traces dated inside a CLOSED month (T6): stored flagged, never billed. */
+  quarantined: number;
   /** True when the source had fewer rows than the batch limit — the loop sleeps. */
   caughtUp: boolean;
 }

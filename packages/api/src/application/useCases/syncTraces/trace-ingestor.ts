@@ -1,6 +1,7 @@
 import { EffectivePrices } from '../../interfaces/price-version-repository.js';
 import { PriceVersionRepository } from '../../interfaces/price-version-repository.js';
 import { TraceRepository } from '../../interfaces/trace-repository.js';
+import { BillingPeriodRepository } from '../../interfaces/billing-period-repository.js';
 import { SourceTrace } from '../../interfaces/trace-source-client.js';
 import { modelKey } from '../../../domain/models/model-ref.js';
 import { stampTokens } from './price-stamper.js';
@@ -9,6 +10,8 @@ import { mapToTrace, sourceModelRef } from './trace-mapper.js';
 export interface IngestOutcome {
   outcome: 'inserted' | 'skipped';
   pendingPrice: boolean;
+  /** T6: the trace is dated inside a closed month — stored, flagged, not billed. */
+  quarantined: boolean;
 }
 
 /**
@@ -20,6 +23,7 @@ export const ingestSourceTrace = async (
   deps: {
     priceVersionRepository: PriceVersionRepository;
     traceRepository: TraceRepository;
+    billingPeriodRepository: BillingPeriodRepository;
   },
   trace: SourceTrace,
 ): Promise<IngestOutcome> => {
@@ -38,7 +42,22 @@ export const ingestSourceTrace = async (
     : {};
 
   const stamp = stampTokens(trace.tokens, effectivePrices);
-  const stampedTrace = mapToTrace(trace, stamp, new Date());
+
+  // T6: a trace dated inside an already-CLOSED month is stored anyway
+  // (invariant 6 — the archive keeps everything) but quarantined: its
+  // bill is frozen in the snapshot, so it enters flagged, never billed.
+  const period = await deps.billingPeriodRepository.find(
+    trace.startedAt.getUTCFullYear(),
+    trace.startedAt.getUTCMonth() + 1,
+  );
+  const quarantined = period?.status === 'closed';
+
+  const stampedTrace = {
+    ...mapToTrace(trace, stamp, new Date()),
+    billingQuarantine: quarantined
+      ? { reason: 'period_closed' as const, quarantinedAt: new Date() }
+      : null,
+  };
 
   const result = await deps.traceRepository.insertIfAbsent(stampedTrace);
 
@@ -46,19 +65,24 @@ export const ingestSourceTrace = async (
     return {
       outcome: 'inserted',
       pendingPrice: stamp.pricingStatus === 'pending_price',
+      quarantined,
     };
   }
 
-  // Invariant 7: attribution (agent/metadata/model) stays mutable in
-  // open periods — a re-synced trace refreshes attribution, never the
-  // stamp. A pending trace whose model arrives here becomes stampable
-  // by the reprocess job (as-of rule, // QA19 above).
-  await deps.traceRepository.updateAttribution(trace.traceId, {
-    agent: trace.agent,
-    model,
-    domain: trace.domain,
-    subdomain: trace.subdomain,
-  });
+  // Invariant 7: attribution (agent/metadata/model) stays mutable in OPEN
+  // periods ONLY — a re-synced trace refreshes attribution, never the
+  // stamp, and never anything inside a closed month (its bill is frozen;
+  // corrections go through the audited reopen flow). A pending trace
+  // whose model arrives here becomes stampable by the reprocess job
+  // (as-of rule, // QA19 above).
+  if (!quarantined) {
+    await deps.traceRepository.updateAttribution(trace.traceId, {
+      agent: trace.agent,
+      model,
+      domain: trace.domain,
+      subdomain: trace.subdomain,
+    });
+  }
 
-  return { outcome: 'skipped', pendingPrice: false };
+  return { outcome: 'skipped', pendingPrice: false, quarantined };
 };

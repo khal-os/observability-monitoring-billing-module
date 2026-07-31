@@ -29,6 +29,7 @@ class ReprocessPendingStub implements ReprocessPendingUseCase {
     stamped: 2,
     stillPending: 1,
     failed: 0,
+    blockedClosedMonth: 0,
   };
 
   async reprocess(): Promise<ReprocessReport> {
@@ -91,6 +92,7 @@ describe('RegisterPriceVersionToDbUseCase', () => {
 
     expect(reprocessPending.calls).toBe(1);
     expect(registered.reprocess).toEqual({
+      blockedClosedMonth: 0,
       examined: 3,
       stamped: 2,
       stillPending: 1,
@@ -106,15 +108,12 @@ describe('RegisterPriceVersionToDbUseCase', () => {
       tokenType: 'input',
       priceMicrocentsPerMillion: 275_000_000,
       effectiveFrom: JUNE_1,
-      marketPriceUsd: 0.15,
-      ptaxReference: 5.43,
-      markupPercent: 20,
     });
 
+    // Decision 96: registration always declares the fixed_brl type — the
+    // resolution seam future computed pricing dispatches on.
     expect(priceVersionRepository.inserted[0]).toMatchObject({
-      marketPriceUsd: 0.15,
-      ptaxReference: 5.43,
-      markupPercent: 20,
+      pricingType: 'fixed_brl',
     });
   });
 

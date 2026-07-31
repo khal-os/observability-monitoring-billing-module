@@ -16,6 +16,7 @@ import {
 } from '../../../domain/models/price-version-model.js';
 import { TraceModel } from '../../../domain/models/trace-model.js';
 import { SyncBatchesToDbUseCase } from './sync-batches-use-case.js';
+import { InMemoryBillingPeriodRepository } from '../billingStatement/billing-test-fakes.js';
 
 const NOW = new Date('2026-07-23T15:00:00.000Z');
 const QUIET_MS = 900_000;
@@ -83,6 +84,7 @@ class PriceVersionRepositoryStub implements PriceVersionRepository {
     const price = (tokenType: TokenType): PriceVersionModel => ({
       model,
       tokenType,
+      pricingType: 'fixed_brl',
       priceMicrocentsPerMillion: 275_000_000,
       effectiveFrom: new Date('2026-07-01T00:00:00.000Z'),
     });
@@ -141,6 +143,7 @@ const makeSut = (args?: { batchSize?: number }) => {
     syncStateRepository: syncStateRepositoryStub,
     priceVersionRepository: priceVersionRepositoryStub,
     traceRepository: traceRepositoryStub,
+    billingPeriodRepository: new InMemoryBillingPeriodRepository(),
     batchSize: args?.batchSize ?? 2,
     quietPeriodMs: QUIET_MS,
     now: () => NOW,

@@ -115,6 +115,15 @@ export interface TraceModel {
   pendingPrice?: PendingPriceInfo;
   /** Missing/invalid attribution metadata — stored and flagged, never dropped (T3). */
   unclassified?: UnclassifiedInfo;
+  /**
+   * T6 post-close arrival: the trace is dated inside an ALREADY CLOSED
+   * billing month. It is stored anyway (invariant 6 — the archive keeps
+   * everything) but flagged: excluded from the frozen bill (which reads
+   * the snapshot), blocked from pending-price stamping, visible to the
+   * admin. A reopen makes the month live again — the flag stays as a
+   * historical mark of the late arrival.
+   */
+  billingQuarantine?: { reason: 'period_closed'; quarantinedAt: Date } | null;
   ingestedAt: Date;
   /**
    * Full payloads + ordered steps, merged into the trace document

@@ -5,8 +5,10 @@ import { tokenTypeSchema } from '../../helpers/docs-schemas.js';
  * Request contract of POST /prices (T4 write). STRICT on purpose: a typoed
  * optional key silently ignored is how a wrong price gets registered —
  * unknown fields are a 400, not a shrug. R$ only by construction
- * (invariant 4): the internal margin columns (US$/PTAX/markup) do NOT
- * exist in this contract — capturing them stays with the runbook job.
+ * (invariant 4). Registration always declares a fixed R$ price
+ * ('fixed_brl' — decision 96); a future computed pricing type (e.g.
+ * USD × PTAX × markup) arrives as a NEW contract with its own declared
+ * inputs, never as extra optional fields here.
  *
  * Money arrives as a DECIMAL STRING (never a JSON float — the same "never
  * float" rule as storage): up to 8 decimal places, converted to integer µ¢
@@ -37,6 +39,8 @@ export const registerPriceVersionResponseSchema = z.strictObject({
     stamped: z.number().int(),
     still_pending: z.number().int(),
     failed: z.number().int(),
+    /** T6: pending traces of CLOSED months — untouched until an audited reopen. */
+    blocked_closed_month: z.number().int(),
   }),
 });
 

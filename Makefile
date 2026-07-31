@@ -9,6 +9,8 @@
 #   make seed-prices CLIENT=hapvida             # DEV ONLY: PoC demo price table
 #   make sync CLIENT=claro FROM=2026-07-01 TO=2026-07-22
 #   make price CLIENT=vivo ARGS='--model ... --token-type ... --price-brl ... --effective-from ...'
+#   make billing-close CLIENT=vivo YEAR=2026 MONTH=6   # T6: fecha o mês (snapshot)
+#   make billing-reopen CLIENT=vivo YEAR=2026 MONTH=6 REASON='...'
 #   make logs CLIENT=vivo
 #   make down CLIENT=claro                      # stop one client (volumes preserved)
 #   make ps                                     # all compose projects on this host
@@ -63,7 +65,7 @@ JOB = $(COMPOSE_PROD) run --rm --no-deps api node
 # form exactly when generated fixtures exist, the prod form otherwise.
 SYNC_COMPOSE = $(if $(wildcard demo-data/$(CLIENT)/*.json),$(COMPOSE_DEV),$(COMPOSE_PROD))
 
-.PHONY: help build up up-prod down logs ps migrate seed-prices sync price reprocess rebuild-filter-counters rebuild-session-summaries require-client
+.PHONY: help build up up-prod down logs ps migrate seed-prices sync price reprocess rebuild-filter-counters rebuild-session-summaries billing-close billing-reopen require-client
 
 help:
 	@grep -E '^#( |$$)' Makefile | sed 's/^# \?//'
@@ -122,6 +124,19 @@ price: require-client
 
 reprocess: require-client
 	$(JOB) dist/main/jobs/reprocess-pending.js
+
+# T6 runbook (decision 87): the ONLY month-close trigger in v1. Blocked
+# while any pending_price trace exists in the month; the job output is the
+# admin's notification (US5).
+billing-close: require-client
+	@test -n "$(YEAR)" -a -n "$(MONTH)" || { echo "usage: make billing-close CLIENT=<name> YEAR=YYYY MONTH=1-12"; exit 1; }
+	$(JOB) dist/main/jobs/close-billing-period.js --year $(YEAR) --month $(MONTH)
+
+# Audited reopen (T6): REASON is mandatory and lands in the period's audit
+# trail. Prior snapshots stay; the next close writes version+1.
+billing-reopen: require-client
+	@test -n "$(YEAR)" -a -n "$(MONTH)" -a -n "$(REASON)" || { echo "usage: make billing-reopen CLIENT=<name> YEAR=YYYY MONTH=1-12 REASON='<motivo>'"; exit 1; }
+	$(JOB) dist/main/jobs/reopen-billing-period.js --year $(YEAR) --month $(MONTH) --reason "$(REASON)"
 
 # Recompute the facet cube (decision 77) from the traces collection —
 # one-time after restoring pre-existing data; anytime to repair drift.
