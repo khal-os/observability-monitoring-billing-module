@@ -14,12 +14,12 @@ cd "$(dirname "$0")/../../.."
 MODEL="anthropic/claude-opus-4-8"
 EFFECTIVE_FROM="2026-06-01"
 
-# tokenType:priceBrlPerMillion:marketUsd  (PTAX 5.50, markup 0 — internal only)
+# tokenType:priceBrlPerMillion (fixed_brl — decision 96)
 ROWS=(
-  "input:82.50:15"
-  "output:412.50:75"
-  "cache_read:8.25:1.50"
-  "cache_write:103.125:18.75"
+  "input:82.50"
+  "output:412.50"
+  "cache_read:8.25"
+  "cache_write:103.125"
 )
 
 failures=0
@@ -29,11 +29,10 @@ CLIENTS=("$@")
 
 for client in "${CLIENTS[@]}"; do
   for row in "${ROWS[@]}"; do
-    IFS=: read -r token_type price_brl market_usd <<< "$row"
+    IFS=: read -r token_type price_brl <<< "$row"
     echo "→ ${client}: ${MODEL} ${token_type} R\$ ${price_brl}/M"
     if out=$(make price "CLIENT=${client}" ARGS="--model ${MODEL} --token-type ${token_type} \
-      --price-brl ${price_brl} --effective-from ${EFFECTIVE_FROM} \
-      --market-usd ${market_usd} --ptax 5.50 --markup 0" 2>&1); then
+      --price-brl ${price_brl} --effective-from ${EFFECTIVE_FROM}" 2>&1); then
       continue
     elif grep -q 'already exists' <<< "$out"; then
       echo "  (já registrado — versões são imutáveis, mantido)"

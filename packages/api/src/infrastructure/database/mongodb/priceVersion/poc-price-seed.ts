@@ -22,19 +22,12 @@ const version = (
   tokenType: PriceVersionModel['tokenType'],
   priceBrlPerMillion: string,
   effectiveFrom: Date,
-  internal?: Pick<
-    PriceVersionModel,
-    'marketPriceUsd' | 'ptaxReference' | 'markupPercent'
-  >,
 ): PriceVersionModel => ({
   model,
   tokenType,
+  pricingType: 'fixed_brl',
   priceMicrocentsPerMillion: brlToMicrocents(priceBrlPerMillion),
   effectiveFrom,
-  // Optional fields named explicitly → stored as null (storage convention).
-  marketPriceUsd: internal?.marketPriceUsd,
-  ptaxReference: internal?.ptaxReference,
-  markupPercent: internal?.markupPercent,
 });
 
 export const POC_PRICE_VERSIONS: PriceVersionModel[] = [
@@ -44,16 +37,8 @@ export const POC_PRICE_VERSIONS: PriceVersionModel[] = [
   version('openai/gpt-5-mini', 'output', '12.40', JUNE_15),
   version('openai/gpt-5-mini', 'cache_read', '0.275', JUNE_1),
   version('openai/gpt-5-mini', 'cache_write', '3.4375', JUNE_1),
-  version('anthropic/claude-sonnet-5', 'input', '16.50', JUNE_1, {
-    marketPriceUsd: 3,
-    ptaxReference: 5.5,
-    markupPercent: 0,
-  }),
-  version('anthropic/claude-sonnet-5', 'output', '82.50', JUNE_1, {
-    marketPriceUsd: 15,
-    ptaxReference: 5.5,
-    markupPercent: 0,
-  }),
+  version('anthropic/claude-sonnet-5', 'input', '16.50', JUNE_1),
+  version('anthropic/claude-sonnet-5', 'output', '82.50', JUNE_1),
   version('anthropic/claude-sonnet-5', 'cache_read', '1.65', JUNE_1),
   version('anthropic/claude-sonnet-5', 'cache_write', '20.625', JUNE_1),
 ];

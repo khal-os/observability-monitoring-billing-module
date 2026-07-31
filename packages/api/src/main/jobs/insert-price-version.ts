@@ -23,9 +23,6 @@ const { values } = parseArgs({
     'token-type': { type: 'string' },
     'price-brl': { type: 'string' },
     'effective-from': { type: 'string' },
-    'market-usd': { type: 'string' },
-    'ptax': { type: 'string' },
-    'markup': { type: 'string' },
   },
 });
 
@@ -67,11 +64,6 @@ try {
     tokenType,
     priceMicrocentsPerMillion: brlToMicrocents(priceBrl),
     effectiveFrom,
-    marketPriceUsd: values['market-usd']
-      ? Number(values['market-usd'])
-      : undefined,
-    ptaxReference: values['ptax'] ? Number(values['ptax']) : undefined,
-    markupPercent: values['markup'] ? Number(values['markup']) : undefined,
   });
 
   console.log(

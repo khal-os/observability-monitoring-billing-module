@@ -15,13 +15,13 @@ import { ReprocessReport } from './reprocess-pending-use-case.js';
 export interface RegisterPriceVersionInput {
   model: string;
   tokenType: TokenType;
-  /** Integer micro-centavos (1e-8 R$) per million tokens. Never a float. */
+  /**
+   * Integer micro-centavos (1e-8 R$) per million tokens. Never a float.
+   * Registration always declares a fixed R$ price ('fixed_brl', decision
+   * 96) — a future computed pricing type gets its own registration shape.
+   */
   priceMicrocentsPerMillion: number;
   effectiveFrom: Date;
-  /** Internal-only margin columns (T4) — never client-facing (invariant 4). */
-  marketPriceUsd?: number;
-  ptaxReference?: number;
-  markupPercent?: number;
 }
 
 export interface RegisteredPriceVersion {

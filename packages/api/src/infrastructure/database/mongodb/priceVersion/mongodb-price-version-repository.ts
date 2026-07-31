@@ -14,22 +14,29 @@ export const PRICE_VERSIONS_COLLECTION = 'price_versions';
 interface PriceVersionDocument {
   model: string;
   tokenType: TokenType;
+  /** Absent on rows written before decision 96 — legacy means fixed_brl. */
+  pricingType?: string;
   priceMicrocentsPerMillion: number;
   effectiveFrom: Date;
-  marketPriceUsd?: number;
-  ptaxReference?: number;
-  markupPercent?: number;
 }
 
 const toModel = (document: PriceVersionDocument): PriceVersionModel => ({
   model: document.model,
   tokenType: document.tokenType,
+  pricingType: 'fixed_brl',
   priceMicrocentsPerMillion: document.priceMicrocentsPerMillion,
   effectiveFrom: document.effectiveFrom,
-  marketPriceUsd: document.marketPriceUsd,
-  ptaxReference: document.ptaxReference,
-  markupPercent: document.markupPercent,
 });
+
+/**
+ * Price RESOLUTION dispatch (decision 96): only types this build can
+ * resolve yield an effective price. 'fixed_brl' (and legacy rows with no
+ * type) resolve by reading the declared value; a stored version of an
+ * unknown/future type is treated as NO price — its traces go
+ * pending_price instead of being costed by a rule we don't have.
+ */
+const isResolvable = (document: PriceVersionDocument): boolean =>
+  document.pricingType === undefined || document.pricingType === 'fixed_brl';
 
 export class MongoDbPriceVersionRepository implements PriceVersionRepository {
   async findEffectivePrices(
@@ -49,6 +56,8 @@ export class MongoDbPriceVersionRepository implements PriceVersionRepository {
     const effectivePrices: EffectivePrices = {};
 
     for (const document of documents) {
+      if (!isResolvable(document.latest)) continue;
+
       effectivePrices[document._id] = toModel(document.latest);
     }
 
@@ -59,16 +68,12 @@ export class MongoDbPriceVersionRepository implements PriceVersionRepository {
     const collection = MongoDb.getCollection(PRICE_VERSIONS_COLLECTION);
 
     try {
-      // Optional fields stored as null (storage convention): every version
-      // document shows the full schema, internal columns included.
       await collection.insertOne({
         model: version.model,
         tokenType: version.tokenType,
+        pricingType: version.pricingType,
         priceMicrocentsPerMillion: version.priceMicrocentsPerMillion,
         effectiveFrom: version.effectiveFrom,
-        marketPriceUsd: version.marketPriceUsd ?? null,
-        ptaxReference: version.ptaxReference ?? null,
-        markupPercent: version.markupPercent ?? null,
       });
     } catch (error) {
       // E11000 on the unique (model, tokenType, effectiveFrom) index →

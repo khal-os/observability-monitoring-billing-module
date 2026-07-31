@@ -10,6 +10,7 @@ const makePrice = (
 ): PriceVersionModel => ({
   model: 'openai/gpt-5-mini',
   tokenType,
+  pricingType: 'fixed_brl',
   priceMicrocentsPerMillion,
   effectiveFrom: JUNE_1,
 });

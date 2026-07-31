@@ -24,6 +24,7 @@ const makeVersion = (
 ): PriceVersionModel => ({
   model: 'openai/gpt-5-mini',
   tokenType: 'input',
+  pricingType: 'fixed_brl',
   priceMicrocentsPerMillion: brlToMicrocents('2.75'),
   effectiveFrom: JUNE_1,
   ...overrides,

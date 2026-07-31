@@ -43,11 +43,12 @@ export class RegisterPriceVersionToDbUseCase
     await this.priceVersionRepository.insertVersion({
       model: canonicalModel,
       tokenType: input.tokenType,
+      // Registration declares a fixed R$ price; resolution dispatches on
+      // this discriminator (decision 96 — future computed types plug in
+      // with their own resolver, never by touching this path).
+      pricingType: 'fixed_brl',
       priceMicrocentsPerMillion: input.priceMicrocentsPerMillion,
       effectiveFrom: input.effectiveFrom,
-      marketPriceUsd: input.marketPriceUsd,
-      ptaxReference: input.ptaxReference,
-      markupPercent: input.markupPercent,
     });
 
     // Decision 57: stamp what the new price unblocks NOW; the worker's
