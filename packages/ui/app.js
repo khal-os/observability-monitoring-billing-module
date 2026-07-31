@@ -3,6 +3,10 @@
  * durations, dates, relative ages, waterfall/bar geometry, groupings,
  * labels, page counts) comes READY from the API — this file only binds
  * fields to the DOM, escapes HTML and toggles visibility.
+ * Binding discipline: string-ish values pass through escapeHtml; values
+ * assumed numeric (geometry percents, counts, years/months, versions) are
+ * coerced with Number() at bind time, so schema drift can never reach an
+ * attribute, style or URL context unescaped.
  */
 /* Single-tenant: this UI is deployed INSIDE one client's stack and talks to
    that client's API through the same origin (nginx proxies /api to the api
@@ -14,6 +18,28 @@ const escapeHtml = (value) =>
   String(value).replace(/[&<>"']/g, (c) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   }[c]));
+
+/* Shared JSON fetch: non-OK answers throw with the HTTP status attached.
+   A 401 means the platform auth gate is ON (AUTH_SYSTEM_URL set) and this
+   UI has no token mechanism yet — its message says exactly that, instead
+   of reading like an API outage. Limitation: the export links in the bill
+   panel are plain <a href> downloads, outside this helper — under auth
+   they surface the server's raw 401. */
+const AUTH_401_MESSAGE =
+  'Autenticação ativa — esta UI ainda não envia token. ' +
+  'Acesse via um cliente autenticado ou desative AUTH_SYSTEM_URL.';
+
+const fetchJson = async (url) => {
+  const res = await fetch(url);
+  if (!res.ok) {
+    const error = new Error(
+      res.status === 401 ? AUTH_401_MESSAGE : `API respondeu ${res.status}`,
+    );
+    error.status = res.status;
+    throw error;
+  }
+  return res.json();
+};
 
 /* Static presentation constants (enum → text/color), not data processing. */
 const STATUS_LABELS = { ok: 'OK', error: 'Erro' };
@@ -62,6 +88,34 @@ const onRowActivate = (tbodyEl, selector, handler) => {
 
 const errorBox = document.getElementById('error');
 
+/* A row survives an innerHTML repaint only as data, never as an element —
+   its identity selector re-finds the re-rendered counterpart. Shared by
+   the detail panel's return-focus and the auto-refresh focus keeper. */
+const rowIdentitySelector = (row) => {
+  if (row.dataset.traceId !== undefined)
+    return `tr[data-trace-id="${CSS.escape(row.dataset.traceId)}"]`;
+  if (row.dataset.sessionId !== undefined)
+    return `tr[data-session-id="${CSS.escape(row.dataset.sessionId)}"]`;
+  if (row.dataset.year !== undefined)
+    return `tr[data-year="${CSS.escape(row.dataset.year)}"][data-month="${CSS.escape(row.dataset.month)}"]`;
+  return null;
+};
+
+/* Background (auto-refresh) repaints swap tbody innerHTML, which would
+   silently drop keyboard focus from a focused row (role="button") to
+   <body>. Capture the focused row's identity before the swap and re-focus
+   its re-rendered counterpart after; a row no longer in the result set
+   loses focus silently — there is no equivalent element to focus. */
+const repaintKeepingRowFocus = (tbodyEl, repaint) => {
+  const active = document.activeElement;
+  const row = tbodyEl.contains(active) ? active.closest('tr.clickable') : null;
+  const selector = row ? rowIdentitySelector(row) : null;
+  repaint();
+  if (!selector) return;
+  const target = tbodyEl.querySelector(selector);
+  if (target) target.focus();
+};
+
 /* ---------- Traces list ---------- */
 
 const state = {
@@ -74,10 +128,11 @@ const pageLabel = document.getElementById('page-label');
 const prevBtn = document.getElementById('prev');
 const nextBtn = document.getElementById('next');
 
-const costCellHtml = (item) =>
+/* short: compact pending label for dense contexts (stat grid, chain). */
+const costCellHtml = (item, { short = false } = {}) =>
   item.cost_brl_display != null
     ? escapeHtml(item.cost_brl_display)
-    : '<span class="pending">preço pendente</span>';
+    : `<span class="pending">${short ? 'pendente' : 'preço pendente'}</span>`;
 
 const renderRow = (trace) => `<tr class="clickable" role="button" tabindex="0" data-trace-id="${escapeHtml(trace.trace_id)}">
     <td class="trace-id">${escapeHtml(trace.trace_id)}</td>
@@ -123,22 +178,24 @@ const load = async (background = false) => {
     const params = buildTraceFilterParams();
     params.set('page', state.page);
     params.set('page_size', PAGE_SIZE);
-    const res = await fetch(`${API_BASE}/traces?${params}`);
-    if (!res.ok) throw new Error(`API respondeu ${res.status}`);
-    const data = await res.json();
+    const data = await fetchJson(`${API_BASE}/traces?${params}`);
     if (seq !== loadSeq) return;
     lastGoodPage = data.page;
     lastGoodTotalPages = data.total_pages;
     state.page = data.page;
-    render(data);
+    repaintKeepingRowFocus(tbody, () => render(data));
   } catch (err) {
     if (seq !== loadSeq) return;
     if (background) return;
     state.page = lastGoodPage;
-    prevBtn.disabled = false;
-    nextBtn.disabled = false;
+    // Mirror the success-path pager logic: Prev stays disabled on page 1,
+    // Next past the last known page — an error must not unlock them.
+    prevBtn.disabled = lastGoodPage <= 1;
+    nextBtn.disabled = lastGoodPage >= lastGoodTotalPages;
     tbody.innerHTML = '<tr><td colspan="8" class="empty">—</td></tr>';
-    errorBox.textContent = `Falha ao carregar traces: ${err.message}. A API do cliente está no ar?`;
+    errorBox.textContent = err.status === 401
+      ? err.message
+      : `Falha ao carregar traces: ${err.message}. A API do cliente está no ar?`;
     errorBox.classList.remove('hidden');
   }
 };
@@ -225,9 +282,7 @@ let filterOptionsSeq = 0;
 const loadFilterOptions = async (background = false) => {
   const seq = ++filterOptionsSeq;
   try {
-    const res = await fetch(`${API_BASE}/traces/filters?${buildTraceFilterParams()}`);
-    if (!res.ok) throw new Error(`API respondeu ${res.status}`);
-    const data = await res.json();
+    const data = await fetchJson(`${API_BASE}/traces/filters?${buildTraceFilterParams()}`);
     if (seq !== filterOptionsSeq) return;
     // Background refreshes never repaint under a focused select — the
     // dropdown could be open and would snap shut mid-choice. Explicit
@@ -265,16 +320,6 @@ const backdrop = document.getElementById('backdrop');
    close), with the raw element as fallback for non-row openers. */
 let panelReturn = null;
 
-const rowIdentitySelector = (row) => {
-  if (row.dataset.traceId !== undefined)
-    return `tr[data-trace-id="${CSS.escape(row.dataset.traceId)}"]`;
-  if (row.dataset.sessionId !== undefined)
-    return `tr[data-session-id="${CSS.escape(row.dataset.sessionId)}"]`;
-  if (row.dataset.year !== undefined)
-    return `tr[data-year="${CSS.escape(row.dataset.year)}"][data-month="${CSS.escape(row.dataset.month)}"]`;
-  return null;
-};
-
 const rememberPanelReturn = () => {
   // In-panel navigation (trace ↔ session links) keeps the original opener.
   if (!panel.classList.contains('hidden')) return;
@@ -303,9 +348,11 @@ const wirePanelClose = () => {
   closeBtn.focus();
 };
 
+/* label is plain text (escaped here); valueHtml is HTML the caller has
+   already escaped or coerced. */
 const renderStat = (label, valueHtml) => `
   <div class="stat">
-    <div class="stat-label">${label}</div>
+    <div class="stat-label">${escapeHtml(label)}</div>
     <div class="stat-value">${valueHtml}</div>
   </div>`;
 
@@ -335,7 +382,7 @@ const renderWaterfall = (trace) => {
     return `<div class="span-row">
       <div class="span-name" title="${escapeHtml(span.label)}">${escapeHtml(span.label)}${errorMsg}</div>
       <div class="span-track">
-        <div class="span-bar" style="left:${span.waterfall.left_percent}%;width:${span.waterfall.width_percent}%;background:${spanColor(trace.span_types, span.type)}"></div>
+        <div class="span-bar" style="left:${Number(span.waterfall.left_percent)}%;width:${Number(span.waterfall.width_percent)}%;background:${spanColor(trace.span_types, span.type)}"></div>
       </div>
       <div class="span-ms">${escapeHtml(span.duration_display)}</div>
     </div>${spanIoHtml(span)}`;
@@ -343,7 +390,7 @@ const renderWaterfall = (trace) => {
 
   return `<section class="panel-section">
     <h3 class="section-title">Waterfall de spans
-      <span class="section-note">· ${trace.span_count} spans · ${escapeHtml(trace.duration_display)} no total</span>
+      <span class="section-note">· ${Number(trace.span_count)} spans · ${escapeHtml(trace.duration_display)} no total</span>
     </h3>
     <div class="span-legend">${legend}</div>
     ${rows}
@@ -426,7 +473,7 @@ const renderDetail = (trace) => {
       ${renderStat('Tokens out', escapeHtml(trace.tokens_display.output))}
       ${trace.tokens.cache_read ? renderStat('Cache read', escapeHtml(trace.tokens_display.cache_read)) : ''}
       ${trace.tokens.cache_write ? renderStat('Cache write', escapeHtml(trace.tokens_display.cache_write)) : ''}
-      ${renderStat('Custo', costCellHtml(trace).replace('preço pendente', 'pendente'))}
+      ${renderStat('Custo', costCellHtml(trace, { short: true }))}
     </div>
     ${renderWaterfall(trace)}
     ${renderCosts(trace)}
@@ -446,13 +493,12 @@ let panelSeq = 0;
 const openPanel = async (traceId) => {
   const seq = ++panelSeq;
   rememberPanelReturn();
+  panel.setAttribute('aria-label', 'Detalhe do trace');
   panel.classList.remove('hidden');
   backdrop.classList.remove('hidden');
   panelContent.innerHTML = '<p class="empty">Carregando…</p>';
   try {
-    const res = await fetch(`${API_BASE}/traces/${encodeURIComponent(traceId)}`);
-    if (!res.ok) throw new Error(`API respondeu ${res.status}`);
-    const data = await res.json();
+    const data = await fetchJson(`${API_BASE}/traces/${encodeURIComponent(traceId)}`);
     if (seq !== panelSeq) return;
     renderDetail(data);
   } catch (err) {
@@ -477,8 +523,34 @@ const closePanel = () => {
 onRowActivate(tbody, 'tr[data-trace-id]', (row) => openPanel(row.dataset.traceId));
 
 backdrop.addEventListener('click', closePanel);
+
+/* Modal semantics (role="dialog" aria-modal="true"): while the panel is
+   open, Tab and Shift+Tab cycle among its focusable controls and never
+   reach the page underneath; Escape closes. The offsetParent filter drops
+   controls hidden inside collapsed <details>. */
+const trapPanelFocus = (event) => {
+  const focusables = [...panel.querySelectorAll(
+    'button, a[href], select, input, textarea, summary, [tabindex]:not([tabindex="-1"])',
+  )].filter((el) => el.offsetParent !== null);
+  if (!focusables.length) return;
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+  const active = document.activeElement;
+  if (event.shiftKey) {
+    if (active === first || !panel.contains(active)) {
+      event.preventDefault();
+      last.focus();
+    }
+  } else if (active === last || !panel.contains(active)) {
+    event.preventDefault();
+    first.focus();
+  }
+};
+
 document.addEventListener('keydown', (event) => {
+  if (panel.classList.contains('hidden')) return;
   if (event.key === 'Escape') closePanel();
+  if (event.key === 'Tab') trapPanelFocus(event);
 });
 
 /* ---------- Sessions ---------- */
@@ -506,9 +578,7 @@ let sessionFilterOptionsSeq = 0;
 const loadSessionFilterOptions = async (background = false) => {
   const seq = ++sessionFilterOptionsSeq;
   try {
-    const res = await fetch(`${API_BASE}/sessions/filters?${buildSessionFilterParams()}`);
-    if (!res.ok) throw new Error(`API respondeu ${res.status}`);
-    const data = await res.json();
+    const data = await fetchJson(`${API_BASE}/sessions/filters?${buildSessionFilterParams()}`);
     if (seq !== sessionFilterOptionsSeq) return;
     // Same rule as the traces bar: never repaint under a focused select.
     if (
@@ -564,7 +634,7 @@ const renderSessionRow = (session) => `<tr class="clickable" role="button" tabin
       <div class="agent-name">${escapeHtml(session.agent_label)}</div>
       ${session.scope_label ? `<div class="agent-sub">${escapeHtml(session.scope_label)}</div>` : ''}
     </td>
-    <td class="num">${session.trace_count}</td>
+    <td class="num">${Number(session.trace_count)}</td>
     <td>${statusBadge(session.status)}</td>
     <td class="num">${escapeHtml(session.total_duration_display)}</td>
     <td class="num">${escapeHtml(session.tokens_total_display)}</td>
@@ -601,22 +671,23 @@ const loadSessions = async (background = false) => {
     const params = buildSessionFilterParams();
     params.set('page', sessionsState.page);
     params.set('page_size', PAGE_SIZE);
-    const res = await fetch(`${API_BASE}/sessions?${params}`);
-    if (!res.ok) throw new Error(`API respondeu ${res.status}`);
-    const data = await res.json();
+    const data = await fetchJson(`${API_BASE}/sessions?${params}`);
     if (seq !== sessionsLoadSeq) return;
     sessionsLastGoodPage = data.page;
     sessionsLastGoodTotalPages = data.total_pages;
     sessionsState.page = data.page;
-    renderSessions(data);
+    repaintKeepingRowFocus(sessionsBody, () => renderSessions(data));
   } catch (err) {
     if (seq !== sessionsLoadSeq) return;
     if (background) return;
     sessionsState.page = sessionsLastGoodPage;
-    sessionsPrevBtn.disabled = false;
-    sessionsNextBtn.disabled = false;
+    // Mirror the success-path pager logic — an error must not unlock it.
+    sessionsPrevBtn.disabled = sessionsLastGoodPage <= 1;
+    sessionsNextBtn.disabled = sessionsLastGoodPage >= sessionsLastGoodTotalPages;
     sessionsBody.innerHTML = '<tr><td colspan="8" class="empty">—</td></tr>';
-    errorBox.textContent = `Falha ao carregar sessões: ${err.message}. A API do cliente está no ar?`;
+    errorBox.textContent = err.status === 401
+      ? err.message
+      : `Falha ao carregar sessões: ${err.message}. A API do cliente está no ar?`;
     errorBox.classList.remove('hidden');
   }
 };
@@ -637,7 +708,7 @@ const renderChainItem = (trace) => `<div class="chain-item">
       <button class="chain-trace-link" data-trace-id="${escapeHtml(trace.trace_id)}">${escapeHtml(trace.trace_id)}</button>
       ${statusBadge(trace.status)}
       <span class="when">${escapeHtml(trace.started_at_display)}</span>
-      <span class="chain-metrics">${escapeHtml(trace.duration_display)} · ${escapeHtml(trace.tokens_total_display)} tokens · ${costCellHtml(trace).replace('preço pendente', 'pendente')}</span>
+      <span class="chain-metrics">${escapeHtml(trace.duration_display)} · ${escapeHtml(trace.tokens_total_display)} tokens · ${costCellHtml(trace, { short: true })}</span>
     </div>
     ${spanIoHtml(trace)}
   </div>`;
@@ -660,14 +731,14 @@ const renderSessionDetail = (session) => {
       ${session.user_id ? `<span>· usuário <span class="mono">${escapeHtml(session.user_id)}</span></span>` : ''}
     </div>
     <div class="stat-grid">
-      ${renderStat('Traces', session.trace_count)}
+      ${renderStat('Traces', Number(session.trace_count))}
       ${renderStat('Duração total', escapeHtml(session.total_duration_display))}
       ${renderStat('Tokens in', escapeHtml(session.tokens_in_display))}
       ${renderStat('Tokens out', escapeHtml(session.tokens_out_display))}
       ${renderStat('Custo', sessionCostHtml(session))}
     </div>
     ${session.pending_price_count > 0 ? `
-      <p class="pending unclassified">${session.pending_price_count} trace(s) com preço pendente — o custo da sessão fica em aberto até o carimbo.</p>` : ''}
+      <p class="pending unclassified">${Number(session.pending_price_count)} trace(s) com preço pendente — o custo da sessão fica em aberto até o carimbo.</p>` : ''}
     <section class="panel-section">
       <h3 class="section-title">Cadeia de traces
         <span class="section-note">· ordem cronológica · clique para abrir o trace</span>
@@ -685,13 +756,12 @@ const renderSessionDetail = (session) => {
 const openSessionPanel = async (sessionId) => {
   const seq = ++panelSeq;
   rememberPanelReturn();
+  panel.setAttribute('aria-label', 'Detalhe da sessão');
   panel.classList.remove('hidden');
   backdrop.classList.remove('hidden');
   panelContent.innerHTML = '<p class="empty">Carregando…</p>';
   try {
-    const res = await fetch(`${API_BASE}/sessions/${encodeURIComponent(sessionId)}`);
-    if (!res.ok) throw new Error(`API respondeu ${res.status}`);
-    const data = await res.json();
+    const data = await fetchJson(`${API_BASE}/sessions/${encodeURIComponent(sessionId)}`);
     if (seq !== panelSeq) return;
     renderSessionDetail(data);
   } catch (err) {
@@ -767,7 +837,7 @@ const buildMixColorOf = (totalShares) => {
 const donutHtml = (shares, colorOf) => {
   if (!shares.length) return '';
   const stops = shares.map((share) =>
-    `${colorOf(share.model_label)} ${share.donut_start_percent}% ${share.donut_end_percent}%`,
+    `${colorOf(share.model_label)} ${Number(share.donut_start_percent)}% ${Number(share.donut_end_percent)}%`,
   ).join(', ');
   // Money first (pedido do Matheus): each model's R$ and its slice of the
   // MONTH'S COST — token share stays available in the API, not shown here.
@@ -789,7 +859,7 @@ const renderAgentMix = (agentMix) => {
   if (!agentMix.length) return '';
 
   const stops = agentMix.map((slice, index) =>
-    `${MIX_COLORS[index % MIX_COLORS.length]} ${slice.donut_start_percent}% ${slice.donut_end_percent}%`,
+    `${MIX_COLORS[index % MIX_COLORS.length]} ${Number(slice.donut_start_percent)}% ${Number(slice.donut_end_percent)}%`,
   ).join(', ');
   const legend = agentMix.map((slice, index) => `<div class="mix-legend-item">
       <i style="background:${MIX_COLORS[index % MIX_COLORS.length]}"></i>
@@ -843,7 +913,7 @@ const renderCacheSavings = (cache) => {
       </div>
       <p class="billing-note" style="margin-top:10px">${escapeHtml(cache.basis_text)}${
         cache.unpriceable_cache_read_traces > 0
-          ? ` ${cache.unpriceable_cache_read_traces} trace(s) com cache read sem preço de input carimbado ficaram fora do contrafactual.`
+          ? ` ${Number(cache.unpriceable_cache_read_traces)} trace(s) com cache read sem preço de input carimbado ficaram fora do contrafactual.`
           : ''}</p>
     </div>
   </section>`;
@@ -856,7 +926,7 @@ const renderBillPanel = (data) => {
 
   const agentGroups = data.agents.map((group) => {
     const segments = group.segments.map((segment) =>
-      `<div class="cost-seg" style="width:${segment.width_percent}%;background:${TOKEN_TYPE_COLORS[segment.token_type]}" title="${escapeHtml(segment.label)}"></div>`,
+      `<div class="cost-seg" style="width:${Number(segment.width_percent)}%;background:${TOKEN_TYPE_COLORS[segment.token_type]}" title="${escapeHtml(segment.label)}"></div>`,
     ).join('');
     // US8: every line shows quantidade × preço contratado = custo.
     const rows = group.lines.map((line) => `<tr>
@@ -898,10 +968,10 @@ const renderBillPanel = (data) => {
 
   const versions = data.snapshot_versions.length > 1
     ? `<span>· versões: ${data.snapshot_versions.map((version) =>
-        `v${version.version} (${escapeHtml(version.created_at_display)})`).join(', ')}</span>`
+        `v${Number(version.version)} (${escapeHtml(version.created_at_display)})`).join(', ')}</span>`
     : '';
 
-  const exportQuery = `year=${data.year}&month=${data.month}`;
+  const exportQuery = `year=${Number(data.year)}&month=${Number(data.month)}`;
 
   panelContent.innerHTML = `
     <div class="panel-topbar">
@@ -911,7 +981,7 @@ const renderBillPanel = (data) => {
     <div class="panel-trace-id">${escapeHtml(data.month_label)}</div>
     <div class="panel-meta">
       ${statusPillHtml(data)}
-      ${data.closed_at_display ? `<span>fechado em ${escapeHtml(data.closed_at_display)}${data.snapshot_version !== null ? ` · snapshot v${data.snapshot_version}` : ''}</span>` : ''}
+      ${data.closed_at_display ? `<span>fechado em ${escapeHtml(data.closed_at_display)}${data.snapshot_version !== null ? ` · snapshot v${Number(data.snapshot_version)}` : ''}</span>` : ''}
       ${versions}
       ${data.watermark_display ? `<span>· ${escapeHtml(data.watermark_display)}</span>` : ''}
     </div>
@@ -931,7 +1001,7 @@ const renderBillPanel = (data) => {
       </div>
       <div class="stat">
         <div class="stat-label">Execuções</div>
-        <div class="stat-value">${data.stamped_trace_count}</div>
+        <div class="stat-value">${Number(data.stamped_trace_count)}</div>
       </div>
       <div class="stat">
         <div class="stat-label">Tokens carimbados</div>
@@ -939,17 +1009,17 @@ const renderBillPanel = (data) => {
       </div>
       <div class="stat">
         <div class="stat-label">Agentes</div>
-        <div class="stat-value">${data.agent_count}</div>
+        <div class="stat-value">${Number(data.agent_count)}</div>
       </div>
       <div class="stat">
         <div class="stat-label">Modelos</div>
-        <div class="stat-value">${data.model_count}</div>
+        <div class="stat-value">${Number(data.model_count)}</div>
       </div>
     </div>
 
     ${data.pending_price.trace_count > 0 ? `
       <div class="pending-card">
-        <strong>${data.pending_price.trace_count} trace(s) com preço pendente</strong> —
+        <strong>${Number(data.pending_price.trace_count)} trace(s) com preço pendente</strong> —
         ${escapeHtml(data.pending_price.tokens_total_display)} tokens fora do total
         (modelos sem preço: ${escapeHtml(data.pending_price.models_label)}).
         O custo entra no mês quando o preço for cadastrado.
@@ -957,7 +1027,7 @@ const renderBillPanel = (data) => {
 
     ${data.quarantined_trace_count > 0 ? `
       <div class="pending-card">
-        <strong>${data.quarantined_trace_count} trace(s) em quarentena</strong> —
+        <strong>${Number(data.quarantined_trace_count)} trace(s) em quarentena</strong> —
         chegaram DEPOIS do fechamento do mês. Ficam fora da fatura congelada;
         entram só via reabertura auditada (runbook).
       </div>` : ''}
@@ -989,13 +1059,14 @@ const renderBillPanel = (data) => {
 const openBillPanel = async (year, month) => {
   const seq = ++panelSeq;
   rememberPanelReturn();
+  panel.setAttribute('aria-label', 'Detalhe da fatura');
   panel.classList.remove('hidden');
   backdrop.classList.remove('hidden');
   panelContent.innerHTML = '<p class="empty">Carregando…</p>';
   try {
-    const res = await fetch(`${API_BASE}/billing/summary?year=${year}&month=${month}`);
-    if (!res.ok) throw new Error(`API respondeu ${res.status}`);
-    const data = await res.json();
+    const data = await fetchJson(
+      `${API_BASE}/billing/summary?year=${Number(year)}&month=${Number(month)}`,
+    );
     if (seq !== panelSeq) return;
     renderBillPanel(data);
   } catch (err) {
@@ -1010,14 +1081,14 @@ const openBillPanel = async (year, month) => {
   }
 };
 
-const renderBillRow = (bill) => `<tr class="clickable" role="button" tabindex="0" data-year="${bill.year}" data-month="${bill.month}">
-  <td class="agent-name">${escapeHtml(bill.month_label)}${bill.snapshot_version !== null && bill.snapshot_version > 1 ? ` <span class="when">snapshot v${bill.snapshot_version}</span>` : ''}</td>
+const renderBillRow = (bill) => `<tr class="clickable" role="button" tabindex="0" data-year="${Number(bill.year)}" data-month="${Number(bill.month)}">
+  <td class="agent-name">${escapeHtml(bill.month_label)}${bill.snapshot_version !== null && bill.snapshot_version > 1 ? ` <span class="when">snapshot v${Number(bill.snapshot_version)}</span>` : ''}</td>
   <td>${statusPillHtml(bill)}${bill.quarantined_trace_count > 0
-    ? ` <span class="pending" title="traces chegados após o fechamento — fora da fatura congelada">${bill.quarantined_trace_count} em quarentena</span>`
+    ? ` <span class="pending" title="traces chegados após o fechamento — fora da fatura congelada">${Number(bill.quarantined_trace_count)} em quarentena</span>`
     : ''}</td>
-  <td class="num">${bill.stamped_trace_count}</td>
+  <td class="num">${Number(bill.stamped_trace_count)}</td>
   <td class="num">${bill.pending_trace_count > 0
-    ? `<span class="pending">${bill.pending_trace_count}</span>`
+    ? `<span class="pending">${Number(bill.pending_trace_count)}</span>`
     : '0'}</td>
   <td class="num">${escapeHtml(bill.tokens_display)}</td>
   <td class="num">${escapeHtml(bill.total_cost_brl_display)}${bill.partial ? ' <span class="when">(parcial)</span>' : ''}</td>
@@ -1030,9 +1101,7 @@ const loadBills = async () => {
   errorBox.classList.add('hidden');
   billsBody.innerHTML = '<tr><td colspan="6" class="empty">Carregando…</td></tr>';
   try {
-    const res = await fetch(`${API_BASE}/bills`);
-    if (!res.ok) throw new Error(`API respondeu ${res.status}`);
-    const data = await res.json();
+    const data = await fetchJson(`${API_BASE}/bills`);
     if (seq !== billsLoadSeq) return;
     billsTotalLabel.textContent = `${data.bills.length} fatura(s)`;
     billsBody.innerHTML = data.bills.length
@@ -1041,7 +1110,9 @@ const loadBills = async () => {
   } catch (err) {
     if (seq !== billsLoadSeq) return;
     billsBody.innerHTML = '<tr><td colspan="6" class="empty">—</td></tr>';
-    errorBox.textContent = `Falha ao carregar faturas: ${err.message}. A API do cliente está no ar?`;
+    errorBox.textContent = err.status === 401
+      ? err.message
+      : `Falha ao carregar faturas: ${err.message}. A API do cliente está no ar?`;
     errorBox.classList.remove('hidden');
   }
 };
@@ -1055,13 +1126,11 @@ const projectionCard = document.getElementById('billing-projection');
 
 const loadBillingProjection = async () => {
   try {
-    const res = await fetch(`${API_BASE}/billing/projection`);
-    if (!res.ok) throw new Error(`API respondeu ${res.status}`);
-    const data = await res.json();
+    const data = await fetchJson(`${API_BASE}/billing/projection`);
     projectionCard.innerHTML = `
       <div class="projection-label">Projeção de ${escapeHtml(data.month_label)} · estimativa — não é fatura</div>
       ${data.insufficient_data
-        ? `<div>Dados insuficientes para projetar (${data.complete_days} dia(s) completo(s)).</div>`
+        ? `<div>Dados insuficientes para projetar (${Number(data.complete_days)} dia(s) completo(s)).</div>`
         : `<span class="projection-value">${escapeHtml(data.projected_cost_brl_display)}</span>
            <span class="when">projetado · ${escapeHtml(data.accrued_cost_brl_display)} até agora</span>`}
       <div class="projection-basis">${escapeHtml(data.basis_text)}</div>`;
@@ -1105,12 +1174,12 @@ const renderBillingChart = () => {
 
   billingChart.innerHTML = series.points.map((point) => {
     const segments = point.segments.map((segment) =>
-      `<div class="billing-seg tk-${segment.token_type}" style="height:${segment.stack_percent}%" title="${escapeHtml(point.month_label)} · ${escapeHtml(segment.label)}"></div>`,
+      `<div class="billing-seg tk-${escapeHtml(segment.token_type)}" style="height:${Number(segment.stack_percent)}%" title="${escapeHtml(point.month_label)} · ${escapeHtml(segment.label)}"></div>`,
     ).join('');
     return `
     <div class="billing-bar-col" title="${escapeHtml(point.month_label)} · ${escapeHtml(point.cost_brl_display)}${point.partial ? ' (parcial)' : ''}">
       <span class="bar-value">${escapeHtml(point.cost_brl_display)}</span>
-      <div class="billing-stack${point.partial ? ' partial' : ''}" style="height:${point.height_percent}%">${segments}</div>
+      <div class="billing-stack${point.partial ? ' partial' : ''}" style="height:${Number(point.height_percent)}%">${segments}</div>
     </div>`;
   }).join('');
 
@@ -1177,9 +1246,7 @@ const loadBillingSeries = async (initial = false) => {
     const params = billingSeriesState.granularity === 'day'
       ? `granularity=day&days=${billingSeriesState.days}`
       : 'granularity=month&months=12';
-    const res = await fetch(`${API_BASE}/billing/series?${params}`);
-    if (!res.ok) throw new Error(`API respondeu ${res.status}`);
-    const data = await res.json();
+    const data = await fetchJson(`${API_BASE}/billing/series?${params}`);
     if (seq !== billingSeriesSeq) return;
     if (initial && data.granularity === 'month' && data.months.length < 2) {
       // A one-month monthly chart says nothing yet (history "nasce raso e

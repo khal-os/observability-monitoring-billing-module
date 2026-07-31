@@ -15,7 +15,7 @@
       <span id="client-name" class="client-name"></span>
     </nav>
 
-    <div id="error" class="error hidden"></div>
+    <div id="error" class="error hidden" role="alert"></div>
 
     <section id="view-traces">
       <header class="page-header">
@@ -169,7 +169,9 @@
   </main>
 
   <div id="backdrop" class="backdrop hidden"></div>
-  <aside id="panel" class="panel hidden" aria-label="Detalhe do trace">
+  <!-- Modal dialog: aria-label is set per content by each opener in app.js
+       ("Detalhe do trace" / "Detalhe da sessão" / "Detalhe da fatura"). -->
+  <aside id="panel" class="panel hidden" role="dialog" aria-modal="true" aria-label="Detalhe">
     <div id="panel-content"></div>
   </aside>
 
