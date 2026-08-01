@@ -1,6 +1,7 @@
 import {
   buildStatement,
   collectAppliedPriceVersions,
+  createStatementFold,
 } from './statement-engine.js';
 import { BillingUsageRecord } from '../../../domain/models/billing-snapshot-model.js';
 import { costMicrocents } from '../../../common/helpers/money/money.js';
@@ -217,6 +218,143 @@ describe('buildStatement (the single billing calculation — invariant 3)', () =
     const reversed = buildStatement([...FIXTURE].reverse());
 
     expect(JSON.stringify(reversed)).toBe(JSON.stringify(forward));
+  });
+
+  /**
+   * Re-audit iteration 4 — the shape that reversing FIXTURE cannot reach.
+   *
+   * Two records identical in EVERY dimension the old comparator sorted by
+   * (agentId, agentVersion, model, tokenType, appliedPriceEffectiveFrom)
+   * and differing ONLY in the applied unit price. The accumulator keys the
+   * line on the price too (decision 90 — a mid-month price change gets its
+   * own line), so these are two DISTINCT lines that compared EQUAL; a
+   * stable sort then left them in Map-INSERTION order, which is the order
+   * the records arrived in.
+   *
+   * That is reachable: migration 019 (decision 102) lowercases
+   * `traces.model` while leaving a colliding case-variant price row as
+   * stored, so two stamps with the same (model, tokenType, effectiveFrom)
+   * and different prices end up under one canonical model key.
+   *
+   * The two orders below are the exact two the deployment uses:
+   *   (a) `GetBillingSummaryDbUseCase.monthStatement` and the T6
+   *       reproducibility rebuild — whole month, sorted by traceId;
+   *   (b) `CloseBillingPeriodDbUseCase.close` — a fold fed one UTC day at
+   *       a time, each day sorted by traceId (decision 120).
+   */
+  describe('order-independence under a PRICE-only tie (decision 122)', () => {
+    const TIE_FROM = new Date('2026-06-01T00:00:00Z');
+    const CHEAP = 1_500_000; // 1,5 centavo on 1M tokens — half a cent
+    const DEAR = 2_500_000; // 2,5 centavos on 1M tokens — half a cent
+    const OTHER_AGENT_PRICE = 2_000_000;
+
+    const tieRecord = (
+      traceId: string,
+      day: string,
+      agentId: string,
+      price: number,
+    ): BillingUsageRecord => ({
+      traceId,
+      startedAt: new Date(`2026-06-${day}T10:00:00Z`),
+      agentId,
+      agentVersion: '1.0.0',
+      model: 'anthropic/claude-x',
+      stampedCosts: [stamped('input', 1_000_000, price, TIE_FROM)],
+      totalCostMicrocents: costMicrocents(1_000_000, price),
+    });
+
+    /**
+     * traceId order is the REVERSE of day order, so the two feeds really
+     * do differ. The `suporte` record ties on the price-version key
+     * (model, tokenType, effectiveFrom — no agent) without tying on the
+     * line key, which is the twin comparator's own blind spot.
+     */
+    const TIE_MONTH: BillingUsageRecord[] = [
+      tieRecord('z-cheap', '02', 'eugenia', CHEAP),
+      tieRecord('m-other', '10', 'suporte', OTHER_AGENT_PRICE),
+      tieRecord('a-dear', '20', 'eugenia', DEAR),
+    ];
+
+    /** The live read: whole month, globally sorted by traceId. */
+    const liveOrder = () =>
+      [...TIE_MONTH].sort((a, b) => (a.traceId < b.traceId ? -1 : 1));
+
+    /** The close: one UTC day at a time, each page sorted by traceId. */
+    const closeFold = () => {
+      const fold = createStatementFold();
+      const days = [
+        ...new Set(
+          TIE_MONTH.map((r) => r.startedAt.toISOString().slice(0, 10)),
+        ),
+      ].sort();
+
+      for (const day of days) {
+        const page = TIE_MONTH.filter(
+          (r) => r.startedAt.toISOString().slice(0, 10) === day,
+        ).sort((a, b) => (a.traceId < b.traceId ? -1 : 1));
+
+        for (const record of page) fold.add(record);
+      }
+
+      return fold;
+    };
+
+    it('the LIVE (whole-month, traceId) and CLOSE (day-paged) statements are byte-identical', () => {
+      const live = buildStatement(liveOrder());
+      const closed = closeFold().statement();
+
+      expect(JSON.stringify(closed)).toBe(JSON.stringify(live));
+    });
+
+    it('LINE ORDER is pinned by the applied price, not by arrival', () => {
+      const live = buildStatement(liveOrder());
+      const closed = closeFold().statement();
+
+      const shape = (statement: typeof live) =>
+        statement.lines.map((line) => [
+          line.agentId,
+          line.appliedPriceMicrocentsPerMillion,
+        ]);
+
+      const expected = [
+        ['eugenia', CHEAP],
+        ['eugenia', DEAR],
+        ['suporte', OTHER_AGENT_PRICE],
+      ];
+
+      expect(shape(live)).toEqual(expected);
+      expect(shape(closed)).toEqual(expected);
+    });
+
+    it('DISPLAYED cents are pinned too: the half-cent tie cannot move with the feed', () => {
+      // Every line is exactly half a centavo over its floor except the
+      // 2,00-centavo one, so `reconcileDisplayCents` has a 1-cent deficit
+      // and breaks the remainder tie BY INDEX — the same line was
+      // exported at R$ 0,03 live and R$ 0,02 frozen before this order was
+      // total. Total is 6 centavos either way; WHICH line carries the
+      // cent is what invariant 3 requires to be one truth.
+      const live = buildStatement(liveOrder());
+      const closed = closeFold().statement();
+
+      expect(live.totalDisplayCents).toBe(6);
+      expect(live.lines.map((line) => line.displayCents)).toEqual([2, 2, 2]);
+      expect(closed.lines.map((line) => line.displayCents)).toEqual([2, 2, 2]);
+    });
+
+    it('priceVersionsApplied is ordered by price too — the audit view of the bill', () => {
+      const live = collectAppliedPriceVersions(liveOrder());
+      const closed = closeFold().appliedPriceVersions();
+
+      const prices = [CHEAP, OTHER_AGENT_PRICE, DEAR];
+
+      expect(live.map((version) => version.priceMicrocentsPerMillion)).toEqual(
+        prices,
+      );
+      expect(
+        closed.map((version) => version.priceMicrocentsPerMillion),
+      ).toEqual(prices);
+      expect(JSON.stringify(closed)).toBe(JSON.stringify(live));
+    });
   });
 
   it('empty month: zero totals, empty collections, no division blow-ups', () => {

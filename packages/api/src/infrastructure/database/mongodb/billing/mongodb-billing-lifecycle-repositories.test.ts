@@ -23,7 +23,10 @@ import {
   firstOpenMonthStart,
 } from '../../../../domain/models/billing-period-model.js';
 import { BillingPeriodStateError } from '../../../../domain/useCases/close-billing-period-use-case.js';
-import { buildStatement } from '../../../../application/useCases/billingStatement/statement-engine.js';
+import {
+  buildStatement,
+  collectAppliedPriceVersions,
+} from '../../../../application/useCases/billingStatement/statement-engine.js';
 import { CloseBillingPeriodDbUseCase } from '../../../../application/useCases/billingLifecycle/close-billing-period-db-use-case.js';
 import { usageRecord } from '../../../../application/useCases/billingStatement/billing-test-fakes.js';
 import { billingPeriodIndexes } from '../migrations/017-billing-period-indexes.js';
@@ -1209,6 +1212,168 @@ describe('Billing lifecycle repositories (integration)', () => {
       expect(
         (await snapshots.findUsageRecords(2026, 6, 1)).map((row) => row.traceId),
       ).toEqual(['jun-05', 'jun-17', 'jun-28']);
+      expect(await usageRows()).toBe(3);
+    });
+
+    /**
+     * Re-audit iteration 4, end to end over the REAL adapters — the case
+     * the one above structurally cannot make: its traceIds ('jun-05',
+     * 'jun-17', 'jun-28') sort in the SAME order as their days, so the
+     * day-paged fold and the traceId-ordered readers feed the engine the
+     * identical sequence and no fold-order divergence is observable even
+     * if one exists.
+     *
+     * Here the fixture carries a PRICE-ONLY TIE with the orders REVERSED:
+     * two stamped traces equal in agent, agentVersion, model, tokenType
+     * and appliedPriceEffectiveFrom — every dimension `lineKey` groups by
+     * EXCEPT the applied unit price — where the one on the EARLIER day
+     * sorts LATER by traceId. The shape is reachable in production via
+     * migration 019 (decision 102): it lowercases `traces.model` while
+     * leaving a colliding case-variant price row as stored, so two stamps
+     * with different unit prices land under one canonical model key.
+     *
+     * The close folds day by day (decision 120: 02 → 17 → 28), while
+     * `fetchUsageRecords` and `findUsageRecords` both answer in traceId
+     * order (28 → 17 → 02). Until decision 122 `compareLines` omitted the
+     * price term, so the two tie lines compared EQUAL and the stable sort
+     * left them in Map-INSERTION order — the frozen snapshot could not be
+     * reproduced from its own stored inputs, and `reconcileDisplayCents`
+     * (which breaks its remainder tie BY INDEX) showed the same line at
+     * different centavos live and frozen.
+     *
+     * Costs sit on a HALF centavo each (1_500_000 and 2_500_000 µ¢) and
+     * the third trace is an exact 2500 centavos, so the reconciliation has
+     * a deficit of exactly 1 whose only candidates are the tie pair — the
+     * displayed-cents assertion is load-bearing, not vacuous.
+     */
+    it('END TO END on the REAL adapters: a PRICE-only tie whose traceId order REVERSES its day order still reproduces, centavos included', async () => {
+      const traces = new MongoDbTraceRepository();
+      const tieTrace = (traceId: string, day: string, price: number) =>
+        makeTrace({
+          traceId,
+          startedAt: new Date(`2026-06-${day}T10:00:00.000Z`),
+          finishedAt: new Date(`2026-06-${day}T10:00:04.000Z`),
+          model: { id: 'claude-x', provider: 'anthropic' },
+          stampedCosts: [
+            {
+              tokenType: 'input',
+              tokens: 1_000_000,
+              appliedPriceMicrocentsPerMillion: price,
+              appliedPriceEffectiveFrom: JUNE_START,
+              costMicrocents: price,
+            },
+          ],
+          totalCostMicrocents: price,
+        });
+
+      // Day 02 but LAST by traceId; day 28 but FIRST by traceId.
+      await traces.insertIfAbsent(tieTrace('z-tie-cheap', '02', 1_500_000));
+      await traces.insertIfAbsent(tieTrace('a-tie-dear', '28', 2_500_000));
+      // A whole-centavo line between them: it keeps the reconciliation's
+      // deficit at 1 and gives the tie pair a neighbour that does NOT tie,
+      // so the assertions below are about the tie and nothing else.
+      await traces.insertIfAbsent(
+        makeTrace({
+          traceId: 'm-plain',
+          startedAt: new Date('2026-06-17T09:00:00.000Z'),
+          finishedAt: new Date('2026-06-17T09:00:04.000Z'),
+        }),
+      );
+
+      const queries = new MongoDbBillingQueryRepository();
+      const snapshots = new MongoDbBillingSnapshotRepository();
+      const periods = new MongoDbBillingPeriodRepository();
+
+      const result = await new CloseBillingPeriodDbUseCase({
+        billingQueryRepository: queries,
+        billingPeriodRepository: periods,
+        billingSnapshotRepository: snapshots,
+        traceRepository: traces,
+        now: () => new Date('2026-07-15T10:00:00.000Z'),
+      }).close(2026, 6);
+
+      const stored = await snapshots.findCurrent(2026, 6);
+      const storedInputs = await snapshots.findUsageRecords(2026, 6, 1);
+      const wholeMonth = await queries.fetchUsageRecords(JUNE_START, JULY_START);
+
+      // The premise of the whole case: the two readers really do answer in
+      // the REVERSE of the order the close folded the month in.
+      expect(storedInputs.map((record) => record.traceId)).toEqual([
+        'a-tie-dear',
+        'm-plain',
+        'z-tie-cheap',
+      ]);
+      expect(wholeMonth.map((record) => record.traceId)).toEqual(
+        storedInputs.map((record) => record.traceId),
+      );
+      expect(result.stampedTraceCount).toBe(3);
+
+      const rebuilt = buildStatement(storedInputs);
+      const live = buildStatement(wholeMonth);
+      const lineOrder = (statement: typeof rebuilt) =>
+        statement.lines.map((line) => [
+          line.model,
+          line.appliedPriceMicrocentsPerMillion,
+        ]);
+
+      // (1) T6 reproducibility, now actually load-bearing: the frozen
+      // lines are in the SAME order the engine produces over the snapshot's
+      // own stored inputs — which arrive in traceId order, not fold order.
+      expect(lineOrder(stored?.statement as typeof rebuilt)).toEqual(
+        lineOrder(rebuilt),
+      );
+      expect(lineOrder(rebuilt)).toEqual([
+        ['anthropic/claude-sonnet-4-6', 2_500_000_000],
+        ['anthropic/claude-x', 1_500_000],
+        ['anthropic/claude-x', 2_500_000],
+      ]);
+      expect(JSON.parse(JSON.stringify(stored?.statement))).toEqual(
+        JSON.parse(JSON.stringify(rebuilt)),
+      );
+
+      // (2) The twin comparator: `sortPriceVersions` has no agent term, so
+      // this same fixture ties it on (model, tokenType, effectiveFrom) —
+      // the applied price is the only thing left to order by.
+      expect(
+        JSON.parse(JSON.stringify(stored?.priceVersionsApplied)),
+      ).toEqual(JSON.parse(JSON.stringify(collectAppliedPriceVersions(storedInputs))));
+      expect(
+        stored?.priceVersionsApplied.map((version) => [
+          version.model,
+          version.priceMicrocentsPerMillion,
+        ]),
+      ).toEqual([
+        ['anthropic/claude-sonnet-4-6', 2_500_000_000],
+        ['anthropic/claude-x', 1_500_000],
+        ['anthropic/claude-x', 2_500_000],
+      ]);
+
+      // (3) The DISPLAYED centavos of the tie pair are the same frozen and
+      // live. Both lines carry exactly half a centavo, so the largest-
+      // remainder deficit of 1 goes to whichever of them sits at the lower
+      // INDEX: with a partial comparator that index depended on the feed,
+      // and the same line exported at R$ 0,02 open and R$ 0,01 frozen.
+      const tieCents = (statement: typeof rebuilt) =>
+        statement.lines
+          .filter((line) => line.model === 'anthropic/claude-x')
+          .map((line) => [
+            line.appliedPriceMicrocentsPerMillion,
+            line.displayCents,
+          ]);
+
+      expect(tieCents(stored?.statement as typeof rebuilt)).toEqual([
+        [1_500_000, 2],
+        [2_500_000, 2],
+      ]);
+      expect(tieCents(live)).toEqual(
+        tieCents(stored?.statement as typeof rebuilt),
+      );
+      // Invariant 3 all the same: the parts still close with the total.
+      expect(stored?.statement.totalCostMicrocents).toBe(2_504_000_000);
+      expect(stored?.statement.totalDisplayCents).toBe(2_504);
+      expect(
+        stored?.statement.lines.reduce((sum, line) => sum + line.displayCents, 0),
+      ).toBe(2_504);
       expect(await usageRows()).toBe(3);
     });
 

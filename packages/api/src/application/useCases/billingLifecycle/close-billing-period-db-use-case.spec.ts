@@ -492,11 +492,40 @@ describe('CloseBillingPeriodDbUseCase (T6)', () => {
 
   describe('re-audit iteration 3: the close folds the month PAGE BY PAGE', () => {
     /**
+     * A PRICE-only tie (decision 122): two records identical in every
+     * dimension the statement groups a line by EXCEPT the applied unit
+     * price, on days far apart and with traceIds in the reverse order.
+     * Reachable via migration 019 (decision 102), which lowercases
+     * `traces.model` while leaving a colliding case-variant price row as
+     * stored — two stamps, one canonical model key. Costs are exactly half
+     * a centavo each, so the display-cent tie-break (BY INDEX) is pinned
+     * too, not only the µ¢.
+     */
+    const priceTieRecord = (traceId: string, day: string, price: number) =>
+      usageRecord({
+        traceId,
+        startedAt: new Date(`2026-06-${day}T10:00:00.000Z`),
+        model: 'anthropic/claude-x',
+        stampedCosts: [
+          {
+            tokenType: 'input',
+            tokens: 1_000_000,
+            appliedPriceMicrocentsPerMillion: price,
+            appliedPriceEffectiveFrom: new Date('2026-06-01T00:00:00.000Z'),
+            costMicrocents: price,
+          },
+        ],
+        totalCostMicrocents: price,
+      });
+
+    /**
      * Spread over three UTC days, with traceIds whose global order is the
      * REVERSE of the day order: the paged fold therefore sees the records
      * in a different order than the whole-month array did — which is
      * exactly the property the byte-identity of the statement rests on
-     * (the engine is order-independent by contract).
+     * (the engine is order-independent because both its comparators are
+     * TOTAL over their own group keys — decision 122; before that it was
+     * merely assumed, and this fixture's tie pair is what broke it).
      */
     const SPREAD = [
       usageRecord({
@@ -508,6 +537,7 @@ describe('CloseBillingPeriodDbUseCase (T6)', () => {
         agentId: 'suporte',
         startedAt: new Date('2026-06-02T22:30:00.000Z'),
       }),
+      priceTieRecord('z-tie-cheap', '02', 1_500_000),
       usageRecord({
         traceId: 'm-1',
         model: 'anthropic/claude-haiku-4-5',
@@ -523,6 +553,7 @@ describe('CloseBillingPeriodDbUseCase (T6)', () => {
         model: 'anthropic/claude-haiku-4-5',
         startedAt: new Date('2026-06-28T12:00:00.000Z'),
       }),
+      priceTieRecord('a-tie-dear', '28', 2_500_000),
     ];
 
     /** Records every window the close reads. */
@@ -608,7 +639,7 @@ describe('CloseBillingPeriodDbUseCase (T6)', () => {
       ).toBe(true);
 
       // The staged pages are days too — the peak is the busiest DAY.
-      expect(billingSnapshotRepository.pageSizes).toEqual([2, 2, 1]);
+      expect(billingSnapshotRepository.pageSizes).toEqual([3, 2, 2]);
       expect(Math.max(...billingSnapshotRepository.pageSizes)).toBeLessThan(
         SPREAD.length,
       );
@@ -642,14 +673,35 @@ describe('CloseBillingPeriodDbUseCase (T6)', () => {
       expect(result.totalDisplayCents).toBe(wholeMonth.totalDisplayCents);
       expect(result.stampedTraceCount).toBe(SPREAD.length);
 
+      // The tie pair specifically: the frozen lines are ordered by the
+      // applied price and carry the SAME displayed cents the live read
+      // shows — the fold saw the cheap one on day 02 and the dear one on
+      // day 28, the whole-month array saw them the other way round.
+      const tieLines = (statement: typeof wholeMonth) =>
+        statement.lines
+          .filter((line) => line.model === 'anthropic/claude-x')
+          .map((line) => [
+            line.appliedPriceMicrocentsPerMillion,
+            line.displayCents,
+          ]);
+
+      expect(tieLines(stored?.statement as typeof wholeMonth)).toEqual(
+        tieLines(wholeMonth),
+      );
+      expect(
+        tieLines(wholeMonth).map(([price]) => price),
+      ).toEqual([1_500_000, 2_500_000]);
+
       // REPRODUCIBILITY (T6) survives paging: the stored inputs are the
       // month, each record exactly once, and they reproduce the output.
       expect(storedInputs.map((record) => record.traceId).sort()).toEqual([
         'a-1',
+        'a-tie-dear',
         'm-1',
         'm-2',
         'z-1',
         'z-2',
+        'z-tie-cheap',
       ]);
       expect(JSON.parse(JSON.stringify(buildStatement(storedInputs)))).toEqual(
         JSON.parse(JSON.stringify(stored?.statement)),
@@ -668,7 +720,7 @@ describe('CloseBillingPeriodDbUseCase (T6)', () => {
         JSON.parse(JSON.stringify(stored?.priceVersionsApplied)),
       ).toEqual(JSON.parse(JSON.stringify(collectAppliedPriceVersions(SPREAD))));
       expect(traceRepository.calls[0]?.snapshotTraceIds.slice().sort()).toEqual(
-        ['a-1', 'm-1', 'm-2', 'z-1', 'z-2'],
+        ['a-1', 'a-tie-dear', 'm-1', 'm-2', 'z-1', 'z-2', 'z-tie-cheap'],
       );
     });
   });

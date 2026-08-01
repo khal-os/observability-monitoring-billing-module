@@ -250,9 +250,18 @@ export class InMemoryBillingSnapshotRepository implements BillingSnapshotReposit
   ): Promise<BillingUsageRecord[]> {
     const records = this.usage.get(this.key(year, month, version)) ?? [];
 
+    // traceId order, like the adapter (`.sort({ traceId: 1 })`). A fake
+    // that hands records back in INSERTION order reproduces the snapshot
+    // in fold order, so it structurally cannot observe a fold-order
+    // divergence — which is exactly the class of defect the T6
+    // reproducibility test exists to catch (re-audit iteration 4).
+    const ordered = [...records].sort((a, b) =>
+      a.traceId < b.traceId ? -1 : a.traceId > b.traceId ? 1 : 0,
+    );
+
     // Dates survive the JSON round-trip as strings in the fake — revive
     // them the way the BSON layer would.
-    return JSON.parse(JSON.stringify(records), (key, value) =>
+    return JSON.parse(JSON.stringify(ordered), (key, value) =>
       ['startedAt', 'appliedPriceEffectiveFrom'].includes(key)
         ? new Date(value)
         : value,
@@ -387,17 +396,25 @@ export class StubBillingQueryRepository implements BillingQueryRepository {
       monthStart.getUTCMonth() + 1,
     );
 
+    // traceId order, like the adapter (`sort: { traceId: 1 }`) — see the
+    // note on InMemoryBillingSnapshotRepository.findUsageRecords: a fake
+    // that answers in insertion order hides fold-order divergences from
+    // the very tests meant to catch them (re-audit iteration 4).
+    const ordered = [...bucket].sort((a, b) =>
+      a.traceId < b.traceId ? -1 : a.traceId > b.traceId ? 1 : 0,
+    );
+
     if (
       !monthEnd ||
       (monthStart.getTime() === month.start.getTime() &&
         monthEnd.getTime() === month.end.getTime())
     ) {
-      return bucket;
+      return ordered;
     }
 
     const isFirstPage = monthStart.getTime() === month.start.getTime();
 
-    return bucket.filter((record) =>
+    return ordered.filter((record) =>
       record.startedAt >= month.start && record.startedAt < month.end
         ? record.startedAt >= monthStart && record.startedAt < monthEnd
         : isFirstPage,

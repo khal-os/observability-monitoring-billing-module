@@ -213,6 +213,36 @@ else
   bad "o log de decisões ainda afirma o comportamento anterior ao teto único"
 fi
 
+# Byte NUL em fonte torna o arquivo BINÁRIO para o git: o diff some e a
+# revisão passa a ser impossível — foi o que aconteceu com o motor de
+# extrato, a UNA conta de billing, por seis versões (decisão 122). O
+# sentinela de nulo continua sendo U+0000; o que se exige é que venha
+# ESCAPADO no fonte. Feito em python de propósito: o grep desta máquina
+# (ugrep) dá falso-negativo justamente em NUL — a busca era metade do bug.
+NUL_FILES="$(python3 - <<'PY'
+import pathlib
+roots = [pathlib.Path('packages')]
+hits = [
+    str(path)
+    for root in roots
+    for path in root.rglob('*')
+    if path.is_file()
+    and path.suffix in {'.ts', '.js', '.mjs', '.json', '.md', '.html', '.css'}
+    and 'node_modules' not in path.parts
+    and 'dist' not in path.parts
+    and 'coverage' not in path.parts
+    and b'\x00' in path.read_bytes()
+]
+print('\n'.join(hits))
+PY
+)"
+if [[ -z "$NUL_FILES" ]]; then
+  ok "nenhum fonte com byte NUL cru (git trataria como binário)"
+else
+  bad "fonte com NUL cru — git vai tratar como binário e o diff some"
+  sed 's/^/    | /' <<< "$NUL_FILES"
+fi
+
 echo
 if (( FAILURES == 0 )); then
   printf '\033[32m✔\033[0m deploy smoke: tudo verde\n'

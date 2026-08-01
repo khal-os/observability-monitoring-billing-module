@@ -160,9 +160,11 @@ export class CloseBillingPeriodDbUseCase implements CloseBillingPeriodUseCase {
     // re-audit iteration 3: the month is folded PAGE BY PAGE — read a day,
     // fold it into the (distinct-key-bounded) accumulators, stage it, drop
     // it. The statement is byte-identical to the one the whole-month array
-    // produced: it IS the same engine, and the engine is order-independent
-    // by contract (statement-engine.spec: "same records in any order
-    // produce the identical statement"). LOGIC_VERSION does not move — no
+    // produced: it IS the same engine, and the engine's order-independence
+    // is ENFORCED, not assumed — its comparators are total orders over the
+    // very keys the accumulators group by (decision 122; before that a
+    // price-only tie fell through to insertion order and this page order
+    // diverged from the readers'). LOGIC_VERSION does not move — no
     // arithmetic changed, only when the records are resident.
     const fold = createStatementFold();
     // The one O(traces) structure left in the close: the ids the snapshot
