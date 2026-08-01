@@ -8,9 +8,9 @@ import {
 import { brlToMicrocents } from '../../common/helpers/money/money.js';
 import { DuplicatePriceVersionError } from '../../domain/errors/duplicate-price-version-error.js';
 import {
-  EFFECTIVE_FROM_FORMAT_HINT,
-  parseEffectiveFrom,
-} from './parse-effective-from.js';
+  RUNBOOK_DATE_FORMAT_HINT,
+  parseRunbookDate,
+} from './parse-runbook-date.js';
 
 /**
  * T4 runbook (v1 has no admin UI): registers a NEW price version — always
@@ -68,11 +68,11 @@ if (Number(priceBrl) === 0) {
   process.exit(1);
 }
 
-const effectiveFrom = parseEffectiveFrom(effectiveFromRaw);
+const effectiveFrom = parseRunbookDate(effectiveFromRaw);
 
 if (!effectiveFrom) {
   console.error(
-    `Invalid --effective-from "${effectiveFromRaw}". ${EFFECTIVE_FROM_FORMAT_HINT}`,
+    `Invalid --effective-from "${effectiveFromRaw}". ${RUNBOOK_DATE_FORMAT_HINT}`,
   );
   process.exit(1);
 }

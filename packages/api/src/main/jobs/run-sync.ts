@@ -1,6 +1,10 @@
 import { parseArgs } from 'node:util';
 import { makeSyncTracesUseCase } from '../factories/sync-factory.js';
 import { makeDatabase } from '../factories/database-factory.js';
+import {
+  RUNBOOK_DATE_FORMAT_HINT,
+  parseRunbookDate,
+} from './parse-runbook-date.js';
 
 /**
  * T2-lite sync job. Windows are half-open [from, to) and idempotent:
@@ -20,11 +24,19 @@ if (!values['from'] || !values['to']) {
   process.exit(1);
 }
 
-const from = new Date(values['from']);
-const to = new Date(values['to']);
+// The SAME border the price door uses (B-8, decision 123): a bare
+// `new Date()` here accepted `01/07/2026` as 7 January, so a window an
+// operator read as "July" silently synced one day of a month the source
+// may no longer retain — on the only manual backfill door into the
+// permanent archive, and the one the dead-letter runbook sends you to
+// before telling you to delete the row (invariant 6).
+const from = parseRunbookDate(values['from']);
+const to = parseRunbookDate(values['to']);
 
-if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from >= to) {
-  console.error('Sync: --from must be a valid date strictly before --to.');
+if (!from || !to || from >= to) {
+  console.error(
+    `Sync: --from must be strictly before --to. ${RUNBOOK_DATE_FORMAT_HINT}`,
+  );
   process.exit(1);
 }
 
