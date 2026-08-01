@@ -9,6 +9,11 @@ import { PRICE_VERSIONS_COLLECTION } from '../../../../../infrastructure/databas
 import { TRACES_COLLECTION } from '../../../../../infrastructure/database/mongodb/trace/mongodb-trace-repository.js';
 import { TRACE_FILTER_COUNTERS_COLLECTION } from '../../../../../infrastructure/database/mongodb/filterCounter/mongodb-filter-counter-repository.js';
 import { SESSION_SUMMARIES_COLLECTION } from '../../../../../infrastructure/database/mongodb/session/mongodb-session-summary-repository.js';
+import { BILLING_PERIODS_COLLECTION } from '../../../../../infrastructure/database/mongodb/billing/mongodb-billing-period-repository.js';
+import {
+  BILLING_SNAPSHOTS_COLLECTION,
+  BILLING_SNAPSHOT_USAGE_COLLECTION,
+} from '../../../../../infrastructure/database/mongodb/billing/mongodb-billing-snapshot-repository.js';
 import { makeSyncTracesUseCase } from '../../../../factories/sync-factory.js';
 import { StampedTokenCost } from '../../../../../domain/models/trace-model.js';
 
@@ -45,6 +50,13 @@ export const routeDbHarness = {
       SESSION_SUMMARIES_COLLECTION,
       PRICE_VERSIONS_COLLECTION,
       MIGRATIONS_COLLECTION,
+      // Billing lifecycle state too: suites that close/reopen periods run
+      // in the SAME database (--runInBand), so a leftover closed June from
+      // another suite would silently flip period_status/snapshot answers
+      // here. Pristine means no periods, no snapshots, no snapshot usage.
+      BILLING_PERIODS_COLLECTION,
+      BILLING_SNAPSHOTS_COLLECTION,
+      BILLING_SNAPSHOT_USAGE_COLLECTION,
     ]) {
       await MongoDb.getCollection(collection).deleteMany({});
     }

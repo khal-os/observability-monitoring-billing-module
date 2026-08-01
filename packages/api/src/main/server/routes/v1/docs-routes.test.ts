@@ -20,6 +20,8 @@ import {
 } from '../../../../presentation/controllers/sessions/session-view-schemas.js';
 import {
   billListResponseSchema,
+  billingProjectionResponseSchema,
+  billingSeriesResponseSchema,
   billingSummaryResponseSchema,
 } from '../../../../presentation/controllers/billing/billing-view-schemas.js';
 import { apiErrorSchema } from '../../../../presentation/helpers/docs-schemas.js';
@@ -211,6 +213,58 @@ describe('API Docs (OpenAPI)', () => {
       const response = await request(app).get('/api/v1/bills').expect(200);
 
       expect(() => billListResponseSchema.parse(response.body)).not.toThrow();
+    });
+
+    it('GET /billing/series MUST match the published schema — both granularities', async () => {
+      const monthly = await request(app)
+        .get('/api/v1/billing/series')
+        .expect(200);
+      const daily = await request(app)
+        .get('/api/v1/billing/series?granularity=day')
+        .expect(200);
+
+      expect(() =>
+        billingSeriesResponseSchema.parse(monthly.body),
+      ).not.toThrow();
+      expect(() => billingSeriesResponseSchema.parse(daily.body)).not.toThrow();
+    });
+
+    it('GET /billing/projection MUST match the published schema', async () => {
+      const response = await request(app)
+        .get('/api/v1/billing/projection')
+        .expect(200);
+
+      expect(() =>
+        billingProjectionResponseSchema.parse(response.body),
+      ).not.toThrow();
+    });
+
+    it('GET /billing/statement MUST answer the documented representations (decision 98)', async () => {
+      // The statement is not JSON — its documented contract is the two
+      // representations: text/csv as an attachment (default) and a
+      // standalone printable text/html page.
+      const csv = await request(app)
+        .get('/api/v1/billing/statement?year=2026&month=6')
+        .expect(200);
+
+      expect(csv.headers['content-type']).toContain('text/csv');
+      // June 2026 is a past open month — never PARCIAL, so the documented
+      // plain filename applies (clock-safe for all future run dates).
+      expect(csv.headers['content-disposition']).toBe(
+        'attachment; filename="extrato-2026-06.csv"',
+      );
+      // UTF-8 BOM: the file opens straight in Excel (US17).
+      expect(csv.text.startsWith('\ufeff')).toBe(true);
+
+      const html = await request(app)
+        .get('/api/v1/billing/statement?year=2026&month=6&format=html')
+        .expect(200);
+
+      expect(html.headers['content-type']).toContain('text/html');
+      expect(html.text).toContain('<!DOCTYPE html>');
+
+      expect(FORBIDDEN_INTERNAL_KEYS.test(csv.text)).toBe(false);
+      expect(FORBIDDEN_INTERNAL_KEYS.test(html.text)).toBe(false);
     });
 
     it('Error payloads MUST match the published error schema', async () => {

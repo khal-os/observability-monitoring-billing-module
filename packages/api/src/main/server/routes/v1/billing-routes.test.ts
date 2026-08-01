@@ -16,6 +16,7 @@ import {
   formatBrlExactFromMicrocents,
   formatBrlFromMicrocents,
 } from '../../../../common/helpers/money/money.js';
+import { formatBrlDisplay } from '../../../../common/helpers/display/display.js';
 import { StampedTokenCost } from '../../../../domain/models/trace-model.js';
 
 const app = server.app;
@@ -71,6 +72,10 @@ describe('Billing Routes', () => {
         false,
       );
     });
+
+    it('MUST return 400 for an unknown query parameter (C-3 strict — the endpoint takes none)', async () => {
+      await request(app).get('/api/v1/bills?foo=1').expect(400);
+    });
   });
 
   describe('GET /api/v1/billing/summary — validation', () => {
@@ -87,6 +92,10 @@ describe('Billing Routes', () => {
         .expect(400);
       await request(app)
         .get('/api/v1/billing/summary?year=abc&month=6')
+        .expect(400);
+      // Strict contract (C-3): an unknown param is a 400, never ignored.
+      await request(app)
+        .get('/api/v1/billing/summary?year=2026&month=6&foo=1')
         .expect(400);
     });
   });
@@ -197,12 +206,25 @@ describe('Billing Routes', () => {
         models_label: 'meta/llama-4-scout',
       });
 
+      // Clock-safety of the period labels: the fixtures live in 2026-06
+      // and no suite closes that month, so a PAST month with no lifecycle
+      // doc labels 'open' (never 'in_progress', never 'closed') for ANY
+      // future run date — the real clock only moves June further into the
+      // past. That is what keeps these real-clock asserts deterministic.
       expect(response.body.period_status).toBe('open');
       expect(response.body.partial).toBe(false);
     });
   });
 
   describe('Demo step 7: register missing price → reprocess → totals grow', () => {
+    // This is the ONE describe that mutates the pristine June state (price
+    // registration + reprocess). The restore lives in afterAll — not in the
+    // test body — so a mid-test failure can never poison the describes that
+    // run after this one: declaration order is not load-bearing.
+    afterAll(async () => {
+      await routeDbHarness.ingestJuneFixtures();
+    });
+
     it('MUST absorb reprocessed traces into the totals and empty the pending queue', async () => {
       const before = await request(app)
         .get('/api/v1/billing/summary?year=2026&month=6')
@@ -243,9 +265,215 @@ describe('Billing Routes', () => {
       expect(after.body.total_cost_brl).toBe(
         formatBrlFromMicrocents(independentTotal),
       );
+    });
+  });
 
-      // Re-establish the pristine ingested state for other assertions.
-      await routeDbHarness.ingestJuneFixtures();
+  describe('GET /api/v1/billing/series — month granularity (T8/US11)', () => {
+    it('MUST serve the SAME June total the statement serves (series ↔ statement, one truth)', async () => {
+      const seriesResponse = await request(app)
+        .get('/api/v1/billing/series')
+        .expect(200);
+      const summaryResponse = await request(app)
+        .get('/api/v1/billing/summary?year=2026&month=6')
+        .expect(200);
+
+      expect(seriesResponse.body.granularity).toBe('month');
+
+      const juneBucket = seriesResponse.body.months.find(
+        (bucket: { year: number; month: number }) =>
+          bucket.year === 2026 && bucket.month === 6,
+      );
+
+      expect(juneBucket).toBeDefined();
+      // Same store, same engine: the series' June bucket and the month
+      // statement answer the EXACT same BRL display string (invariant 3).
+      expect(juneBucket.total_cost_brl_display).toBe(
+        summaryResponse.body.total_cost_brl_display,
+      );
+      // 2026-06 fixtures → 'open' is clock-safe for all future run dates
+      // (see the note in the pending-price describe).
+      expect(juneBucket.period_status).toBe('open');
+
+      const totalSeries = seriesResponse.body.series.find(
+        (series: { key: string }) => series.key === 'total',
+      );
+      const junePoint = totalSeries.points.find(
+        (point: { year: number; month: number }) =>
+          point.year === 2026 && point.month === 6,
+      );
+
+      expect(junePoint.cost_brl_display).toBe(
+        summaryResponse.body.total_cost_brl_display,
+      );
+
+      expect(
+        FORBIDDEN_INTERNAL_KEYS.test(JSON.stringify(seriesResponse.body)),
+      ).toBe(false);
+    });
+
+    it('MUST return 400 for malformed, unknown or cross-granularity params (C-3 strict)', async () => {
+      await request(app).get('/api/v1/billing/series?months=abc').expect(400);
+      await request(app).get('/api/v1/billing/series?months=0').expect(400);
+      await request(app).get('/api/v1/billing/series?months=25').expect(400);
+      await request(app).get('/api/v1/billing/series?days=0').expect(400);
+      await request(app).get('/api/v1/billing/series?days=91').expect(400);
+      await request(app)
+        .get('/api/v1/billing/series?granularity=week')
+        .expect(400);
+      await request(app).get('/api/v1/billing/series?foo=1').expect(400);
+
+      // Cross-field rule: each window param belongs to ITS granularity —
+      // silently ignoring the stray param would answer a different window
+      // than the client asked for.
+      await request(app)
+        .get('/api/v1/billing/series?granularity=month&days=7')
+        .expect(400);
+      await request(app).get('/api/v1/billing/series?days=7').expect(400);
+      await request(app)
+        .get('/api/v1/billing/series?granularity=day&months=3')
+        .expect(400);
+    });
+  });
+
+  describe('GET /api/v1/billing/series — daily lens (decision 97)', () => {
+    // The pinned clock must never leak into other tests.
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('MUST make the June day buckets equal the raw per-day sums — and Σ days ≡ the month total', async () => {
+      // The daily window is anchored on "today", so June 2026 would drift
+      // out of the 90-day horizon on a future run date. Pin ONLY Date to
+      // June 30th (timers stay real — supertest and the mongo driver keep
+      // working) and days=30 becomes exactly June, deterministically.
+      jest.useFakeTimers({
+        now: new Date('2026-06-30T12:00:00.000Z'),
+        doNotFake: [
+          'hrtime',
+          'nextTick',
+          'performance',
+          'queueMicrotask',
+          'requestAnimationFrame',
+          'cancelAnimationFrame',
+          'requestIdleCallback',
+          'cancelIdleCallback',
+          'setImmediate',
+          'clearImmediate',
+          'setInterval',
+          'clearInterval',
+          'setTimeout',
+          'clearTimeout',
+        ],
+      });
+
+      const response = await request(app)
+        .get('/api/v1/billing/series?granularity=day&days=30')
+        .expect(200);
+
+      jest.useRealTimers();
+
+      expect(response.body.granularity).toBe('day');
+      expect(response.body.months).toEqual([]);
+
+      const totalSeries = response.body.series.find(
+        (series: { key: string }) => series.key === 'total',
+      );
+
+      expect(totalSeries.points).toHaveLength(30);
+
+      // Independent recomputation: per-UTC-day µ¢ sums in plain JS over
+      // the raw stored traces — never the aggregation pipeline.
+      const traces = await juneTracesFromDb();
+      const stamped = traces.filter(
+        (trace) => trace.pricingStatus === 'stamped',
+      );
+      const dayMicrocents = new Array(31).fill(0) as number[];
+
+      for (const trace of stamped) {
+        dayMicrocents[new Date(trace.startedAt).getUTCDate()] +=
+          trace.totalCostMicrocents ?? 0;
+      }
+
+      totalSeries.points.forEach(
+        (
+          point: {
+            year: number;
+            month: number;
+            day?: number;
+            partial: boolean;
+            cost_brl_display: string;
+          },
+          index: number,
+        ) => {
+          expect({
+            year: point.year,
+            month: point.month,
+            day: point.day,
+          }).toEqual({ year: 2026, month: 6, day: index + 1 });
+          // Every bucket — including the zero-filled gap days — carries
+          // the display of ITS raw per-day sum, nothing reshuffled.
+          expect(point.cost_brl_display).toBe(
+            formatBrlDisplay(
+              formatBrlFromMicrocents(dayMicrocents[index + 1] as number),
+            ),
+          );
+          // Only "today" (June 30 under the pinned clock) is partial.
+          expect(point.partial).toBe(index === 29);
+        },
+      );
+
+      // Σ day buckets ≡ month total ≡ the statement, over the SAME store
+      // (invariant 3): the per-day sums verified above add up to the very
+      // total the summary serves.
+      const monthMicrocents = stamped.reduce(
+        (sum, trace) => sum + (trace.totalCostMicrocents ?? 0),
+        0,
+      );
+
+      expect(dayMicrocents.reduce((sum, cost) => sum + cost, 0)).toBe(
+        monthMicrocents,
+      );
+
+      const summaryResponse = await request(app)
+        .get('/api/v1/billing/summary?year=2026&month=6')
+        .expect(200);
+
+      expect(summaryResponse.body.total_cost_brl).toBe(
+        formatBrlFromMicrocents(monthMicrocents),
+      );
+    });
+  });
+
+  describe('GET /api/v1/billing/projection (US12/T8)', () => {
+    it('MUST answer the current-month estimate, labeled, in one of its two honest shapes', async () => {
+      const response = await request(app)
+        .get('/api/v1/billing/projection')
+        .expect(200);
+
+      // Always an estimate, never a bill (US12).
+      expect(response.body.is_estimate).toBe(true);
+      expect(typeof response.body.insufficient_data).toBe('boolean');
+      expect(typeof response.body.accrued_cost_brl_display).toBe('string');
+      expect(typeof response.body.basis_text).toBe('string');
+
+      // Whichever shape the real clock yields, it must be coherent:
+      // insufficient data ⇒ no projected number; enough data ⇒ one.
+      if (response.body.insufficient_data) {
+        expect(response.body.projected_cost_brl_display).toBeNull();
+      } else {
+        expect(typeof response.body.projected_cost_brl_display).toBe(
+          'string',
+        );
+      }
+
+      expect(
+        FORBIDDEN_INTERNAL_KEYS.test(JSON.stringify(response.body)),
+      ).toBe(false);
+    });
+
+    it('MUST return 400 for ANY query parameter (C-3 — the endpoint takes none)', async () => {
+      await request(app).get('/api/v1/billing/projection?year=2026').expect(400);
+      await request(app).get('/api/v1/billing/projection?foo=1').expect(400);
     });
   });
 

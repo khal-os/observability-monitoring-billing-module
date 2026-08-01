@@ -157,11 +157,23 @@ describe('Prices Routes', () => {
     });
 
     it('MUST answer a duplicate (model, token_type, effective_from) with 409 (invariant 9)', async () => {
-      // Same tuple as the canonicalized FIRST registration above — the
-      // bare-id and canonical spellings are ONE identity.
+      // Self-sufficient: this test registers its OWN first version — a
+      // tuple no other test and no seed touches — so it never depends on
+      // a sibling test's insert (declaration order is not load-bearing).
+      // Registered with the BARE id, duplicated with the canonical
+      // spelling: the two spellings are ONE identity (decision 82).
+      const ownTuple = {
+        model: 'llama-4-scout',
+        token_type: 'cache_read' as const,
+        price_brl_per_million: '0.10',
+        effective_from: '2026-06-01',
+      };
+
+      await request(app).post('/api/v1/prices').send(ownTuple).expect(201);
+
       const response = await request(app)
         .post('/api/v1/prices')
-        .send(validBody())
+        .send({ ...ownTuple, model: 'meta/llama-4-scout' })
         .expect(409);
 
       expect(response.body.name).toBe('ConflictError');
