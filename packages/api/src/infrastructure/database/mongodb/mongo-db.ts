@@ -1,5 +1,8 @@
 import { ClientSession, MongoClient, UUID } from 'mongodb';
-import { setupMongoDbClient } from './helpers/mongodb-connection-setup.js';
+import {
+  MONGO_CLIENT_OPTIONS,
+  setupMongoDbClient,
+} from './helpers/mongodb-connection-setup.js';
 import { MongoDbEnvironmentVariables } from '../../configuration/interfaces/mongodb-environment-variables.js';
 
 // PER-PROCESS singleton: one shared client per Node process (api server,
@@ -66,7 +69,10 @@ export class MongoDb {
     }
 
     try {
-      const client = new MongoClient(uri);
+      // Same explicit durability/serialization options as the config
+      // path (audit C-7.5): tests and URI-driven entry points must not
+      // silently run under different write semantics.
+      const client = new MongoClient(uri, MONGO_CLIENT_OPTIONS);
 
       await client.connect();
 

@@ -7,7 +7,11 @@ export const SYNC_STATE_COLLECTION = 'sync_state';
 /** One document per watermark, keyed by _id — no index/migration needed. */
 const TRACE_CURSOR_ID = 'trace-sync';
 
+// eslint-disable-next-line no-control-regex -- the FULL ASCII range is the point
+const isAscii = (value: string): boolean => /^[\x00-\x7f]*$/.test(value);
+
 export class MongoDbSyncStateRepository implements SyncStateRepository {
+  private nonAsciiWarned = false;
   async getTraceCursor(): Promise<SyncCursor | null> {
     const document = await MongoDb.getCollection(SYNC_STATE_COLLECTION).findOne(
       { _id: TRACE_CURSOR_ID } as never,
@@ -31,9 +35,30 @@ export class MongoDbSyncStateRepository implements SyncStateRepository {
    * in the same (updatedAt, traceId) order the batch source drains in.
    * A rejected write is not an error: the batch it bookmarks was already
    * persisted, and insertIfAbsent deduplicates any re-read.
+   *
+   * COLLATION ASSUMPTION (audit C-7.6): the `cursorTraceId` tiebreak
+   * compares strings under MongoDB's default binary (UTF-8 byte) order,
+   * and the batch source drains in ITS store's order. The two orders
+   * provably coincide for ASCII ids — which is what every observed
+   * source emits (UUID-ish hex/base62). For a non-ASCII id they may
+   * disagree; the failure mode is CONSERVATIVE either way (a mis-ordered
+   * comparison can only reject an advance, never regress the watermark —
+   * the batch was already persisted and re-reads deduplicate), so a
+   * non-ASCII id is worth a loud warning (it can pin throughput on
+   * re-reads) but never a throw.
    */
   async setTraceCursor(cursor: SyncCursor): Promise<void> {
     const collection = MongoDb.getCollection(SYNC_STATE_COLLECTION);
+
+    if (!this.nonAsciiWarned && !isAscii(cursor.traceId)) {
+      this.nonAsciiWarned = true;
+      console.warn(
+        `sync-state: non-ASCII cursorTraceId ${JSON.stringify(cursor.traceId)} — ` +
+          'binary collation may disagree with the source ordering; the watermark ' +
+          'stays safe (advances can only be rejected, never regressed) but sync ' +
+          'throughput may degrade on re-reads.',
+      );
+    }
 
     const fields = {
       cursorUpdatedAt: cursor.updatedAt,

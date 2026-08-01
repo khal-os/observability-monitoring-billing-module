@@ -45,8 +45,12 @@ export class MongoDbFilterCounterRepository {
     const counters = MongoDb.getCollection(TRACE_FILTER_COUNTERS_COLLECTION);
 
     // Zero-count leftovers are fine: the facet read filters count > 0.
+    // The decrement itself is guarded on count > 0 (audit C-7.4): on a
+    // drifted cube (missing or already-zero tuple) it no-ops instead of
+    // going negative — a negative tuple would DEFLATE facet sums, since
+    // it participates in $sum before the read's count > 0 post-filter.
     await counters.updateOne(
-      tupleFilter(before),
+      { ...tupleFilter(before), count: { $gt: 0 } },
       { $inc: { count: -1 } },
       { session },
     );

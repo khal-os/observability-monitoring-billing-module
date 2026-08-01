@@ -8,6 +8,7 @@ import {
   TRACES_COLLECTION,
 } from '../trace/mongodb-trace-repository.js';
 import { TraceModel } from '../../../../domain/models/trace-model.js';
+import { traceIndexes } from '../migrations/003-trace-indexes.js';
 
 const makeTrace = (overrides: Partial<TraceModel> = {}): TraceModel => ({
   traceId: 'trace-cube-001',
@@ -24,8 +25,25 @@ const makeTrace = (overrides: Partial<TraceModel> = {}): TraceModel => ({
   tokens: { input: 100, output: 50 },
   tokensTotal: 150,
   pricingStatus: 'stamped',
-  stampedCosts: [],
-  totalCostMicrocents: 0,
+  // Production-shaped stamp (audit C8): lines per token type, summing to
+  // the total — the cube never reads money, but fixtures stay honest.
+  stampedCosts: [
+    {
+      tokenType: 'input',
+      tokens: 100,
+      appliedPriceMicrocentsPerMillion: 1_000_000_000,
+      appliedPriceEffectiveFrom: new Date('2026-06-01T00:00:00.000Z'),
+      costMicrocents: 100_000,
+    },
+    {
+      tokenType: 'output',
+      tokens: 50,
+      appliedPriceMicrocentsPerMillion: 3_000_000_000,
+      appliedPriceEffectiveFrom: new Date('2026-06-01T00:00:00.000Z'),
+      costMicrocents: 150_000,
+    },
+  ],
+  totalCostMicrocents: 250_000,
   stampedAt: new Date('2026-06-05T14:01:00.000Z'),
   ingestedAt: new Date('2026-06-05T14:01:00.000Z'),
   input: 'in',
@@ -68,6 +86,10 @@ describe('MongoDbFilterCounterRepository (facet cube, decision 77)', () => {
 
   beforeAll(async () => {
     await MongoDb.connectWithUri(process.env.MONGO_URL as string);
+    // Exactly-once counting rides insertIfAbsent's idempotency, which is
+    // anchored on the unique traceId index (audit C-7.3 removed the
+    // pre-insert findOne) — run against the production schema.
+    await traceIndexes.run(MongoDb.getClient().db());
   });
 
   afterAll(async () => {
@@ -121,6 +143,45 @@ describe('MongoDbFilterCounterRepository (facet cube, decision 77)', () => {
       agentId: 'agent-b',
       count: 1,
     });
+  });
+
+  it('applyDelta on a DRIFTED cube MUST no-op the decrement, never go negative (audit C-7.4)', async () => {
+    const dims = (agentId: string) => ({
+      day: new Date('2026-06-05T00:00:00.000Z'),
+      domain: 'varejo',
+      subdomain: 'loja-sp',
+      type: 'chat',
+      agentId,
+      channelType: 'whatsapp',
+      status: 'ok' as const,
+    });
+
+    // Drift case 1: the before-tuple is MISSING entirely — the decrement
+    // must not materialize a negative tuple.
+    await counterRepository.applyDelta(dims('agent-missing'), dims('agent-b'));
+
+    // Drift case 2: the before-tuple is a zero-count leftover (a previous
+    // correction already moved the count away).
+    await MongoDb.getCollection(TRACE_FILTER_COUNTERS_COLLECTION).insertOne({
+      ...dims('agent-zero'),
+      count: 0,
+    });
+    await counterRepository.applyDelta(dims('agent-zero'), dims('agent-b'));
+
+    const counters = await readCounters();
+
+    expect(
+      counters.find((row) => row['agentId'] === 'agent-missing'),
+    ).toBeUndefined();
+    expect(counters.find((row) => row['agentId'] === 'agent-zero')).toMatchObject(
+      { count: 0 },
+    );
+    // The increment side still lands: both corrections arrived at agent-b.
+    expect(counters.find((row) => row['agentId'] === 'agent-b')).toMatchObject({
+      count: 2,
+    });
+    // NO tuple anywhere went negative.
+    expect(counters.every((row) => (row['count'] as number) >= 0)).toBe(true);
   });
 
   it('MUST rebuild the cube from traces to exactly the incremental state', async () => {

@@ -97,4 +97,47 @@ describe('MongoDbSyncStateRepository (watermark, decision 78 guard)', () => {
 
     expect(await repository.getTraceCursor()).toEqual(ahead);
   });
+
+  describe('ASCII collation guard (audit C-7.6)', () => {
+    it('MUST warn ONCE on a non-ASCII trace id, still persisting the cursor', async () => {
+      const freshRepository = new MongoDbSyncStateRepository();
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+      const cursor = {
+        updatedAt: new Date('2026-07-01T10:00:00.000Z'),
+        traceId: 'traço-001',
+      };
+
+      await freshRepository.setTraceCursor(cursor);
+      await freshRepository.setTraceCursor({
+        updatedAt: new Date('2026-07-01T11:00:00.000Z'),
+        traceId: 'traço-002',
+      });
+
+      // Safety property intact: the watermark advanced normally.
+      expect(await freshRepository.getTraceCursor()).toEqual({
+        updatedAt: new Date('2026-07-01T11:00:00.000Z'),
+        traceId: 'traço-002',
+      });
+      // ... and the collation caveat was surfaced exactly once.
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toContain('non-ASCII cursorTraceId');
+
+      warn.mockRestore();
+    });
+
+    it('MUST stay silent for ASCII trace ids', async () => {
+      const freshRepository = new MongoDbSyncStateRepository();
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+      await freshRepository.setTraceCursor({
+        updatedAt: new Date('2026-07-01T10:00:00.000Z'),
+        traceId: 'trace-001',
+      });
+
+      expect(warn).not.toHaveBeenCalled();
+
+      warn.mockRestore();
+    });
+  });
 });

@@ -1,4 +1,4 @@
-import { Migration } from '../helpers/migration-runner.js';
+import { Migration, dropIndexIfExists } from '../helpers/migration-runner.js';
 import { TRACES_COLLECTION } from '../trace/mongodb-trace-repository.js';
 import { TRACE_FILTER_COUNTERS_COLLECTION } from '../filterCounter/mongodb-filter-counter-repository.js';
 
@@ -30,8 +30,9 @@ export const sortAlignedTraceIndexes: Migration = {
     ];
     for (const spec of superseded) {
       // Fresh deployments never created these (this migration runs right
-      // after 003/012 in one chain) — hence the existence check.
-      await traces.dropIndex(spec as never).catch(() => undefined);
+      // after 003/012 in one chain) — hence the existence check. Only
+      // "index not found" is expected; anything else rethrows (C-7.6).
+      await dropIndexIfExists(traces, spec);
     }
 
     await traces.createIndex({ startedAt: -1, traceId: 1 });

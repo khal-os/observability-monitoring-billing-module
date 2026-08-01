@@ -158,6 +158,8 @@ export class MongoDbSessionQueryRepository implements SessionQueryRepository {
 
     // Each trace carries its own input/output (transcript); spans are
     // detail-only and projected out of the chain read (decision 47).
+    // Sort is fully index-aligned: {sessionId, startedAt, traceId}
+    // (migration 020) — no in-memory sort at any session size.
     const chainDocuments = (await MongoDb.getCollection(TRACES_COLLECTION)
       .find({ sessionId }, { projection: { spans: 0 } })
       .sort({ startedAt: 1, traceId: 1 })

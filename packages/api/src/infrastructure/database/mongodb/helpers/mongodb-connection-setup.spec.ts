@@ -1,4 +1,54 @@
-import { buildMongoDbUri } from './mongodb-connection-setup.js';
+import {
+  MONGO_CLIENT_OPTIONS,
+  buildMongoDbUri,
+  setupMongoDbClient,
+} from './mongodb-connection-setup.js';
+
+// The driver's MongoOptions type omits the BSON `ignoreUndefined` key even
+// though the parsed options carry it at runtime — narrow view for asserting.
+const bsonOptions = (client: {
+  options: unknown;
+}): { ignoreUndefined?: boolean } =>
+  client.options as { ignoreUndefined?: boolean };
+
+describe('setupMongoDbClient()', () => {
+  it('MUST pin durability and serialization explicitly at client construction (audit C-7.5)', () => {
+    const { client } = setupMongoDbClient({
+      mongoDbHost: 'mongo',
+      mongoDbPort: 27017,
+      mongoDbName: 'cleandb',
+    });
+
+    // Never driver defaults: majority-acknowledged retryable writes for
+    // the permanent archive, and undefined→null serialization for the
+    // "optional fields are stored as null" convention.
+    expect(client.options.writeConcern?.w).toBe('majority');
+    expect(client.options.retryWrites).toBe(true);
+    expect(bsonOptions(client).ignoreUndefined).toBe(false);
+  });
+
+  it('MUST apply the same explicit options over the Atlas URI (params stay consistent)', () => {
+    const { client } = setupMongoDbClient({
+      mongoDbAtlas: true,
+      mongoDbHost: 'cluster0.example.mongodb.net',
+      mongoDbName: 'cleandb',
+      mongoDbUser: 'platform',
+      mongoDbPassword: 's3cret',
+    });
+
+    expect(client.options.writeConcern?.w).toBe('majority');
+    expect(client.options.retryWrites).toBe(true);
+    expect(bsonOptions(client).ignoreUndefined).toBe(false);
+  });
+
+  it('exports the exact option set entry points reuse (connectWithUri path)', () => {
+    expect(MONGO_CLIENT_OPTIONS).toEqual({
+      w: 'majority',
+      retryWrites: true,
+      ignoreUndefined: false,
+    });
+  });
+});
 
 describe('buildMongoDbUri()', () => {
   it('MUST build a plain local URI when no credentials are provided', () => {

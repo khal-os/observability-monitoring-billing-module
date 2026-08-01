@@ -8,6 +8,9 @@ import {
 
 export const SESSION_SUMMARIES_COLLECTION = 'session_summaries';
 
+const isDuplicateKey = (error: unknown): boolean =>
+  (error as { code?: number }).code === 11000;
+
 /**
  * Materialized sessions read-model (decision 80): one small document per
  * session, maintained at write time so GET /sessions is an indexed find
@@ -24,28 +27,60 @@ export const SESSION_SUMMARIES_COLLECTION = 'session_summaries';
  * incremental-counter drift (a lost delta is wrong FOREVER) cannot
  * happen here.
  *
- * Single-writer assumption, same as the filter cube: two concurrent
- * recomputes of one session both write a full exact snapshot, so the
- * worst interleaving is a briefly stale summary healed by the next
- * touch, never a corrupted one.
+ * There is NO single-writer assumption (audit B-6): the ingestion worker
+ * and a manual `make sync` are a legal combination, so two recomputes of
+ * one session can overlap. The recompute is therefore a single
+ * server-side $merge pipeline — aggregate and write happen inside ONE
+ * aggregation command, per-target-document serialized by the server —
+ * instead of a client-side read-then-replace whose round-trip gap let a
+ * slow writer overwrite a fresher summary with stale numbers (permanent
+ * for finished conversations, until the rebuild job). Two concurrent
+ * first-touch $merge inserts of the same _id can still race into E11000;
+ * one retry settles it (the second pass finds the document and replaces).
  */
 export class MongoDbSessionSummaryRepository {
   async recompute(sessionId: string): Promise<void> {
-    const [summary] = await MongoDb.getCollection(TRACES_COLLECTION)
-      .aggregate([{ $match: { sessionId } }, ...sessionSummaryStages])
-      .toArray();
+    const traces = MongoDb.getCollection(TRACES_COLLECTION);
 
-    const summaries = MongoDb.getCollection(SESSION_SUMMARIES_COLLECTION);
+    // THE derivation (decision 80): same shared stages as the rebuild and
+    // the live detail read — only the sink differs.
+    const merge = () =>
+      traces
+        .aggregate([
+          { $match: { sessionId } },
+          ...sessionSummaryStages,
+          {
+            $merge: {
+              into: SESSION_SUMMARIES_COLLECTION,
+              on: '_id',
+              whenMatched: 'replace',
+              whenNotMatched: 'insert',
+            },
+          },
+        ])
+        .toArray();
 
-    if (!summary) {
-      await summaries.deleteOne({ _id: sessionId } as never);
+    try {
+      await merge();
+    } catch (error) {
+      if (!isDuplicateKey(error)) {
+        throw error;
+      }
 
-      return;
+      await merge();
     }
 
-    await summaries.replaceOne({ _id: sessionId } as never, summary, {
-      upsert: true,
-    });
+    // $merge writes nothing for an empty input, so a session with no
+    // traces left would keep its summary forever. Defensive today (the
+    // archive never deletes traces), kept for parity with the rebuild:
+    // a summary must never outlive its session.
+    const hasTraces = await traces.countDocuments({ sessionId }, { limit: 1 });
+
+    if (hasTraces === 0) {
+      await MongoDb.getCollection(SESSION_SUMMARIES_COLLECTION).deleteOne({
+        _id: sessionId,
+      } as never);
+    }
   }
 
   /**

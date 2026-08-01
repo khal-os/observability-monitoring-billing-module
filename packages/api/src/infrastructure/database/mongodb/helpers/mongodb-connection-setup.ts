@@ -1,5 +1,24 @@
-import { MongoClient } from 'mongodb';
+import { MongoClient, MongoClientOptions } from 'mongodb';
 import { MongoDbEnvironmentVariables } from '../../../configuration/interfaces/mongodb-environment-variables.js';
+
+/**
+ * Durability and serialization pinned EXPLICITLY at client construction
+ * (audit C-7.5) — never left to driver defaults or to which URI shape
+ * happened to be built:
+ * - `w: 'majority'` + `retryWrites: true`: the local URI carried neither
+ *   (only the Atlas URI spelled them out); the permanent archive
+ *   (invariant 6) and the billing writes ride this client.
+ * - `ignoreUndefined: false`: the storage convention says optional fields
+ *   are stored as NULL, never absent — that relies on the serializer
+ *   turning `undefined` into null, which is exactly what this flag pins.
+ * Options take precedence over URI params, so the Atlas URI's matching
+ * `retryWrites=true&w=majority` stays consistent by construction.
+ */
+export const MONGO_CLIENT_OPTIONS: MongoClientOptions = {
+  w: 'majority',
+  retryWrites: true,
+  ignoreUndefined: false,
+};
 
 export const buildMongoDbUri = ({
   mongoDbAtlas,
@@ -39,5 +58,5 @@ export const setupMongoDbClient = (
 } => {
   const { uri, message } = buildMongoDbUri(config);
 
-  return { client: new MongoClient(uri), message };
+  return { client: new MongoClient(uri, MONGO_CLIENT_OPTIONS), message };
 };

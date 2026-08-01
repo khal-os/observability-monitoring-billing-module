@@ -7,6 +7,8 @@ import { sessionSummaryIndexes } from './014-session-summary-indexes.js';
 import { modelObject } from './015-model-object.js';
 import { billingPeriodIndexes } from './017-billing-period-indexes.js';
 import { ingestFailureIndexes } from './018-ingest-failure-indexes.js';
+import { lowercaseModelIds } from './019-lowercase-model-ids.js';
+import { sessionChainIndex } from './020-session-chain-index.js';
 
 /**
  * Ordered list — the runner applies each exactly once, in this order.
@@ -17,9 +19,11 @@ import { ingestFailureIndexes } from './018-ingest-failure-indexes.js';
  * start fresh, there is no pre-convention data to migrate. Historical ids
  * (002, 004–011, 016) stay retired: never reuse them for new migrations
  * (016 was a domain→topic $rename, reverted before shipping — decision 86).
- * Exception: 015 rewrites pre-structured `model` strings into the
+ * Exceptions: 015 rewrites pre-structured `model` strings into the
  * canonical `{ id, provider }` block — deployments that ingested before
- * that change DO carry old-layout data (see the migration's own doc).
+ * that change DO carry old-layout data (see the migration's own doc) —
+ * and 019 lowercases stored model ids / price keys (decision 102,
+ * attribution-only; stamps and frozen snapshots untouched).
  */
 export const migrations: Migration[] = [
   priceVersionIndexes,
@@ -30,4 +34,6 @@ export const migrations: Migration[] = [
   modelObject,
   billingPeriodIndexes,
   ingestFailureIndexes,
+  lowercaseModelIds,
+  sessionChainIndex,
 ];
