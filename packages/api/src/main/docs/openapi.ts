@@ -200,9 +200,14 @@ export const buildOpenApiDocument = (clientName?: string) => ({
         tags: ['Traces'],
         summary: 'Lista traces (recente primeiro)',
         description:
-          'Totais LIMITADOS (decisão 77): com filtros, a contagem para em ' +
-          '10.000 — `total_capped: true` e displays com sufixo "+" ' +
-          '("10.000+"). Sem filtros o total é exato.',
+          'Totais LIMITADOS (decisão 77/79, emendadas pela 116): a contagem ' +
+          'para em 10.000 em QUALQUER consulta, COM ou SEM filtros. Até o ' +
+          'teto o total é exato e `total_capped` é false; a partir dele a ' +
+          'resposta traz `total: 10000`, `total_capped: true` e os displays ' +
+          'com sufixo "+" ("10.000+") — o número honesto do arquivo é ' +
+          '`total_display`, não `total`. O horizonte é o mesmo da guarda de ' +
+          'profundidade (decisão 79): a API nunca anuncia uma página que ' +
+          'recusaria servir.',
         parameters: [...traceFilterParams, ...paginationParams],
         responses: {
           '200': okResponse('Página de traces.', traceListResponseSchema),

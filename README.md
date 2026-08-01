@@ -86,10 +86,23 @@ protected variable store, then apply the production form —
 
 ```bash
 docker compose -f compose.module.yml -f compose.connector.yml -f compose.mongodb.yml --env-file <client>.env up -d
+docker compose -f compose.module.yml -f compose.connector.yml -f compose.mongodb.yml --env-file <client>.env run --rm --no-deps api node dist/main/jobs/run-migrations.js
 ```
 
 (no `compose.dev.yml`, prebuilt registry images via `API_IMAGE`/`UI_IMAGE`).
-`make up-prod CLIENT=<name>` rehearses exactly this form locally.
+`make up-prod CLIENT=<name>` rehearses exactly this form locally, and
+`make migrate CLIENT=<name>` is that second command.
+
+**The migration step is not optional and it is not automatic** — no image,
+entrypoint or service runs it (`make migrate` is the only door), so a stack
+brought up without it has **no indexes**, and the indexes carry correctness,
+not speed: the ingestor's insert-once *is* the unique `traceId` index (without
+it the same trace is stored twice, with its own price stamp and its own facet
+increment — `make sync` stops being idempotent), and the 409 on a duplicate
+price version *is* the E11000 of the unique `(model, tokenType,
+effectiveFrom)` index (invariant 9). Run it **on first boot and after every
+image upgrade**: the chain is index bootstrap only (decision 74), and a new
+image ships new migrations.
 
 ## Day-2 operations (client-generic)
 
@@ -98,6 +111,7 @@ Continuous ingestion runs by itself (the `trace-ingestion-worker` container —
 backfills, price registration, and lifecycle:
 
 ```bash
+make migrate CLIENT=<name>     # index bootstrap — first boot AND after every image upgrade
 make sync CLIENT=<name> FROM=2026-07-01 TO=2026-07-22   # manual backfill (idempotent windows)
 make price CLIENT=<name> ARGS='--model ... --token-type ... --price-brl ... --effective-from ...'
 # ...or over HTTP (same single path — canonical model key + immediate reprocess):

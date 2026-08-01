@@ -46,12 +46,20 @@ export class ListBillsDbUseCase implements ListBillsUseCase {
   }
 
   async list(): Promise<BillListItem[]> {
-    const periods = await this.billingPeriodRepository.listAll();
+    // The C-7.1 bound is derived from the DATA, not from the lifecycle
+    // documents alone (re-audit iteration 3): a month no lifecycle action
+    // ever touched has no period document, so only `earliestTraceAt` — one
+    // indexed min read, the same anchor the close-order guard uses — can
+    // keep the scan from stepping over its money.
+    const [periods, earliestTraceAt] = await Promise.all([
+      this.billingPeriodRepository.listAll(),
+      this.billingQueryRepository.earliestTraceAt(),
+    ]);
     // The closed windows scope the unresolved-quarantine exclusion of the
     // pending numbers to FROZEN months only — the same lens
     // /billing/summary and the close guard apply (re-audit iteration 2).
     const rows = await this.billingQueryRepository.listBills(
-      firstOpenMonthStart(periods),
+      firstOpenMonthStart(periods, earliestTraceAt),
       closedMonthWindows(periods),
     );
     const now = this.now();
@@ -92,6 +100,12 @@ export class ListBillsDbUseCase implements ListBillsUseCase {
     // defence in depth, the NON-closed ones too (re-audit iteration 2: a
     // reopened month used to be filtered out here, so a bound that failed
     // to account for it deleted the month from the list entirely).
+    //
+    // This pass is a net under DOCUMENTED months only, and cannot be more
+    // than that: a month no lifecycle action ever touched has nothing to
+    // iterate here (re-audit iteration 3). Its money reaches the list
+    // solely because `firstOpenMonthStart` anchors on `earliestTraceAt`
+    // and therefore never bounds the scan past a trace-bearing open month.
     const leftovers = await Promise.all(
       [...periodByMonth.values()].map((period) =>
         period.status === 'closed'

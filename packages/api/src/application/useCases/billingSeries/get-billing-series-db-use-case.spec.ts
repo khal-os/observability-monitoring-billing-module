@@ -268,6 +268,52 @@ describe('GetBillingSeriesDbUseCase (T8)', () => {
     ).toBe(2_500_000_000);
   });
 
+  it('re-audit iteration 3: a NEVER-closed month that gains traces after a newer close CHARTS — not even a zero bar existed before', async () => {
+    const { sut, close, billingQueryRepository } = makeSut();
+
+    // June closes with an empty May (the close-order guard passes on a
+    // trace-free month), then a backfill lands one May trace. May owns no
+    // period document, so the reopened-document half of the bound is blind
+    // to it and the old walk anchored past it: the month was absent from
+    // the chart entirely — not charted as R$ 0,00, simply not emitted.
+    billingQueryRepository.usageByMonth.set('2026-6', [
+      usageRecord({ traceId: 'jun-1' }),
+    ]);
+    await close.close(2026, 6);
+
+    // The series' only live source is the rollup — May's traces exist in
+    // the store precisely because it answers a row for them.
+    billingQueryRepository.rollupRows = [
+      {
+        year: 2026,
+        month: 5,
+        totalCostMicrocents: 10_000_000_000,
+        byTokenType: [
+          { tokenType: 'input' as const, costMicrocents: 10_000_000_000 },
+        ],
+        byAgent: [],
+        byModel: [],
+      },
+    ];
+
+    const months = await sut.list(12);
+    const may = months.find((month) => month.month === 5);
+
+    expect(months.map((month) => [month.month, month.periodStatus])).toEqual([
+      [5, 'open'],
+      [6, 'closed'],
+      [7, 'in_progress'],
+    ]);
+    expect(may?.totalCostMicrocents).toBe(10_000_000_000);
+    expect(may?.byTokenType).toEqual([
+      { tokenType: 'input', costMicrocents: 10_000_000_000 },
+    ]);
+    // June stays frozen at its snapshot total.
+    expect(months.find((month) => month.month === 6)?.totalCostMicrocents).toBe(
+      2_500_000_000,
+    );
+  });
+
   it('an empty store charts nothing', async () => {
     const { sut } = makeSut();
 

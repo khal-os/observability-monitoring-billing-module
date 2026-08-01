@@ -13,9 +13,48 @@ import { monthWindowUtc } from '../../../domain/models/billing-period-model.js';
 import {
   STATEMENT_LOGIC_VERSION,
   STATEMENT_ROUNDING_RULE,
-  buildStatement,
-  collectAppliedPriceVersions,
+  createStatementFold,
 } from '../billingStatement/statement-engine.js';
+
+/**
+ * The close's page unit: one UTC day of the month (re-audit iteration 3).
+ *
+ * The month's usage set is one record per stamped trace and unbounded, and
+ * the close runs in a hard-capped container (compose.module.yml gives the
+ * api service 512m ⇒ a ~259 MB V8 heap): materializing the month made a
+ * busy month IMPOSSIBLE to close — the process died with "Reached heap
+ * limit", deterministically, so every retry died identically and the whole
+ * lifecycle (invariant 8) became unreachable behind it. Paging bounds the
+ * resident set by the busiest DAY instead of the month; the fold that
+ * consumes the pages is bounded by DISTINCT statement keys, not by traces.
+ *
+ * A day is the natural unit because the adapter's window match is
+ * `startedAt: { $gte, $lt }` over the same index the month scan rides —
+ * one indexed range per page, ~31 per close (a runbook job).
+ */
+const usagePageWindows = (
+  monthStart: Date,
+  monthEnd: Date,
+): { start: Date; end: Date }[] => {
+  const pages: { start: Date; end: Date }[] = [];
+  let cursor = monthStart;
+
+  while (cursor.getTime() < monthEnd.getTime()) {
+    const nextDay = new Date(
+      Date.UTC(
+        cursor.getUTCFullYear(),
+        cursor.getUTCMonth(),
+        cursor.getUTCDate() + 1,
+      ),
+    );
+    const end = nextDay.getTime() > monthEnd.getTime() ? monthEnd : nextDay;
+
+    pages.push({ start: cursor, end });
+    cursor = end;
+  }
+
+  return pages;
+};
 
 /**
  * T6: the month close. Freezes the ENTIRE calculation — inputs (usage
@@ -104,11 +143,6 @@ export class CloseBillingPeriodDbUseCase implements CloseBillingPeriodUseCase {
       });
     }
 
-    const records = await this.billingQueryRepository.fetchUsageRecords(
-      start,
-      end,
-    );
-    const statement = buildStatement(records);
     const ingestionWatermark =
       await this.billingQueryRepository.ingestionWatermark(start, end);
 
@@ -123,22 +157,19 @@ export class CloseBillingPeriodDbUseCase implements CloseBillingPeriodUseCase {
       Math.max(period?.snapshotVersion ?? 0, currentSnapshot?.version ?? 0) + 1;
     const closedAt = this.now();
 
-    const snapshot: BillingSnapshotModel = {
-      year,
-      month,
-      version,
-      createdAt: closedAt,
-      trigger: 'runbook',
-      ingestionWatermark,
-      logicVersion: STATEMENT_LOGIC_VERSION,
-      roundingRule: STATEMENT_ROUNDING_RULE,
-      statement,
-      // v1: always empty — the pending guard above blocks the only
-      // exclusion source; the ledger exists for schema completeness (T6).
-      exceptions: [],
-      priceVersionsApplied: collectAppliedPriceVersions(records),
-      usageRecordCount: records.length,
-    };
+    // re-audit iteration 3: the month is folded PAGE BY PAGE — read a day,
+    // fold it into the (distinct-key-bounded) accumulators, stage it, drop
+    // it. The statement is byte-identical to the one the whole-month array
+    // produced: it IS the same engine, and the engine is order-independent
+    // by contract (statement-engine.spec: "same records in any order
+    // produce the identical statement"). LOGIC_VERSION does not move — no
+    // arithmetic changed, only when the records are resident.
+    const fold = createStatementFold();
+    // The one O(traces) structure left in the close: the ids the snapshot
+    // billed, which reconcileQuarantineAfterClose takes as an array
+    // (strings only — ~11 MB at 200k traces, against ~250 MB for the
+    // records). Collected while folding instead of re-derived afterwards.
+    const billedTraceIds: string[] = [];
 
     // audit B-2: the close publishes ATOMICALLY (decision 81 + re-audit).
     // The adapter stages the unbounded inputs OUTSIDE the transaction, in
@@ -146,27 +177,67 @@ export class CloseBillingPeriodDbUseCase implements CloseBillingPeriodUseCase {
     // header + period flip together — the header is the commit mark, and
     // no reader can resolve rows without one. A crash leaves NOTHING
     // readable — the retry recomputes and closes cleanly; a concurrent
-    // close loses whole, its staged records unreachable, never left under
-    // the winner's header.
-    const outcome = await this.billingSnapshotRepository.insertWithPeriodClose(
-      snapshot,
-      records,
-      {
-        closedAt,
-        audit: {
-          at: closedAt,
-          action: 'close',
-          trigger: 'runbook',
-          snapshotVersion: version,
+    // close loses whole, its staged records dropped, never left under the
+    // winner's header.
+    const outcome =
+      await this.billingSnapshotRepository.insertWithPeriodCloseStaged(
+        { year, month, version },
+        async (stage) => {
+          for (const page of usagePageWindows(start, end)) {
+            const records = await this.billingQueryRepository.fetchUsageRecords(
+              page.start,
+              page.end,
+            );
+
+            if (records.length === 0) continue;
+
+            for (const record of records) {
+              fold.add(record);
+              billedTraceIds.push(record.traceId);
+            }
+
+            await stage(records);
+          }
+
+          const snapshot: BillingSnapshotModel = {
+            year,
+            month,
+            version,
+            createdAt: closedAt,
+            trigger: 'runbook',
+            ingestionWatermark,
+            logicVersion: STATEMENT_LOGIC_VERSION,
+            roundingRule: STATEMENT_ROUNDING_RULE,
+            statement: fold.statement(),
+            // v1: always empty — the pending guard above blocks the only
+            // exclusion source; the ledger exists for schema completeness
+            // (T6).
+            exceptions: [],
+            priceVersionsApplied: fold.appliedPriceVersions(),
+            usageRecordCount: fold.recordCount(),
+          };
+
+          return snapshot;
         },
-      },
-    );
+        {
+          closedAt,
+          audit: {
+            at: closedAt,
+            action: 'close',
+            trigger: 'runbook',
+            snapshotVersion: version,
+          },
+        },
+      );
 
     if (outcome === 'conflict') {
       throw new BillingPeriodStateError(
         `Fechamento concorrente detectado para ${year}-${month} — nada foi sobrescrito.`,
       );
     }
+
+    // Pure over the accumulators — the same projection the header carries.
+    const statement = fold.statement();
 
     // audit B-1 (decision 100): the snapshot adjudicates. With the ids the
     // snapshot billed already in memory, flag every straggler the
@@ -175,7 +246,7 @@ export class CloseBillingPeriodDbUseCase implements CloseBillingPeriodUseCase {
     const quarantine = await this.traceRepository.reconcileQuarantineAfterClose(
       start,
       end,
-      records.map((record) => record.traceId),
+      billedTraceIds,
       version,
     );
 

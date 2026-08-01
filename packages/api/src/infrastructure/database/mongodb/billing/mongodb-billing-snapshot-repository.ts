@@ -100,13 +100,51 @@ export class MongoDbBillingSnapshotRepository implements BillingSnapshotReposito
     // FIRST, header LAST, because the header is the commit mark.
     const key = snapshotKey(snapshot.year, snapshot.month, snapshot.version);
     const writeToken = MongoDb.generateUUID();
+    const stagingKey = usageStagingKey(key, writeToken);
 
-    await this.stageUsageRecords(key, writeToken, usageRecords);
-    await MongoDb.getCollection(BILLING_SNAPSHOTS_COLLECTION).insertOne({
-      ...snapshot,
-      usageWriteToken: writeToken,
-    });
+    await this.stageUsagePage(stagingKey, usageRecords);
+
+    try {
+      await MongoDb.getCollection(BILLING_SNAPSHOTS_COLLECTION).insertOne({
+        ...snapshot,
+        usageWriteToken: writeToken,
+      });
+    } catch (error) {
+      // Same rule as the close (re-audit iteration 3): no header, no
+      // reason for the rows to exist — and no later sweep would reach
+      // them once the next write computes a different version.
+      await this.discardStaging(stagingKey);
+
+      throw error;
+    }
+
     await this.sweepSupersededStaging(key, writeToken);
+  }
+
+  /**
+   * The single-page form of insertWithPeriodCloseStaged: the caller
+   * already holds the month's records. Storage-only ops and small months
+   * use it; the close (T6) uses the staged form, which never materializes
+   * the month.
+   */
+  async insertWithPeriodClose(
+    snapshot: BillingSnapshotModel,
+    usageRecords: BillingUsageRecord[],
+    close: { closedAt: Date; audit: BillingPeriodAuditEntry },
+  ): Promise<'closed' | 'conflict'> {
+    return this.insertWithPeriodCloseStaged(
+      {
+        year: snapshot.year,
+        month: snapshot.month,
+        version: snapshot.version,
+      },
+      async (stage) => {
+        await stage(usageRecords);
+
+        return snapshot;
+      },
+      close,
+    );
   }
 
   /**
@@ -122,6 +160,12 @@ export class MongoDbBillingSnapshotRepository implements BillingSnapshotReposito
    * TransactionTooLargeForCache (388) — unlabelled, therefore never
    * retried, and deterministic, therefore fatal for every retry.
    *
+   * re-audit iteration 3: bounding the TRANSACTION left the PROCESS
+   * unbounded — the caller still had to hand over the whole month as one
+   * array. Phase 1 is therefore driven by the caller through `stage`: it
+   * pushes one page at a time and returns the finished header, so nothing
+   * bigger than a page is ever resident on either side of the port.
+   *
    * Atomicity is preserved where it is actually load-bearing, because the
    * HEADER is the commit mark and it names the staging area it published:
    * - a reader can never observe an incomplete snapshot — staged rows are
@@ -131,29 +175,56 @@ export class MongoDbBillingSnapshotRepository implements BillingSnapshotReposito
    *   period;
    * - a crash in phase 1, between the phases, or inside the phase-2
    *   transaction leaves NO header and NO flip: the retry recomputes the
-   *   same version, stages a fresh area and commits, and its sweep drops
-   *   the dead one;
+   *   same version, stages a fresh area and commits;
    * - a concurrent double close stages into two distinct areas and is
    *   decided by the unique (year, month, version) header index plus the
    *   guarded period flip — exactly one winner, whose header names only
-   *   its OWN rows; the loser's are unreachable, then swept.
+   *   its OWN rows.
+   *
+   * re-audit iteration 3: the loser's rows are no longer merely
+   * unreachable — every exit that does NOT publish DELETES this attempt's
+   * area before returning or rethrowing. The version-keyed sweep could
+   * never collect them (after a lost race the next close computes v+1 and
+   * sweeps only v+1's prefix), so each non-publishing close used to leak
+   * one full month of rows, permanently. The area is attempt-private, so
+   * dropping it can never touch another attempt's rows.
    *
    * Returns 'conflict' when the period is already closed (nothing
    * published). A duplicate (year, month, version) header surfaces as a
    * typed BillingPeriodStateError, never a raw driver error.
    */
-  async insertWithPeriodClose(
-    snapshot: BillingSnapshotModel,
-    usageRecords: BillingUsageRecord[],
+  async insertWithPeriodCloseStaged(
+    identity: { year: number; month: number; version: number },
+    stageAndBuild: (
+      stage: (page: BillingUsageRecord[]) => Promise<void>,
+    ) => Promise<BillingSnapshotModel>,
     close: { closedAt: Date; audit: BillingPeriodAuditEntry },
   ): Promise<'closed' | 'conflict'> {
-    const key = snapshotKey(snapshot.year, snapshot.month, snapshot.version);
+    const key = snapshotKey(identity.year, identity.month, identity.version);
     const writeToken = MongoDb.generateUUID();
-
-    // PHASE 1 — stage the inputs. Nothing here is reachable by any reader.
-    await this.stageUsageRecords(key, writeToken, usageRecords);
+    const stagingKey = usageStagingKey(key, writeToken);
 
     try {
+      // PHASE 1 — the caller pages the inputs in. Nothing written here is
+      // reachable by any reader (no header names this area yet).
+      const snapshot = await stageAndBuild(async (page) => {
+        await this.stageUsagePage(stagingKey, page);
+      });
+
+      if (
+        snapshot.year !== identity.year ||
+        snapshot.month !== identity.month ||
+        snapshot.version !== identity.version
+      ) {
+        // The header would be published pointing at an area keyed for a
+        // different snapshot — its rows would be unreachable forever.
+        throw new Error(
+          `Billing snapshot ${key}: o header devolvido é de ` +
+            `${snapshotKey(snapshot.year, snapshot.month, snapshot.version)} ` +
+            '— identidade da área de staging e do header devem coincidir.',
+        );
+      }
+
       // PHASE 2 — publish: header + period flip, atomically and bounded.
       await MongoDb.withTransaction(async (session) => {
         // The (year, month, version) unique index makes snapshots
@@ -193,6 +264,11 @@ export class MongoDbBillingSnapshotRepository implements BillingSnapshotReposito
         }
       });
     } catch (error) {
+      // NOTHING was published on this path, so this attempt's staging area
+      // is dead the moment we leave — drop it here, the only place that
+      // still knows its key (re-audit iteration 3).
+      await this.discardStaging(stagingKey);
+
       if (error instanceof PeriodFlipConflict) {
         return 'conflict';
       }
@@ -209,7 +285,7 @@ export class MongoDbBillingSnapshotRepository implements BillingSnapshotReposito
 
       if (isTransactionTooLargeError(error)) {
         throw new BillingPeriodStateError(
-          `Fechamento de ${snapshot.year}-${String(snapshot.month).padStart(2, '0')} ` +
+          `Fechamento de ${identity.year}-${String(identity.month).padStart(2, '0')} ` +
             'abortado: a transação de commit não coube no cache do WiredTiger ' +
             '(TransactionTooLargeForCache). Aumente MONGO_MEMORY_LIMIT e ' +
             'repita o fechamento — nada foi publicado.',
@@ -239,25 +315,43 @@ export class MongoDbBillingSnapshotRepository implements BillingSnapshotReposito
   }
 
   /**
-   * Phase 1: the attempt's private staging area. No session on purpose —
-   * this is precisely the write that must NOT sit in the transaction — and
-   * no pre-delete, because a fresh write token means the area is empty by
-   * construction (which is also what keeps a concurrent attempt from
-   * deleting rows this attempt is about to publish).
+   * Phase 1: ONE page into the attempt's private staging area. No session
+   * on purpose — this is precisely the write that must NOT sit in the
+   * transaction — and no pre-delete, because a fresh write token means the
+   * area is empty by construction (which is also what keeps a concurrent
+   * attempt from deleting rows this attempt is about to publish).
+   *
+   * The page is written in bounded chunks (the 16MB command ceiling); the
+   * chunker now slices a PAGE, not a month, so its slice bookkeeping is
+   * bounded too (re-audit iteration 3).
    */
-  private async stageUsageRecords(
-    key: string,
-    writeToken: string,
-    usageRecords: BillingUsageRecord[],
+  private async stageUsagePage(
+    stagingKey: string,
+    page: BillingUsageRecord[],
   ): Promise<void> {
-    if (usageRecords.length === 0) {
-      return;
-    }
-
-    const stagingKey = usageStagingKey(key, writeToken);
-
-    for (const chunk of chunksOf(usageRecords, this.usageWriteChunkSize)) {
+    for (const chunk of chunksOf(page, this.usageWriteChunkSize)) {
       await this.insertUsageChunk(stagingKey, chunk);
+    }
+  }
+
+  /**
+   * Drops ONE attempt's staging area — the close did not publish, so the
+   * rows are dead (re-audit iteration 3: they used to stay forever, since
+   * the version-keyed sweep only ever reaches the version the NEXT close
+   * computes). Best-effort: the caller is already returning 'conflict' or
+   * rethrowing the real failure, and a cleanup error must not replace it.
+   */
+  private async discardStaging(stagingKey: string): Promise<void> {
+    try {
+      await MongoDb.getCollection(
+        BILLING_SNAPSHOT_USAGE_COLLECTION,
+      ).deleteMany({ snapshotKey: stagingKey });
+    } catch (error) {
+      console.warn(
+        `Billing snapshot staging ${stagingKey}: discard failed — nothing was ` +
+          'published and no header names these rows:',
+        error,
+      );
     }
   }
 
@@ -274,11 +368,13 @@ export class MongoDbBillingSnapshotRepository implements BillingSnapshotReposito
 
   /**
    * Drops the staging areas of this version that this header did NOT
-   * publish — a crashed earlier attempt's rows, or a lost concurrent
-   * attempt's. Runs only AFTER the header is durable, so it can never
-   * delete rows a live header names. Best-effort: the close is already
-   * committed and the leftovers are unreachable by every reader, so a
-   * sweep failure must never turn a committed close into a failed one.
+   * publish. Since re-audit iteration 3 an attempt that RETURNS cleans up
+   * after itself (discardStaging), so what is left for the sweep is the
+   * one case no catch block can handle: a process killed mid-attempt.
+   * Runs only AFTER the header is durable, so it can never delete rows a
+   * live header names. Best-effort: the close is already committed and the
+   * leftovers are unreachable by every reader, so a sweep failure must
+   * never turn a committed close into a failed one.
    */
   private async sweepSupersededStaging(
     key: string,

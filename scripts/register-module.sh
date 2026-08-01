@@ -11,12 +11,16 @@
 #
 # Env:
 #   CLIENT        REQUIRED — client slug; tenant AND source of API_PORT
-#                 (read from clients/$CLIENT.env unless API_PORT is set)
+#                 (read from clients/$CLIENT.env unless API_PORT is set;
+#                 absent there, the compose default applies — see host_port)
 #   REGISTER_URL  default http://127.0.0.1:7102 (the module-register)
 #   MODULE_ID     default tracing
 #   ENDPOINT      default http://localhost:${API_PORT}
 #   TOKEN         a USER token for the PUT (registration is a user action).
 #                 Unset → dev claims token minted below.
+#   DRY_RUN       any value → print the resolved endpoint + manifest and stop
+#                 before touching the register (how `make deploy-smoke`
+#                 exercises the port resolution offline).
 set -euo pipefail
 
 : "${CLIENT:?export CLIENT first (client slug = tenant)}"
@@ -25,12 +29,25 @@ MODULE_ID="${MODULE_ID:-tracing}"
 TENANT="${TENANT:-$CLIENT}"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=scripts/deploy-lib.sh
+source "$ROOT/scripts/deploy-lib.sh"
 
-if [[ -z "${API_PORT:-}" ]]; then
-  API_PORT=$(grep '^API_PORT=' "$ROOT/clients/$CLIENT.env" | cut -d= -f2-)
+# The port goes through deploy-lib's host_port, exactly like every deploy
+# step: the env contract EXPLICITLY invites omitting API_PORT on a dedicated
+# host (clients/example.env), so reading the var rawly made a contract-legal
+# env file abort registration — stack healthy on the compose default 3000,
+# module never registered, Farol unable to discover it, and the operator told
+# to set a variable the contract told him to leave out. An explicit
+# API_PORT (or ENDPOINT) still wins.
+ENVFILE="$ROOT/clients/$CLIENT.env"
+if [[ -z "${ENDPOINT:-}" ]]; then
+  if [[ -z "${API_PORT:-}" ]]; then
+    [[ -f "$ENVFILE" ]] \
+      || { echo "ERROR: missing $ENVFILE — pass API_PORT=<port> or ENDPOINT=<url> to register without it"; exit 1; }
+    API_PORT="$(host_port API_PORT)"
+  fi
+  ENDPOINT="http://localhost:${API_PORT}"
 fi
-[[ -n "$API_PORT" ]] || { echo "ERROR: API_PORT not set and not found in clients/$CLIENT.env"; exit 1; }
-ENDPOINT="${ENDPOINT:-http://localhost:${API_PORT}}"
 
 VERSION=$(node -p "require('$ROOT/package.json').version")
 
@@ -53,6 +70,12 @@ MANIFEST=$(cat <<EOF
 }
 EOF
 )
+
+if [[ -n "${DRY_RUN:-}" ]]; then
+  echo "DRY_RUN: module '${MODULE_ID}' v${VERSION} (tenant ${TENANT}) → ${ENDPOINT}"
+  echo "${MANIFEST}"
+  exit 0
+fi
 
 # Existing module? Grab its ETag so the update satisfies If-Match.
 ETAG=$(curl -s -o /dev/null -w '%{header_json}' \

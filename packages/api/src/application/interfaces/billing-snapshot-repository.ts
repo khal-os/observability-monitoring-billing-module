@@ -38,6 +38,33 @@ export interface BillingSnapshotRepository {
     close: { closedAt: Date; audit: BillingPeriodAuditEntry },
   ): Promise<'closed' | 'conflict'>;
 
+  /**
+   * re-audit iteration 3: the SAME close write for a month that must never
+   * be resident. The month's usage set is one record per stamped trace and
+   * unbounded, so the caller does not hand over an array: it is called
+   * back with `stage`, pushes the month PAGE BY PAGE (each page released
+   * before the next is read) and returns the finished header at the end —
+   * so peak memory is one page, not one month. `insertWithPeriodClose` is
+   * this same protocol with a single page.
+   *
+   * `identity` names the staging area BEFORE the header exists (the header
+   * is only born once the last page is folded); it MUST match the returned
+   * snapshot's (year, month, version).
+   *
+   * Same guarantees, plus one the array form now also gets: the staged
+   * area's lifetime is bounded by the attempt. Every exit that does NOT
+   * publish — a conflict, a typed refusal, an error thrown by the caller
+   * mid-paging — drops that attempt's rows before returning or rethrowing,
+   * so a close that did not happen leaves no trace on disk.
+   */
+  insertWithPeriodCloseStaged(
+    identity: { year: number; month: number; version: number },
+    stageAndBuild: (
+      stage: (page: BillingUsageRecord[]) => Promise<void>,
+    ) => Promise<BillingSnapshotModel>,
+    close: { closedAt: Date; audit: BillingPeriodAuditEntry },
+  ): Promise<'closed' | 'conflict'>;
+
   /** The CURRENT version's snapshot for the month (highest version), or null. */
   findCurrent(year: number, month: number): Promise<BillingSnapshotModel | null>;
 

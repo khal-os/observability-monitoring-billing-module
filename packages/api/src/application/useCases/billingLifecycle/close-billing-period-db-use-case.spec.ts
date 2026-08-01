@@ -14,7 +14,13 @@ import {
 import {
   STATEMENT_LOGIC_VERSION,
   buildStatement,
+  collectAppliedPriceVersions,
 } from '../billingStatement/statement-engine.js';
+import {
+  BillingSnapshotModel,
+  BillingUsageRecord,
+} from '../../../domain/models/billing-snapshot-model.js';
+import { BillingPeriodAuditEntry } from '../../../domain/models/billing-period-model.js';
 
 const NOW = new Date('2026-07-15T10:00:00.000Z');
 
@@ -481,6 +487,189 @@ describe('CloseBillingPeriodDbUseCase (T6)', () => {
         .mockResolvedValueOnce('conflict');
 
       await expect(sut.close(2026, 6)).rejects.toThrow(BillingPeriodStateError);
+    });
+  });
+
+  describe('re-audit iteration 3: the close folds the month PAGE BY PAGE', () => {
+    /**
+     * Spread over three UTC days, with traceIds whose global order is the
+     * REVERSE of the day order: the paged fold therefore sees the records
+     * in a different order than the whole-month array did — which is
+     * exactly the property the byte-identity of the statement rests on
+     * (the engine is order-independent by contract).
+     */
+    const SPREAD = [
+      usageRecord({
+        traceId: 'z-1',
+        startedAt: new Date('2026-06-02T01:00:00.000Z'),
+      }),
+      usageRecord({
+        traceId: 'z-2',
+        agentId: 'suporte',
+        startedAt: new Date('2026-06-02T22:30:00.000Z'),
+      }),
+      usageRecord({
+        traceId: 'm-1',
+        model: 'anthropic/claude-haiku-4-5',
+        startedAt: new Date('2026-06-17T09:00:00.000Z'),
+      }),
+      usageRecord({
+        traceId: 'm-2',
+        startedAt: new Date('2026-06-17T23:59:59.000Z'),
+      }),
+      usageRecord({
+        traceId: 'a-1',
+        agentId: 'suporte',
+        model: 'anthropic/claude-haiku-4-5',
+        startedAt: new Date('2026-06-28T12:00:00.000Z'),
+      }),
+    ];
+
+    /** Records every window the close reads. */
+    class WindowRecordingQueryRepository extends StubBillingQueryRepository {
+      readonly windows: { start: Date; end: Date }[] = [];
+
+      override async fetchUsageRecords(
+        monthStart: Date,
+        monthEnd?: Date,
+      ): Promise<BillingUsageRecord[]> {
+        this.windows.push({ start: monthStart, end: monthEnd as Date });
+
+        return super.fetchUsageRecords(monthStart, monthEnd);
+      }
+    }
+
+    /** Records every page the close hands to the staging phase. */
+    class PageRecordingSnapshotRepository extends InMemoryBillingSnapshotRepository {
+      readonly pageSizes: number[] = [];
+
+      override async insertWithPeriodCloseStaged(
+        identity: { year: number; month: number; version: number },
+        stageAndBuild: (
+          stage: (page: BillingUsageRecord[]) => Promise<void>,
+        ) => Promise<BillingSnapshotModel>,
+        close: { closedAt: Date; audit: BillingPeriodAuditEntry },
+      ): Promise<'closed' | 'conflict'> {
+        return super.insertWithPeriodCloseStaged(
+          identity,
+          async (stage) =>
+            stageAndBuild(async (page) => {
+              this.pageSizes.push(page.length);
+
+              await stage(page);
+            }),
+          close,
+        );
+      }
+    }
+
+    const makePagedSut = () => {
+      const billingQueryRepository = new WindowRecordingQueryRepository();
+      const billingPeriodRepository = new InMemoryBillingPeriodRepository();
+      const billingSnapshotRepository = new PageRecordingSnapshotRepository(
+        billingPeriodRepository,
+      );
+      const traceRepository = new QuarantineReconcilerStub();
+
+      billingQueryRepository.usageByMonth.set('2026-6', SPREAD);
+
+      return {
+        sut: new CloseBillingPeriodDbUseCase({
+          billingQueryRepository,
+          billingPeriodRepository,
+          billingSnapshotRepository,
+          traceRepository,
+          now: () => NOW,
+        }),
+        billingQueryRepository,
+        billingSnapshotRepository,
+        traceRepository,
+      };
+    };
+
+    it('MUST read and stage the month one DAY at a time — never the whole month at once', async () => {
+      const { sut, billingQueryRepository, billingSnapshotRepository } =
+        makePagedSut();
+
+      await sut.close(2026, 6);
+
+      // June has 30 days: one indexed range per page, none of them the
+      // month. Materializing the month is what killed the close — the
+      // api service is capped at 512m (a ~259 MB heap) and the process
+      // died with "Reached heap limit" at ~200k stamped traces,
+      // deterministically, so the month could never close and every
+      // later month stayed blocked behind it (invariant 8).
+      expect(billingQueryRepository.windows).toHaveLength(30);
+      expect(
+        billingQueryRepository.windows.every(
+          (window) =>
+            window.end.getTime() - window.start.getTime() === 24 * 3_600_000,
+        ),
+      ).toBe(true);
+
+      // The staged pages are days too — the peak is the busiest DAY.
+      expect(billingSnapshotRepository.pageSizes).toEqual([2, 2, 1]);
+      expect(Math.max(...billingSnapshotRepository.pageSizes)).toBeLessThan(
+        SPREAD.length,
+      );
+    });
+
+    it('the PAGED statement is byte-identical to the whole-month one, and the snapshot still reproduces', async () => {
+      const { sut, billingSnapshotRepository } = makePagedSut();
+
+      const result = await sut.close(2026, 6);
+
+      const stored = await billingSnapshotRepository.findCurrent(2026, 6);
+      const storedInputs = await billingSnapshotRepository.findUsageRecords(
+        2026,
+        6,
+        1,
+      );
+
+      // The engine over the WHOLE month, in the traceId order the
+      // unpaged close used — the fold must not move a single byte
+      // (LOGIC_VERSION therefore stays put: no arithmetic changed).
+      const wholeMonth = buildStatement(
+        [...SPREAD].sort((a, b) => (a.traceId < b.traceId ? -1 : 1)),
+      );
+
+      expect(JSON.parse(JSON.stringify(stored?.statement))).toEqual(
+        JSON.parse(JSON.stringify(wholeMonth)),
+      );
+      expect(stored?.logicVersion).toBe(STATEMENT_LOGIC_VERSION);
+      expect(stored?.usageRecordCount).toBe(SPREAD.length);
+      expect(result.totalCostMicrocents).toBe(wholeMonth.totalCostMicrocents);
+      expect(result.totalDisplayCents).toBe(wholeMonth.totalDisplayCents);
+      expect(result.stampedTraceCount).toBe(SPREAD.length);
+
+      // REPRODUCIBILITY (T6) survives paging: the stored inputs are the
+      // month, each record exactly once, and they reproduce the output.
+      expect(storedInputs.map((record) => record.traceId).sort()).toEqual([
+        'a-1',
+        'm-1',
+        'm-2',
+        'z-1',
+        'z-2',
+      ]);
+      expect(JSON.parse(JSON.stringify(buildStatement(storedInputs)))).toEqual(
+        JSON.parse(JSON.stringify(stored?.statement)),
+      );
+    });
+
+    it('the applied price versions and the reconciled ids come from the SAME fold — every trace, once', async () => {
+      const { sut, billingSnapshotRepository, traceRepository } =
+        makePagedSut();
+
+      await sut.close(2026, 6);
+
+      const stored = await billingSnapshotRepository.findCurrent(2026, 6);
+
+      expect(
+        JSON.parse(JSON.stringify(stored?.priceVersionsApplied)),
+      ).toEqual(JSON.parse(JSON.stringify(collectAppliedPriceVersions(SPREAD))));
+      expect(traceRepository.calls[0]?.snapshotTraceIds.slice().sort()).toEqual(
+        ['a-1', 'm-1', 'm-2', 'z-1', 'z-2'],
+      );
     });
   });
 });

@@ -72,10 +72,14 @@ export class GetBillingSeriesDbUseCase implements GetBillingSeriesUseCase {
   async list(maxMonths: number): Promise<BillingSeriesMonth[]> {
     // Periods first: closed months are served from snapshots below, so the
     // rollup only needs to scan open months (C-7.1 bound — same rule as
-    // list-bills).
-    const periods = await this.billingPeriodRepository.listAll();
+    // list-bills, including the data anchor: a never-closed month owns no
+    // period document, and its bar must not be missing from the chart).
+    const [periods, earliestTraceAt] = await Promise.all([
+      this.billingPeriodRepository.listAll(),
+      this.billingQueryRepository.earliestTraceAt(),
+    ]);
     const rollup = await this.billingQueryRepository.monthlyRollup(
-      firstOpenMonthStart(periods),
+      firstOpenMonthStart(periods, earliestTraceAt),
     );
     const now = this.now();
     const currentOrdinal = monthOrdinal(

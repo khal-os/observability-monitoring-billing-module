@@ -391,6 +391,118 @@ describe('ListBillsDbUseCase (T7)', () => {
     });
   });
 
+  /**
+   * Re-audit iteration 3 — the THIRD variant of one root defect: the bound
+   * used to be derived from period DOCUMENTS alone, and a month no
+   * lifecycle action ever touched has none. Closing June with an empty May
+   * is legal (the close-order guard passes on a trace-free month), and a
+   * later backfill over May (`make sync FROM=… TO=…`, the README's
+   * dead-letter recovery) is a documented Day-2 operation — so the state
+   * is reachable by the front door, and the leftover pass cannot catch it
+   * because May owns no document to iterate.
+   */
+  describe('re-audit iteration 3: a NEVER-closed month that gains traces AFTER a newer month closed', () => {
+    const MAY_LATE = usageRecord({
+      traceId: 'may-late-1',
+      startedAt: new Date('2026-05-20T12:00:00.000Z'),
+      stampedCosts: [
+        {
+          tokenType: 'input',
+          tokens: 4_000_000,
+          appliedPriceMicrocentsPerMillion: 2_500_000_000,
+          appliedPriceEffectiveFrom: new Date('2026-05-01T00:00:00.000Z'),
+          costMicrocents: 10_000_000_000,
+        },
+      ],
+      totalCostMicrocents: 10_000_000_000,
+    });
+
+    const closeJuneThenBackfillMay = async (
+      billingQueryRepository: StubBillingQueryRepository,
+      close: ReturnType<typeof makeSut>['close'],
+    ) => {
+      // The deployment syncs from mid-June on: May holds nothing, so the
+      // close-order guard has nothing to block on.
+      billingQueryRepository.usageByMonth.set('2026-6', [
+        usageRecord({ traceId: 'jun-1' }),
+      ]);
+      billingQueryRepository.billRows = [
+        billRow({
+          year: 2026,
+          month: 6,
+          totalCostMicrocents: 2_500_000_000,
+          stampedTraceCount: 1,
+          tokens: 1_000_000,
+          stampedTokens: 1_000_000,
+        }),
+      ];
+
+      await close.close(2026, 6);
+
+      // Day 2: the operator backfills the window the upstream source still
+      // retains (~49 days). May was never closed, so the trace is NOT
+      // quarantined — it is stamped and billed live.
+      billingQueryRepository.usageByMonth.set('2026-5', [MAY_LATE]);
+      billingQueryRepository.billRows.push(
+        billRow({
+          year: 2026,
+          month: 5,
+          totalCostMicrocents: 10_000_000_000,
+          stampedTraceCount: 1,
+          tokens: 4_000_000,
+          stampedTokens: 4_000_000,
+        }),
+      );
+    };
+
+    it('/bills lists it with its LIVE total, and /billing/summary agrees (invariant 3)', async () => {
+      const { sut, close, summary, billingQueryRepository } = makeSut();
+
+      await closeJuneThenBackfillMay(billingQueryRepository, close);
+
+      const bills = await sut.list();
+      const may = bills.find((bill) => bill.month === 5);
+
+      expect(bills.map((bill) => [bill.month, bill.periodStatus])).toEqual([
+        [6, 'closed'],
+        [5, 'open'],
+      ]);
+      expect(may?.totalCostMicrocents).toBe(10_000_000_000);
+      expect(may?.stampedTraceCount).toBe(1);
+      expect(may?.stampedTokens).toBe(4_000_000);
+      // The other reader of the same store must report the same money —
+      // the divergence this variant produced was /summary billing R$ 100
+      // 000,00 for a month /bills did not list at all.
+      expect((await summary.get(2026, 5)).statement.totalCostMicrocents).toBe(
+        may?.totalCostMicrocents,
+      );
+      // June stays frozen at its snapshot.
+      expect(
+        bills.find((bill) => bill.month === 6)?.totalCostMicrocents,
+      ).toBe(2_500_000_000);
+    });
+
+    it('the scan bound moves back onto the month — no period document exists to betray it', async () => {
+      const { sut, close, billingQueryRepository } = makeSut();
+      const spy = jest.spyOn(billingQueryRepository, 'listBills');
+
+      await closeJuneThenBackfillMay(billingQueryRepository, close);
+      await sut.list();
+
+      // Anchored on the earliest STORED trace, not on the earliest CLOSED
+      // month: the old bound was 2026-07-01 and cut May out entirely.
+      expect(spy).toHaveBeenLastCalledWith(
+        new Date('2026-05-01T00:00:00.000Z'),
+        [
+          {
+            start: new Date('2026-06-01T00:00:00.000Z'),
+            end: new Date('2026-07-01T00:00:00.000Z'),
+          },
+        ],
+      );
+    });
+  });
+
   it('audit C-7.1: the live scan is bounded to the first open month', async () => {
     const { sut, close, billingQueryRepository } = makeSut();
     seedRows(billingQueryRepository);

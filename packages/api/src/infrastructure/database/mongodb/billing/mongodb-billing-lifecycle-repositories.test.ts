@@ -17,9 +17,14 @@ import {
   BillingSnapshotModel,
   BillingUsageRecord,
 } from '../../../../domain/models/billing-snapshot-model.js';
-import { BillingPeriodAuditEntry } from '../../../../domain/models/billing-period-model.js';
+import {
+  BillingPeriodAuditEntry,
+  closedMonthWindows,
+  firstOpenMonthStart,
+} from '../../../../domain/models/billing-period-model.js';
 import { BillingPeriodStateError } from '../../../../domain/useCases/close-billing-period-use-case.js';
 import { buildStatement } from '../../../../application/useCases/billingStatement/statement-engine.js';
+import { CloseBillingPeriodDbUseCase } from '../../../../application/useCases/billingLifecycle/close-billing-period-db-use-case.js';
 import { usageRecord } from '../../../../application/useCases/billingStatement/billing-test-fakes.js';
 import { billingPeriodIndexes } from '../migrations/017-billing-period-indexes.js';
 
@@ -54,6 +59,7 @@ const makeTrace = (overrides: Partial<TraceModel> = {}): TraceModel => ({
   ...overrides,
 });
 
+const MAY_START = new Date('2026-05-01T00:00:00.000Z');
 const JUNE_START = new Date('2026-06-01T00:00:00.000Z');
 const JULY_START = new Date('2026-07-01T00:00:00.000Z');
 
@@ -406,17 +412,18 @@ describe('Billing lifecycle repositories (integration)', () => {
       ).toBe(0);
       expect(await periods.find(2026, 6)).toBeNull();
 
-      // The STAGED usage row survives the abort — it is written outside
-      // the bounded commit transaction on purpose (re-audit: the month's
-      // usage set is unbounded and used to blow the WiredTiger
-      // transaction cache). What the invariant actually requires is that
-      // no reader can reach it: the header is the commit mark, and the
-      // staging key it would name does not exist.
+      // The STAGED usage row is written outside the bounded commit
+      // transaction on purpose (re-audit: the month's usage set is
+      // unbounded and used to blow the WiredTiger transaction cache), so
+      // the abort cannot roll it back. It is dropped explicitly instead:
+      // this attempt did not publish, so its area is dead the moment the
+      // write returns (re-audit iteration 3 — it used to survive forever,
+      // unreachable but on disk).
       expect(
         await MongoDb.getCollection(
           BILLING_SNAPSHOT_USAGE_COLLECTION,
         ).countDocuments({}),
-      ).toBe(1);
+      ).toBe(0);
       expect(await sut.findUsageRecords(2026, 6, 1)).toEqual([]);
       expect(await sut.findUsageTraceIds(2026, 6, 1)).toEqual([]);
 
@@ -437,8 +444,7 @@ describe('Billing lifecycle repositories (integration)', () => {
       expect(JSON.parse(JSON.stringify(buildStatement(storedInputs)))).toEqual(
         JSON.parse(JSON.stringify(stored?.statement)),
       );
-      // The retry's own commit swept the crashed attempt's staging area:
-      // exactly the published rows remain.
+      // Exactly the published rows remain.
       expect(
         await MongoDb.getCollection(
           BILLING_SNAPSHOT_USAGE_COLLECTION,
@@ -446,13 +452,17 @@ describe('Billing lifecycle repositories (integration)', () => {
       ).toBe(1);
     });
 
-    it('an already-closed period answers conflict and writes NOTHING', async () => {
+    it('an already-closed period answers conflict and leaves NOTHING on disk — not even staged rows', async () => {
       const sut = new MongoDbBillingSnapshotRepository();
       const records = [usageRecord({ traceId: 'w1' })];
 
       await sut.insertWithPeriodClose(makeSnapshot(1, records), records, closeArgs(1));
 
-      const late = [usageRecord({ traceId: 'l1' })];
+      const late = [
+        usageRecord({ traceId: 'l1' }),
+        usageRecord({ traceId: 'l2' }),
+        usageRecord({ traceId: 'l3' }),
+      ];
       const outcome = await sut.insertWithPeriodClose(
         makeSnapshot(2, late),
         late,
@@ -462,6 +472,16 @@ describe('Billing lifecycle repositories (integration)', () => {
       expect(outcome).toBe('conflict');
       expect(await sut.findCurrent(2026, 6)).toMatchObject({ version: 1 });
       expect(await sut.findUsageRecords(2026, 6, 2)).toEqual([]);
+      // "writes NOTHING" was asserted THROUGH the header indirection only,
+      // which is blind to the rows on disk: the loser had already staged
+      // its whole month under a key no header names, and the
+      // version-keyed sweep can never reach it (the next close computes
+      // v+1). Assert the disk (re-audit iteration 3).
+      expect(
+        await MongoDb.getCollection(
+          BILLING_SNAPSHOT_USAGE_COLLECTION,
+        ).countDocuments({}),
+      ).toBe(1);
     });
 
     it('a duplicate (year, month, version) header surfaces as a TYPED state error', async () => {
@@ -477,6 +497,14 @@ describe('Billing lifecycle repositories (integration)', () => {
         sut.insertWithPeriodClose(makeSnapshot(1, records), records, closeArgs(1)),
       ).rejects.toThrow(BillingPeriodStateError);
       expect(await periods.find(2026, 6)).toBeNull();
+      // The refused attempt staged its rows before the header collided —
+      // and dropped them on the way out: only the orphan header's row
+      // remains (re-audit iteration 3).
+      expect(
+        await MongoDb.getCollection(
+          BILLING_SNAPSHOT_USAGE_COLLECTION,
+        ).countDocuments({}),
+      ).toBe(1);
     });
 
     it('CONCURRENT double close: exactly one wins; the usage rows belong to the winning header (M8)', async () => {
@@ -812,6 +840,96 @@ describe('Billing lifecycle repositories (integration)', () => {
       expect(bounded.map((row) => row.month)).toEqual([7]);
     });
 
+    /**
+     * Re-audit iteration 3, end to end over the REAL store: close June,
+     * then let a May trace arrive. May was never touched by a lifecycle
+     * action, so it owns NO period document — the bound has to come from
+     * the DATA (`earliestTraceAt`) or the month's money is invisible to
+     * /bills and to the monthly series while /billing/summary bills it.
+     */
+    it('C-7.1 bound: a trace arriving for a NEVER-closed month older than the closed one stays in /bills AND in the series', async () => {
+      const traces = new MongoDbTraceRepository();
+      const periodRepository = new MongoDbBillingPeriodRepository();
+      const sut = new MongoDbBillingQueryRepository();
+
+      await traces.insertIfAbsent(makeTrace({ traceId: 'jun-stamped' }));
+      await periodRepository.markClosed({
+        year: 2026,
+        month: 6,
+        closedAt: JULY_START,
+        snapshotVersion: 1,
+        audit: {
+          at: JULY_START,
+          action: 'close',
+          trigger: 'runbook',
+          snapshotVersion: 1,
+        },
+      });
+
+      // Day-2 backfill over the never-closed month (README's dead-letter
+      // recovery): stamped, unquarantined, fully billable.
+      await traces.insertIfAbsent(
+        makeTrace({
+          traceId: 'may-late-1',
+          startedAt: new Date('2026-05-20T12:00:00.000Z'),
+          tokens: { input: 4_000_000 },
+          tokensTotal: 4_000_000,
+          stampedCosts: [
+            {
+              tokenType: 'input',
+              tokens: 4_000_000,
+              appliedPriceMicrocentsPerMillion: 2_500_000_000,
+              appliedPriceEffectiveFrom: MAY_START,
+              costMicrocents: 10_000_000_000,
+            },
+          ],
+          totalCostMicrocents: 10_000_000_000,
+        }),
+      );
+
+      const periods = await periodRepository.listAll();
+      const bound = firstOpenMonthStart(periods, await sut.earliestTraceAt());
+
+      expect(bound).toEqual(MAY_START);
+
+      const bills = await sut.listBills(bound, closedMonthWindows(periods));
+      const rollup = await sut.monthlyRollup(bound);
+
+      expect(bills.map((row) => row.month)).toEqual([6, 5]);
+      expect(bills[1]).toMatchObject({
+        year: 2026,
+        month: 5,
+        totalCostMicrocents: 10_000_000_000,
+        stampedTraceCount: 1,
+        stampedTokens: 4_000_000,
+      });
+      expect(rollup.map((row) => [row.month, row.totalCostMicrocents])).toEqual([
+        [5, 10_000_000_000],
+        [6, 2_500_000_000],
+      ]);
+
+      // The third reader of the same store — /billing/summary's live path,
+      // which never had a bound — must report the SAME money (invariant 3).
+      const statement = buildStatement(
+        await sut.fetchUsageRecords(MAY_START, JUNE_START),
+      );
+
+      expect(statement.totalCostMicrocents).toBe(bills[1]?.totalCostMicrocents);
+
+      // What the period documents alone can say: nothing. Without the data
+      // anchor the walk starts at the earliest CLOSED month, and the bound
+      // it lands on cuts May out of both live readers while the statement
+      // above still bills it. (June's absence there is correct — a closed
+      // month is served from its snapshot; May's is the defect.)
+      expect(firstOpenMonthStart(periods, null)).toEqual(JULY_START);
+      expect(
+        (await sut.listBills(JULY_START, closedMonthWindows(periods))).map(
+          (row) => row.month,
+        ),
+      ).toEqual([]);
+      expect(await sut.monthlyRollup(JULY_START)).toEqual([]);
+    });
+
     it('dailyRollup buckets by UTC day, splits by type, EXCLUDES quarantined (decision 97)', async () => {
       const traces = new MongoDbTraceRepository();
       await traces.insertIfAbsent(
@@ -941,5 +1059,185 @@ describe('Billing lifecycle repositories (integration)', () => {
 
       expect(closedDays[0]?.totalCostMicrocents).toBe(2_500_000_000);
     });
+  });
+
+  describe('re-audit iteration 3: a close that does not publish leaves NO staged rows', () => {
+    const CLOSED_AT = new Date('2026-07-01T03:00:00.000Z');
+
+    const closeArgs = (version: number) => ({
+      closedAt: CLOSED_AT,
+      audit: {
+        at: CLOSED_AT,
+        action: 'close',
+        trigger: 'runbook',
+        snapshotVersion: version,
+      } as BillingPeriodAuditEntry,
+    });
+
+    const usageRows = (): Promise<number> =>
+      MongoDb.getCollection(BILLING_SNAPSHOT_USAGE_COLLECTION).countDocuments(
+        {},
+      );
+
+    it('the staged form publishes every page and NOTHING else — the close of an unbounded month', async () => {
+      const sut = new MongoDbBillingSnapshotRepository();
+      const periods = new MongoDbBillingPeriodRepository();
+      const pages = [
+        [usageRecord({ traceId: 'd02-1' }), usageRecord({ traceId: 'd02-2' })],
+        [usageRecord({ traceId: 'd17-1' })],
+        [usageRecord({ traceId: 'd28-1' })],
+      ];
+
+      const outcome = await sut.insertWithPeriodCloseStaged(
+        { year: 2026, month: 6, version: 1 },
+        async (stage) => {
+          for (const page of pages) {
+            await stage(page);
+          }
+
+          return makeSnapshot(1, pages.flat());
+        },
+        closeArgs(1),
+      );
+
+      expect(outcome).toBe('closed');
+      expect((await periods.find(2026, 6))?.status).toBe('closed');
+      expect(
+        (await sut.findUsageRecords(2026, 6, 1)).map((row) => row.traceId),
+      ).toEqual(['d02-1', 'd02-2', 'd17-1', 'd28-1']);
+      expect(await usageRows()).toBe(4);
+    });
+
+    it('a caller that throws MID-PAGING drops the pages it already staged', async () => {
+      const sut = new MongoDbBillingSnapshotRepository();
+      const periods = new MongoDbBillingPeriodRepository();
+
+      // The shape the paged close takes when a day's read fails: two
+      // pages are already on disk under this attempt's key, and no header
+      // will ever name them.
+      await expect(
+        sut.insertWithPeriodCloseStaged(
+          { year: 2026, month: 6, version: 1 },
+          async (stage) => {
+            await stage([usageRecord({ traceId: 'p1' })]);
+            await stage([usageRecord({ traceId: 'p2' })]);
+
+            throw new Error('leitura do dia 17 falhou');
+          },
+          closeArgs(1),
+        ),
+      ).rejects.toThrow('leitura do dia 17 falhou');
+
+      expect(await usageRows()).toBe(0);
+      expect(
+        await MongoDb.getCollection(
+          BILLING_SNAPSHOTS_COLLECTION,
+        ).countDocuments({}),
+      ).toBe(0);
+      expect(await periods.find(2026, 6)).toBeNull();
+    });
+
+    it('a header that does not match the staging identity is refused, and its rows go with it', async () => {
+      const sut = new MongoDbBillingSnapshotRepository();
+      const records = [usageRecord({ traceId: 'mismatch-1' })];
+
+      // A header published under v1 while the rows were staged for v2
+      // would name an area that does not exist: the snapshot would read
+      // back EMPTY and its own reproducibility test would fail. Refuse.
+      await expect(
+        sut.insertWithPeriodCloseStaged(
+          { year: 2026, month: 6, version: 2 },
+          async (stage) => {
+            await stage(records);
+
+            return makeSnapshot(1, records);
+          },
+          closeArgs(2),
+        ),
+      ).rejects.toThrow(/identidade/);
+
+      expect(await usageRows()).toBe(0);
+      expect(await sut.findCurrent(2026, 6)).toBeNull();
+    });
+
+    it('END TO END on the REAL query adapter: the day-paged close bills the month exactly once', async () => {
+      const traces = new MongoDbTraceRepository();
+      // Three days, inserted out of order, one of them at the very last
+      // second of its UTC day: a window that is off by one anywhere drops
+      // a trace or bills it twice.
+      await traces.insertIfAbsent(
+        makeTrace({
+          traceId: 'jun-28',
+          startedAt: new Date('2026-06-28T12:00:00.000Z'),
+        }),
+      );
+      await traces.insertIfAbsent(
+        makeTrace({
+          traceId: 'jun-05',
+          startedAt: new Date('2026-06-05T00:00:00.000Z'),
+        }),
+      );
+      await traces.insertIfAbsent(
+        makeTrace({
+          traceId: 'jun-17',
+          startedAt: new Date('2026-06-17T23:59:59.999Z'),
+        }),
+      );
+
+      const queries = new MongoDbBillingQueryRepository();
+      const snapshots = new MongoDbBillingSnapshotRepository();
+      const periods = new MongoDbBillingPeriodRepository();
+
+      const result = await new CloseBillingPeriodDbUseCase({
+        billingQueryRepository: queries,
+        billingPeriodRepository: periods,
+        billingSnapshotRepository: snapshots,
+        traceRepository: traces,
+        now: () => new Date('2026-07-15T10:00:00.000Z'),
+      }).close(2026, 6);
+
+      const wholeMonth = await queries.fetchUsageRecords(JUNE_START, JULY_START);
+      const stored = await snapshots.findCurrent(2026, 6);
+
+      expect(result.stampedTraceCount).toBe(3);
+      expect(stored?.usageRecordCount).toBe(3);
+      // Σ days ≡ the month, and the statement is the SAME bytes the
+      // whole-month read produces (re-audit iteration 3).
+      expect(JSON.parse(JSON.stringify(stored?.statement))).toEqual(
+        JSON.parse(JSON.stringify(buildStatement(wholeMonth))),
+      );
+      expect(
+        (await snapshots.findUsageRecords(2026, 6, 1)).map((row) => row.traceId),
+      ).toEqual(['jun-05', 'jun-17', 'jun-28']);
+      expect(await usageRows()).toBe(3);
+    });
+
+    it('the storage-only insert obeys the same rule: a duplicate header takes its staged rows with it', async () => {
+      const sut = new MongoDbBillingSnapshotRepository();
+
+      await sut.insert(makeSnapshot(1, [usageRecord({ traceId: 'i1' })]), [
+        usageRecord({ traceId: 'i1' }),
+      ]);
+
+      // The unique (year, month, version) header index refuses the second
+      // write AFTER its rows are staged — they must not outlive it.
+      await expect(
+        sut.insert(makeSnapshot(1, [usageRecord({ traceId: 'i2' })]), [
+          usageRecord({ traceId: 'i2' }),
+        ]),
+      ).rejects.toThrow();
+
+      expect(await usageRows()).toBe(1);
+    });
+
+    /**
+     * The lost race's DETERMINISTIC shape lives in the conflict test above
+     * ('...leaves NOTHING on disk'): a loser that arrives after the winner
+     * closed computes v+1, so its staging area sits under a version prefix
+     * NO later sweep will ever visit — the leak was unbounded in time. The
+     * same-version race (both attempts compute v1) is the one case the old
+     * sweep did cover, and only when the winner's sweep happens to run
+     * last, which is why it is not asserted here as if it were a guarantee.
+     */
   });
 });

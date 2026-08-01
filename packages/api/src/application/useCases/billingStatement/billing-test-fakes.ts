@@ -116,15 +116,41 @@ export class InMemoryBillingSnapshotRepository implements BillingSnapshotReposit
     this.usage.set(key, JSON.parse(JSON.stringify(usageRecords)));
   }
 
-  /**
-   * Honest emulation of the adapter's ONE-transaction close (audit B-2):
-   * nothing persists unless the period flip wins — a thrown flip (crash
-   * injection) or a lost race leaves the fake byte-identical, exactly like
-   * the aborted transaction leaves the store.
-   */
+  /** The single-page form, exactly as the adapter defines it. */
   async insertWithPeriodClose(
     snapshot: BillingSnapshotModel,
     usageRecords: BillingUsageRecord[],
+    close: { closedAt: Date; audit: BillingPeriodAuditEntry },
+  ): Promise<'closed' | 'conflict'> {
+    return this.insertWithPeriodCloseStaged(
+      {
+        year: snapshot.year,
+        month: snapshot.month,
+        version: snapshot.version,
+      },
+      async (stage) => {
+        await stage(usageRecords);
+
+        return snapshot;
+      },
+      close,
+    );
+  }
+
+  /**
+   * Honest emulation of the adapter's TWO-phase close (audit B-2,
+   * re-audit iteration 3): the caller pages its inputs in through `stage`,
+   * and NOTHING becomes readable unless the header + period flip win —
+   * a thrown flip (crash injection), a lost race or a caller that throws
+   * mid-paging leaves the fake byte-identical, exactly as the adapter now
+   * leaves the store (its staging area is dropped on every non-publishing
+   * exit; here the pending page buffer simply dies with the call).
+   */
+  async insertWithPeriodCloseStaged(
+    identity: { year: number; month: number; version: number },
+    stageAndBuild: (
+      stage: (page: BillingUsageRecord[]) => Promise<void>,
+    ) => Promise<BillingSnapshotModel>,
     close: { closedAt: Date; audit: BillingPeriodAuditEntry },
   ): Promise<'closed' | 'conflict'> {
     if (!this.periodRepository) {
@@ -133,7 +159,14 @@ export class InMemoryBillingSnapshotRepository implements BillingSnapshotReposit
       );
     }
 
-    const key = this.key(snapshot.year, snapshot.month, snapshot.version);
+    const key = this.key(identity.year, identity.month, identity.version);
+    const staged: BillingUsageRecord[] = [];
+
+    const snapshot = await stageAndBuild(async (page) => {
+      for (const record of page) {
+        staged.push(record);
+      }
+    });
 
     if (this.usage.has(key)) {
       // The (year, month, version) unique index, typed (audit B-2).
@@ -152,7 +185,7 @@ export class InMemoryBillingSnapshotRepository implements BillingSnapshotReposit
 
     if (outcome === 'conflict') return 'conflict';
 
-    await this.insert(snapshot, usageRecords);
+    await this.insert(snapshot, staged);
 
     return 'closed';
   }
@@ -272,6 +305,10 @@ export class StubBillingQueryRepository implements BillingQueryRepository {
     return `${monthStart.getUTCFullYear()}-${monthStart.getUTCMonth() + 1}`;
   }
 
+  private key(year: number, month: number): string {
+    return `${year}-${month}`;
+  }
+
   async pendingPriceSummary(
     monthStart: Date,
     _monthEnd: Date,
@@ -330,8 +367,41 @@ export class StubBillingQueryRepository implements BillingQueryRepository {
     });
   }
 
-  async fetchUsageRecords(monthStart: Date): Promise<BillingUsageRecord[]> {
-    return this.usageByMonth.get(this.monthKey(monthStart)) ?? [];
+  /**
+   * The fixtures are keyed by month; the real adapter matches on
+   * `startedAt`. A full-month ask returns the bucket as configured, and a
+   * SUB-window (the close pages the month day by day — re-audit iteration
+   * 3) filters it by `startedAt`, exactly as the `{ $gte, $lt }` match
+   * does. The property the paged close depends on is that Σ pages ≡ the
+   * month, so a fixture whose `startedAt` falls OUTSIDE the month it is
+   * keyed under rides the first page instead of vanishing from all of
+   * them — it appears exactly once either way.
+   */
+  async fetchUsageRecords(
+    monthStart: Date,
+    monthEnd?: Date,
+  ): Promise<BillingUsageRecord[]> {
+    const bucket = this.usageByMonth.get(this.monthKey(monthStart)) ?? [];
+    const month = monthWindowUtc(
+      monthStart.getUTCFullYear(),
+      monthStart.getUTCMonth() + 1,
+    );
+
+    if (
+      !monthEnd ||
+      (monthStart.getTime() === month.start.getTime() &&
+        monthEnd.getTime() === month.end.getTime())
+    ) {
+      return bucket;
+    }
+
+    const isFirstPage = monthStart.getTime() === month.start.getTime();
+
+    return bucket.filter((record) =>
+      record.startedAt >= month.start && record.startedAt < month.end
+        ? record.startedAt >= monthStart && record.startedAt < monthEnd
+        : isFirstPage,
+    );
   }
 
   async monthlyRollup(
@@ -373,19 +443,34 @@ export class StubBillingQueryRepository implements BillingQueryRepository {
     return this.accrued;
   }
 
-  /** Any trace at all in the month — stamped, pending, quarantined alike. */
+  /**
+   * Any trace at all in the month — stamped, pending, quarantined alike.
+   *
+   * The live-row fixtures count too (re-audit iteration 3): in the real
+   * store every one of these reads derives from the SAME traces
+   * collection, so a month that answers a bill row or a rollup row
+   * demonstrably holds traces. A fake whose `earliestTraceAt`/`hasTraces`
+   * were blind to those fixtures could not exercise the C-7.1 bound's
+   * anchor at all — exactly the blindness the bound now exists to remove.
+   */
   private monthHasTraces(key: string): boolean {
     return (
       (this.usageByMonth.get(key)?.length ?? 0) > 0 ||
       (this.pendingByMonth.get(key)?.traceCount ?? 0) > 0 ||
-      (this.quarantinedPendingByMonth.get(key)?.traceCount ?? 0) > 0
+      (this.quarantinedPendingByMonth.get(key)?.traceCount ?? 0) > 0 ||
+      this.billRows.some(
+        (row) =>
+          this.key(row.year, row.month) === key &&
+          row.stampedTraceCount + row.pendingTraceCount > 0,
+      ) ||
+      this.rollupRows.some((row) => this.key(row.year, row.month) === key)
     );
   }
 
   /**
-   * Close-order guard inputs (re-audit): derived from the configured
-   * per-month data, so lifecycle specs exercise the guard with the same
-   * fixtures they feed the close.
+   * Close-order guard inputs (re-audit) and the C-7.1 bound's anchor
+   * (re-audit iteration 3): derived from the configured per-month data, so
+   * the specs exercise both with the same fixtures they feed the readers.
    */
   async earliestTraceAt(): Promise<Date | null> {
     const monthStarts = [
@@ -393,6 +478,8 @@ export class StubBillingQueryRepository implements BillingQueryRepository {
         ...this.usageByMonth.keys(),
         ...this.pendingByMonth.keys(),
         ...this.quarantinedPendingByMonth.keys(),
+        ...this.billRows.map((row) => this.key(row.year, row.month)),
+        ...this.rollupRows.map((row) => this.key(row.year, row.month)),
       ]),
     ]
       .filter((key) => this.monthHasTraces(key))

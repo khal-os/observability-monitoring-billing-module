@@ -20,6 +20,13 @@
 # Real Makefile, real step-4 script, real deploy-lib. Only `docker` is
 # stubbed (nothing here should reach a container), so the ordering and the
 # guards under test are the production ones.
+#
+# Cases C and D guard the OTHER half of the deploy surface — the prose the
+# operator and the integrator actually execute (README §Production
+# deployment, OpenAPI/Postman, the decision log). Nothing in the test suite
+# fails when a documented PROCEDURE is wrong, and both defects of iteration
+# 3 lived exactly there: a documented deploy that never migrates, and a
+# published contract promising a total the code stopped delivering.
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -116,16 +123,94 @@ printf 'API_PORT=3007\n' >> "$ENVFILE"
 ) && ok "um API_PORT explícito vence o default" \
   || bad "host_port ignora o valor do env file"
 
-# Source-level: no deploy script may build a URL straight from a raw get()
-# of a port var — that is the bug, and it is invisible on any host whose
-# env file happens to set the ports.
-RAW_PORT_READS="$(grep -rn '\$(get \(API_PORT\|LANGWATCH_PORT\|UI_PORT\))' \
-  --exclude=deploy-smoke-test.sh scripts/ deploy-demo-client.sh || true)"
+# A port-less env file must also reach the module-register: register-module.sh
+# read API_PORT with its own grep|cut and ABORTED when the var was absent —
+# stack healthy on 3000, módulo nunca registrado (Farol não descobre).
+# NO `| head -1` here: the dry run prints the manifest after the endpoint
+# line, and head closing the pipe early SIGPIPEs the script — under
+# pipefail that reads as a failure of the script under test.
+register_dry() { CLIENT="$SLUG" DRY_RUN=1 ./scripts/register-module.sh 2>&1 || echo "(saiu $?)"; }
+
+out="$(register_dry)"
+if [[ "$out" == *"http://localhost:3007"* ]]; then
+  ok "register-module.sh resolve o endpoint pelo env file (API_PORT=3007)"
+else
+  bad "register-module.sh não resolveu o endpoint: $(head -1 <<< "$out")"
+fi
+
+# ...and with the ports omitted entirely, the sanctioned shape.
+sed -i '/^API_PORT=/d' "$ENVFILE"
+out="$(register_dry)"
+if [[ "$out" == *"http://localhost:3000"* ]]; then
+  ok "register-module.sh aplica o default do compose com API_PORT omitido"
+else
+  bad "register-module.sh aborta/erra com um env file sem portas: $(head -1 <<< "$out")"
+fi
+
+# Source-level: no deploy script may read a port var outside host_port() —
+# that is the bug, and it is invisible on any host whose env file happens to
+# set the ports. The pattern covers BOTH shapes seen in the wild: an inline
+# `$(get API_PORT)` and an assignment from any other command substitution
+# (register-module.sh's `API_PORT=$(grep '^API_PORT=' … | cut …)` slipped
+# past the get()-only check for a whole wave). `1-init-client-env.sh` is the
+# env file's WRITER — it allocates ports with next_free and builds no URL.
+RAW_PORT_READS="$(grep -rnE '\$\(get (API_PORT|LANGWATCH_PORT|UI_PORT)\)|(API_PORT|LANGWATCH_PORT|UI_PORT)="?\$\(' \
+  --exclude=deploy-smoke-test.sh scripts/ deploy-demo-client.sh \
+  | grep -v 'host_port\|next_free' || true)"
 if [[ -n "$RAW_PORT_READS" ]]; then
-  bad "porta lida com get() em vez de host_port() — URL vira http://localhost:/…"
+  bad "porta lida fora do host_port() — URL vira http://localhost:/…"
   sed 's/^/    | /' <<< "$RAW_PORT_READS"
 else
-  ok "nenhum script constrói URL a partir de um get() cru de porta"
+  ok "nenhum script lê porta fora do host_port()"
+fi
+
+# ---------------------------------------------------------------------------
+case_ "C · runbook publicado: o deploy de produção migra"
+# ---------------------------------------------------------------------------
+# Nada migra sozinho — nenhuma imagem, entrypoint ou serviço roda
+# runMigrations; `make migrate` é a única porta. Uma stack subida
+# EXATAMENTE como o README documenta ficava sem índice nenhum, e os índices
+# carregam correção: o insert-once do ingestor É o índice único de traceId
+# e o 409 de preço duplicado É o E11000 do índice de (model, tokenType,
+# effectiveFrom). Por isso a seção de produção do README é verificada aqui.
+prod_section="$(sed -n '/^## Production deployment$/,/^## /p' README.md)"
+if grep -q 'run-migrations.js\|make migrate' <<< "$prod_section"; then
+  ok "README §Production deployment traz o passo de migração"
+else
+  bad "README §Production deployment não migra — stack documentada sobe sem índices"
+fi
+if grep -q '^make migrate CLIENT=' README.md; then
+  ok "o bloco Day-2 do README lista make migrate"
+else
+  bad "make migrate sumiu do bloco Day-2 do README"
+fi
+
+# ---------------------------------------------------------------------------
+case_ "D · contrato publicado do teto de contagem == comportamento do código"
+# ---------------------------------------------------------------------------
+# A iteração 2 passou a limitar o total TAMBÉM sem filtros (decisão 116) e
+# não mexeu em nenhuma superfície que o cliente lê. Nada no código quebra
+# quando a prosa mente — por isso a checagem é aqui, cruzando as duas.
+CAP_LINE='packages/api/src/infrastructure/database/mongodb/trace/mongodb-trace-query-repository.ts'
+if grep -q '^\s*const totalCapped = rawTotal > TOTAL_CAP;$' "$CAP_LINE"; then
+  ok "o código limita o total nas DUAS metades (com e sem filtros)"
+else
+  bad "o teto de contagem mudou de forma — reveja OpenAPI/Postman/decisão 116 junto"
+fi
+
+STALE_EXACTNESS="$(grep -rn 'Sem filtros o total é exato\|sem filtros o total é exato' \
+  packages/api/src/main/docs/openapi.ts docs/observability-api.postman_collection.json || true)"
+if [[ -z "$STALE_EXACTNESS" ]]; then
+  ok "OpenAPI e Postman não prometem mais total exato sem filtros"
+else
+  bad "contrato publicado promete exatidão que o código não entrega"
+  sed 's/^/    | /' <<< "$STALE_EXACTNESS"
+fi
+
+if grep -q 'emendada pela decisão 116' docs/produto/backlog-v2.3.md; then
+  ok "a decisão 77(b) carrega a emenda do teto (decisão 116)"
+else
+  bad "o log de decisões ainda afirma o comportamento anterior ao teto único"
 fi
 
 echo

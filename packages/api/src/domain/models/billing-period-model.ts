@@ -96,33 +96,56 @@ export const closedMonthWindows = (
     .map((period) => monthWindowUtc(period.year, period.month));
 
 /**
- * audit C-7.1: the live-scan bound — UTC start of the earliest month NOT
- * closed. Live aggregations (bill list, monthly rollup) scan only from
- * here; everything before is closed history, served from period docs +
- * snapshots, so scanning its full-content trace documents on every read
- * was pure waste at archive scale.
+ * audit C-7.1: the live-scan bound — UTC start of the earliest month whose
+ * money the live readers still have to compute. Live aggregations (bill
+ * list, monthly rollup) scan only from here; everything before is closed
+ * history, served from period docs + snapshots, so scanning its
+ * full-content trace documents on every read was pure waste at archive
+ * scale.
  *
- * Derivation — TWO halves, and the bound is the EARLIER of them:
- * (a) walk forward from the EARLIEST closed month; the first non-closed
- *     month (a gap, or a month reopened inside the run) ends the walk;
- * (b) the earliest NON-closed period document. A period document exists
- *     only after a lifecycle action, so `status: 'open'` on one means the
- *     month was closed and then REOPENED.
+ * THE PROPERTY THIS FUNCTION PROVIDES — the one every caller leans on:
+ * every month that is NOT lifecycle-closed and holds at least one trace
+ * starts at or after the returned bound. The live scan therefore can
+ * never drop a month that carries money, whatever the lifecycle history.
+ * Proof, in the order the code computes it, for any non-closed
+ * trace-bearing month M:
+ * (i)   the walk's ANCHOR is the earlier of the earliest closed month and
+ *       the month of the EARLIEST STORED TRACE, so anchor ≤ M;
+ * (ii)  the walk steps only over CLOSED months, so it stops at the first
+ *       non-closed month at or after the anchor — at or before M;
+ * (iii) the result is the minimum of that walk and the earliest
+ *       non-closed period document, so result ≤ walk ≤ M.
  *
  * No closed month ⇒ null (unbounded — today's behavior).
  *
- * Half (b) is not redundant (re-audit iteration 2): reopening the
- * EARLIEST closed month moves the walk's anchor forward past the very
- * month that must be scanned, and its money then vanished from /bills and
- * charted as R$ 0,00 in the monthly series while the summary still billed
- * it. The close-order guard (assertOlderMonthsClosed, decision 112) makes
- * a NEVER-closed trace-bearing month before the earliest closed one
- * impossible — necessary, but NOT sufficient: the audited reopen
- * (decision 89) has no ordering guard by design, so half (b) reads the
- * reopened months straight off the period documents.
+ * `earliestTraceAt` is REQUIRED, positional and un-defaulted (re-audit
+ * iteration 3) because the property above CANNOT be derived from the
+ * period documents alone, and a caller that forgets it must not compile:
+ * a month no lifecycle action ever touched has NO period document
+ * (markClosed/markReopened are the only writers), so it is invisible both
+ * to the closed set and to the non-closed set. Three variants of that one
+ * defect were filed and each earlier fix patched one shape — a never
+ * closed month inside a closed run (decision 112), a REOPENED earliest
+ * month (decision 114), and a never-closed month BEFORE the earliest
+ * closed one. Anchoring the walk on the data closes the class: (i) holds
+ * for every month with a trace in it, document or no document.
+ *
+ * The close-order guard (assertOlderMonthsClosed, decision 112) does NOT
+ * make the third variant impossible, and the comment that asserted so was
+ * simply wrong: the guard is a point-in-time check inside close(), so it
+ * constrains the close INSTANT only. A later ingest always recreates the
+ * state — a backfill over a never-closed month (`make sync FROM=… TO=…`,
+ * README's dead-letter recovery) is a documented Day-2 operation, and
+ * ingestion quarantines a late trace only when ITS OWN month is closed.
+ *
+ * Half (b) — the earliest non-closed period document — is subsumed by the
+ * anchor and stays as a tightening: it can only move the bound EARLIER,
+ * never later, so it can never hide money, and it keeps a reopened month
+ * inside the scan even when the store holds no trace at all.
  */
 export const firstOpenMonthStart = (
   periods: BillingPeriodModel[],
+  earliestTraceAt: Date | null,
 ): Date | null => {
   const closed = periods.filter((period) => period.status === 'closed');
 
@@ -131,11 +154,27 @@ export const firstOpenMonthStart = (
   const closedKeys = new Set(
     closed.map((period) => `${period.year}-${period.month}`),
   );
-  const earliest = [...closed].sort(
+  const earliestClosed = [...closed].sort(
     (a, b) => a.year - b.year || a.month - b.month,
   )[0] as BillingPeriodModel;
 
-  let { year, month } = earliest;
+  // The anchor is the earliest month that can carry money. A stored trace
+  // older than the earliest closed month means an OPEN month with no
+  // period document to betray it, so only the data can put the walk there.
+  const anchor =
+    earliestTraceAt &&
+    Date.UTC(
+      earliestTraceAt.getUTCFullYear(),
+      earliestTraceAt.getUTCMonth(),
+      1,
+    ) < Date.UTC(earliestClosed.year, earliestClosed.month - 1, 1)
+      ? {
+          year: earliestTraceAt.getUTCFullYear(),
+          month: earliestTraceAt.getUTCMonth() + 1,
+        }
+      : earliestClosed;
+
+  let { year, month } = anchor;
 
   while (closedKeys.has(`${year}-${month}`)) {
     month += 1;
