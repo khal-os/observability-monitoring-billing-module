@@ -174,8 +174,15 @@ const addRecordLines = (
   }
 };
 
-const agentKey = (agentId: string | null, agentVersion: string | null): string =>
-  `${agentId ?? '\u0000'}@@${agentVersion ?? '\u0000'}`;
+/**
+ * Exported so nobody hand-copies it — the month-over-month comparison did,
+ * and reached for a space sentinel, which is exactly the collision the note
+ * on lineKey forbids (re-audit iteration 6). One home for the rule.
+ */
+export const agentKey = (
+  agentId: string | null,
+  agentVersion: string | null,
+): string => `${agentId ?? '\u0000'}@@${agentVersion ?? '\u0000'}`;
 
 const buildAgentGroups = (lines: StatementLine[]): StatementAgentGroup[] => {
   const groups = new Map<string, StatementAgentGroup>();

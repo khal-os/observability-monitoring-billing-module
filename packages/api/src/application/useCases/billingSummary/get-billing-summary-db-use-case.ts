@@ -16,7 +16,10 @@ import {
 } from '../../../domain/models/billing-period-model.js';
 import { StatementProjection } from '../../../domain/models/billing-snapshot-model.js';
 import { BillingPeriodStateError } from '../../../domain/useCases/close-billing-period-use-case.js';
-import { buildStatement } from '../billingStatement/statement-engine.js';
+import {
+  agentKey,
+  buildStatement,
+} from '../billingStatement/statement-engine.js';
 
 /**
  * T7: the statement read layer. A CLOSED month is served exclusively from
@@ -203,8 +206,12 @@ export class GetBillingSummaryDbUseCase implements GetBillingSummaryUseCase {
       { agentId: string | null; agentVersion: string | null }
     >();
 
+    // The engine's OWN key (decision 122's sentinel), imported rather than
+    // spelled again here: this loop used to join on a space, which collides
+    // an unattributed trace with a whitespace-named agent and dropped a
+    // whole row from the comparison panel (re-audit iteration 6).
     for (const group of [...current.agents, ...previousStatement.agents]) {
-      agentKeys.set(`${group.agentId ?? ' '}@@${group.agentVersion ?? ' '}`, {
+      agentKeys.set(agentKey(group.agentId, group.agentVersion), {
         agentId: group.agentId,
         agentVersion: group.agentVersion,
       });

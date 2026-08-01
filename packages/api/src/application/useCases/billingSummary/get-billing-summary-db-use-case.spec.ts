@@ -177,6 +177,40 @@ describe('GetBillingSummaryDbUseCase (T7)', () => {
     expect((await sut.get(2026, 6)).comparison).toBeNull();
   });
 
+  /**
+   * re-audit iteration 6: the comparison keyed agents by joining on a SPACE,
+   * so an agent literally named ' ' collided with unattributed traffic and
+   * one of the two rows was overwritten out of the panel — while the
+   * statement above it still counted both. An agentId of ' ' survives the
+   * boundary (the source schema is `min(1)`, the mappers only check
+   * `length > 0`), so this is reachable, not theoretical.
+   */
+  it('MUST NOT merge a whitespace-named agent with unattributed traffic', async () => {
+    const { sut, billingQueryRepository } = makeSut();
+    billingQueryRepository.usageByMonth.set('2026-5', [
+      usageRecord({ traceId: 'm1' }),
+    ]);
+    billingQueryRepository.usageByMonth.set('2026-6', [
+      usageRecord({ traceId: 't1', agentId: null }),
+      usageRecord({ traceId: 't2', agentId: ' ' }),
+    ]);
+
+    const summary = await sut.get(2026, 6);
+    const rows = summary.comparison?.byAgent ?? [];
+
+    // Three distinct agents across the two months: unattributed and the
+    // whitespace-named one this month, eugenia last month. Joining on a
+    // space collapses the first two into one row.
+    expect(rows).toHaveLength(3);
+    expect(rows.filter((row) => row.agentId === null)).toHaveLength(1);
+    expect(rows.filter((row) => row.agentId === ' ')).toHaveLength(1);
+
+    // The rows must also still reconcile with the delta shown above them.
+    const summed = rows.reduce((total, row) => total + row.deltaMicrocents, 0);
+
+    expect(summed).toBe(summary.comparison?.totalDeltaMicrocents);
+  });
+
   it('carries watermark, pending and quarantine visibility (US2/US5)', async () => {
     const { sut, billingQueryRepository } = makeSut();
     billingQueryRepository.watermarkByMonth.set(
