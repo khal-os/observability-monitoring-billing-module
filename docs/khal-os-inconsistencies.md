@@ -93,6 +93,16 @@ Sem a env, a API segue aberta (compat PoC). Implementação:
 > pergunta ao Auth System "autenticado ou não" a cada request e não carrega
 > nenhuma lógica de scope/tenant.
 
+> **Nota (01/08/2026, auditoria completa do repo):** a auditoria encontrou um
+> gap de forwarding no compose — as vars `AUTH_SYSTEM_*` nunca chegavam ao
+> contêiner (`--env-file` alimenta só interpolação do compose), então ligar a
+> auth conforme documentado não fazia NADA: a API seguia aberta em silêncio.
+> **Corrigido** no commit de ops de 01/08/2026 (`85a7139`): o compose
+> encaminha as três vars (string vazia tratada como unset) e o smoke check do
+> passo 5 (`scripts/5-verify-client.sh`) prova que request sem token responde
+> 401 quando o env liga a auth — a auth agora verificavelmente FECHA a API
+> quando habilitada.
+
 **Ação restante:**
 1. ~~Validação de JWT por JWKS + checagem de escopo `tracing:read`~~ — superada
    pela introspection sem scopes (acima).

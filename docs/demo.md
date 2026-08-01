@@ -4,9 +4,12 @@
 > com mongod no host (`127.0.0.1:27017`) e `npm run migrate/sync` locais.
 > O fluxo atual é dockerizado e single-tenant por cliente — siga o
 > [README.md](../README.md): `make up CLIENT=<nome>`, `make migrate
-> CLIENT=<nome>`, `make sync CLIENT=<nome> FROM=... TO=...`; acesso direto ao
-> banco via `docker exec -it <cliente>-mongo mongosh <cliente>`. O roteiro
-> abaixo permanece como referência da narrativa da demo (o QUE demonstrar).
+> CLIENT=<nome>`, `make seed-prices CLIENT=<nome>` (dev-only, decisão 74 —
+> **sem ele a tabela de preços fica vazia e todo trace entra
+> `pending_price`**), `make sync CLIENT=<nome> FROM=... TO=...`; acesso
+> direto ao banco via `docker exec -it <cliente>-mongo mongosh <cliente>`.
+> O roteiro abaixo permanece como referência da narrativa da demo (o QUE
+> demonstrar).
 
 Roteiro do `docs/produto/poc.md` ("Roteiro da demo"), passo a passo, com os
 comandos reais. Todos os comandos rodam em `packages/api`.
@@ -29,11 +32,16 @@ comandos reais. Todos os comandos rodam em `packages/api`.
 
 ```bash
 npm run migrate
+ENVIRONMENT=development npx tsx src/main/jobs/seed-poc-prices.ts
 ```
 
-Aplica índices únicos de `price_versions`, o seed (2 modelos precificados,
-com **troca de preço do gpt-5-mini em 15/06** já no seed; `meta/llama-4-scout`
-deliberadamente sem preço) e os índices de consulta de traces.
+O `migrate` aplica SÓ índices (índices únicos de `price_versions` + índices
+de consulta de traces) — desde a decisão 74 a cadeia de migrações é
+indexes-only e **não carrega mais o seed de preços**. O seed é o job
+dev-only à parte (segunda linha acima; no fluxo dockerizado, `make
+seed-prices CLIENT=<nome>`): 2 modelos precificados, com **troca de preço do
+gpt-5-mini em 15/06**; `meta/llama-4-scout` deliberadamente sem preço. Sem o
+seed, todo trace do passo 2 entra `pending_price`.
 
 **2. Sync da janela 1 → fixtures ingeridas e carimbadas**
 

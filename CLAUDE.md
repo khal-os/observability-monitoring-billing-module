@@ -53,7 +53,10 @@ content) → live views (traces/sessions) + monthly aggregates (billing).
    `POST /api/v1/prices` or the `price:insert` runbook job — both share ONE
    use case (canonical model key + immediate reprocess, decisions 82/57/83).
    Versions are immutable — changes are new inserts with `effective_from`;
-   duplicates answer 409; the model list is data, not code.
+   duplicates answer 409; the model list is data, not code. How a price's R$
+   is RESOLVED is a declared, dispatched property (`pricingType`, decision
+   96) — today only `fixed_brl`; an unknown type yields no effective price
+   ⇒ `pending_price`, never a guessed cost.
 10. **Text-only agents** in v1; every trace carries a `channel` field so voice
     can arrive later without a migration.
 
@@ -72,7 +75,7 @@ the sum of stamped costs.
 
 OUT: RBAC, voice, masking/retention, admin UIs, alerts.
 
-Billing épicos 5–8 (added post-PoC, decisions 87–95 —
+Billing épicos 5–8 (added post-PoC, decisions 87–109 —
 `docs/produto/billing-implementacao.md` is the working doc): T6 month
 lifecycle (open→closed; runbook-only `make billing-close`/`billing-reopen`;
 close blocked while pending_price exists; snapshot = inputs + outputs +
@@ -83,14 +86,18 @@ exclusively from its snapshot, open months live via the SAME pure engine —
 status) · T8 series + current-month run-rate projection (estimate only,
 never persisted) · T9 composition (model mix, cache savings with explicit
 write cost) · US17 exports (CSV + printable HTML; current month watermarked
-PARCIAL). Post-close arrivals are archived but `billingQuarantine`-flagged;
-reprocess skips closed months.
+PARCIAL). Post-close arrivals are archived but `billingQuarantine`-flagged
+until the next close adjudicates them (decision 100); reprocess skips closed
+months. Runbook vocabulary also includes `make backup` (mongodump of the
+permanent archive — run it before any `down -v`).
 
 Auth (added post-PoC): env-gated M2M bearer auth on `/api/v1` — with
 `AUTH_SYSTEM_URL` set, every request needs a token the khal Auth System
-accepts (introspection, authenticated-or-not ONLY). The module holds no
-scope/tenant logic — that is a platform invariant, not an omission. Unset →
-API open (PoC behavior).
+accepts (introspection, authenticated-or-not ONLY), except `/api/v1/docs*`
+and `openapi.json`, which stay open as the container healthcheck and
+integration surface (decision 103; OPTIONS preflight also bypasses). The
+module holds no scope/tenant logic — that is a platform invariant, not an
+omission. Unset → API open (PoC behavior).
 
 ## Working agreements
 
@@ -99,6 +106,9 @@ API open (PoC behavior).
 - Money: integer cents (or decimal type) — never floats. Full precision at
   line level; round only displayed totals (half-up, 2 decimals).
 - Ingestion must be idempotent: re-running a sync window never double-counts.
+- Test suffixes are load-bearing: `*.spec.ts` = unit (no Mongo), `*.test.ts`
+  = integration (real Mongo) — the two jest configs select by suffix, so a
+  misnamed file silently runs in the wrong suite.
 - When a decision is made during implementation, append it to the decision
   log in `docs/produto/backlog-v2.3.md` instead of leaving it implicit.
 - Open questions (QA1–QA19) are listed at the end of the backlog doc. QA14

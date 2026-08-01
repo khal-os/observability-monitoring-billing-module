@@ -6,6 +6,14 @@
 > (index.html). Tudo aqui está numerado como decisão (87+) para o log em
 > `backlog-v2.3.md` — revisar no alinhamento.
 
+> **Errata (01/08/2026):** os alvos de runbook chamam-se `make billing-close`
+> / `make billing-reopen` (não `billing:close` — o dois-pontos ficou só nos
+> npm scripts internos); a seção de séries antecede a decisão 97 (lente
+> diária + segmentos empilhados por tipo de token) e a 109 (motor
+> `statement-engine/2`, shares em BigInt); os dois endpoints de export foram
+> consolidados em `GET /billing/statement?format=csv|html` (decisão 98).
+> O log de decisões do backlog é o canônico.
+
 ## 1 · A regra central: carimbado vs. computado
 
 A intuição do usuário ("running month computed, closed months stamped, same

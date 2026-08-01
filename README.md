@@ -7,9 +7,9 @@ live in [docs/produto/](docs/produto/) (see `CLAUDE.md` for the invariants).
 
 ## Deployment model (single-tenant by construction)
 
-**One client = one compose project, fully self-contained.** The same
-the compose role files ([module](compose.module.yml) + [langwatch](compose.connector.yml) + [mongodb](compose.mongodb.yml)) are applied once per client with that
-client's env file — nothing in the images, the compose file, or the
+**One client = one compose project, fully self-contained.** The same three
+compose role files ([module](compose.module.yml) + [connector](compose.connector.yml) + [mongodb](compose.mongodb.yml)) are applied once per client with that
+client's env file — nothing in the images, the compose files, or the
 application knows any client:
 
 ```
@@ -17,14 +17,22 @@ one client deployment (9 containers, own network, own volumes):
 ┌──────────────────────────────────────────────────────────────┐
 │ ui (:UI_PORT) ──► api (:API_PORT) ──────► mongo (own volume) │
 │  nginx, proxies                              ▲               │
-│  /api same-origin   trace-ingestion-worker ─────────────┘               │
-│                      │  continuous ingestion: watermark loop,│
-│                      │  price-stamp at write (decisions 59-63)│
+│  /api same-origin                            │               │
+│                     trace-ingestion-worker ──┘               │
+│                      │  continuous ingestion: watermark      │
+│                      │  loop, price-stamp at write           │
+│                      │  (decisions 59-63)                    │
 │                      ▼                                       │
 │ langwatch (:LANGWATCH_PORT) ── workers                       │
 │   ├─ postgres   ├─ redis   └─ clickhouse ◄── (direct read)   │
 └──────────────────────────────────────────────────────────────┘
 ```
+
+Default host ports: API `3000`, LangWatch `5560`, UI `8080` — and all three
+bind to **loopback by default** (decision 105): reachable from the host only
+via `localhost` unless the client env sets `API_BIND`/`LANGWATCH_BIND`/
+`UI_BIND` explicitly (exposure beyond localhost is a deliberate operator
+act; the UI reaches the api over the compose network, not the host port).
 
 Ingestion is **continuous and automatic**: once the client is onboarded
 (`LANGWATCH_API_KEY` set), the `trace-ingestion-worker` sidecar reads new traces
@@ -102,7 +110,26 @@ make down CLIENT=<name>        # stop (volumes preserved)
 make ps
 ```
 
-Full wipe of one client:
+Month lifecycle (T6) is runbook-only — no HTTP mutation endpoint:
+
+```bash
+make billing-close CLIENT=<name> YEAR=2026 MONTH=6              # close the month: audited, immutable snapshot; blocked while pending_price exists
+make billing-reopen CLIENT=<name> YEAR=2026 MONTH=6 REASON='…'  # audited reopen (REASON required); the next close writes snapshot v+1
+```
+
+Backup of the permanent archive (invariant 6 — this store is the archive;
+LangWatch only keeps ~49 days):
+
+```bash
+make backup CLIENT=<name>   # mongodump -> backups/<name>-<timestamp>.gz
+# restore: pipe the .gz into `mongorestore --archive --gzip` inside the mongo
+# container (exact command in the Makefile), then rebuild the derived read-models:
+make rebuild-filter-counters CLIENT=<name>     # facet cube (required after any restore)
+make rebuild-session-summaries CLIENT=<name>   # session read-model (required after any restore)
+```
+
+Full wipe of one client — **run `make backup` first**, `down -v` deletes the
+permanent archive:
 `docker compose -f compose.module.yml -f compose.connector.yml -f compose.mongodb.yml --env-file clients/<name>.env down -v`
 plus deleting `clients/<name>.env` and `demo-data/<name>/`.
 
