@@ -151,7 +151,7 @@ Confirmed findings fell **17 → 14 → 8 → 4 → 1 → 1 → 0** and the refu
 
 The tail is as informative as the slope. Iteration 6 ran three dimensions and **two returned zero** — the single finding came from one of them, so the pass was already mostly silent. Iteration 7 ran three dimensions and **all three returned zero**: not a weak pass with a thin finding, but no finding filed anywhere. That total silence is what ended the loop; a pass whose last surviving dimension also comes back empty is the only evidence this method can produce that the reachable set has been worked through.
 
-Final state: HEAD **`fba0a13`**, **68 suites / 622 tests green**, `tsc --noEmit` clean, `make deploy-smoke` green, **18 commits** since the audit began at `6d20d64`. The mandate's literal stopping condition — an audit pass that confirms zero issues — was reached at iteration 7. The deliberate remainder set as of that commit is listed two sections below, after what the seven passes taught about the method itself.
+Final state: HEAD **`fba0a13`**, **68 suites / 623 tests green**, `tsc --noEmit` clean, `make deploy-smoke` green, **18 commits** since the audit began at `6d20d64`. The mandate's literal stopping condition — an audit pass that confirms zero issues — was reached at iteration 7. The deliberate remainder set as of that commit is listed two sections below, after what the seven passes taught about the method itself.
 
 ### What the method taught
 
@@ -175,6 +175,76 @@ Not fixed, on purpose. Each is a bounded, understood cost — none is an unknown
 - **`packages/ui` has no test harness.** Its `package.json` has a `build` that echoes and no `test`; the tab is one vanilla `app.js`, verified this pass by `node --check`, a grep audit of every interpolation, and a stubbed-runtime smoke. Adding a real harness is a new-dependency decision for the UI, outside the audit's mandate.
 - **A snapshot frozen before decision 122, in a month that had a price-only tie, stays unreproducible from its own inputs.** Rewriting a frozen snapshot is exactly what invariant 8 forbids; the audited reopen → re-close is the sanctioned repair and it rewrites the month under the total order. Months without such a tie — the overwhelming majority, and every month with a single price per (model, type, effective-from) — were already reproducible and remain byte-identical.
 
+### Live verification against a running stack (`414fb88`)
+
+Everything above was static analysis plus the test suite. This pass ran the
+**built `dist`** against a real single-node replica set — a scratch container
+and a scratch database, so the developer stack's 43-hour state was never
+touched — and drove the actual runbook doors. What it added over the suite:
+
+- **The deploy path works from cold.** `run-migrations` applied all 11
+  migrations to an empty database, including `021-quarantine-index`, and a
+  second run reported "nothing to apply". The unique `traceId` index — the
+  ingestion idempotency guard whose absence was an original audit finding —
+  exists, and a re-synced window confirmed it: `inserted 0, skipped 9`.
+- **Invariant 2, end to end.** Nine fixture traces with no registered price
+  stored as `pending_price` with `totalCostMicrocents: null` — cost OPEN,
+  tokens kept, zero traces valued at R$ 0. Registering prices one token type
+  at a time stamped them progressively (9 → 6 → 5 → 3 → 1 → 0 pending), and a
+  trace carrying `cache_write` correctly stayed pending until that specific
+  price existed rather than being partially valued.
+- **Invariant 3, exactly.** `GET /billing/summary`'s lines summed to
+  `0.08065` against `Σ stampedCosts = 8_065_000` µ¢ read straight from Mongo —
+  equal as exact decimals, not to display precision — with the shown total
+  rounding half-up to `R$ 0,08`. Every session's cost likewise equalled the
+  exact sum of its own traces.
+- **Invariant 4.** No `usd`, `ptax`, `markup`, `margin` or internal-cost key
+  anywhere in the served payload.
+- **Invariant 8, by experiment.** Mutating the underlying data 10× while the
+  month was open moved the summary to `R$ 0,81`; closing froze it there as
+  snapshot v2; restoring the data to 1× **while closed left the total at
+  `R$ 0,81`** — served from the snapshot, not recomputed; reopening returned
+  it to `R$ 0,08`. The close guard also refused the current month ("só meses
+  completos podem fechar"), and reopen preserved v1 and v2 while announcing
+  v3 for the next close.
+- **Decision 123's door, live.** `--from 01/07/2026` is refused outright
+  instead of silently syncing January, and the window prints as the half-open
+  `[2026-07-01, 2026-08-01)`.
+
+Two corrections belong in the record, because both were mine.
+
+First, the run that produced the finding below **invalidated an earlier claim
+in this same session**: a mutation of `totalCostMicrocents` left
+`/billing/summary` unmoved, which looked like proof of snapshot isolation and
+was nothing of the kind — that endpoint reads `stampedCosts`, so the
+experiment never touched the path it claimed to test. The real proof is the
+four-step sequence above, which starts by establishing that the open month
+*does* follow the field being mutated. An experiment that cannot fail proves
+nothing, and a green result is the easiest place to stop looking.
+
+Second, the same mutation exposed that `/bills` sums `totalCostMicrocents`
+while `/billing/summary` sums `stampedCosts`. That is **not** a defect: no
+application path writes one without the other, and the repository contract
+pins a re-ingested trace's stamp as immutable. It is reachable only by a raw
+write underneath the application, which is outside the model. Recorded
+because a future reader running the same experiment deserves the answer
+rather than the alarm.
+
+One real defect came out of it, in code written earlier the same day
+(`414fb88`): decision 123's guard folded "unparseable date" and "out-of-order
+window" into a single message, so `--from 01/07/2026 --to 15/07/2026`
+answered *"--from must be strictly before --to"* — about dates that are
+ordered in the reading that produced them. The price door already named the
+offending value; both doors now do. Its spec anchors on the emitted string
+rather than the bare phrase, because the explanatory comment above the guard
+quotes the old message and the first version of that test matched the prose
+instead of the code — a source-level pin that had quietly stopped testing
+anything, caught only by the revert probe.
+
+The lesson the section below already states, earned once more: running the
+thing finds what reading it does not, and the fix wave is itself a source of
+defects.
+
 ### The state of the tree
 
-A reader should take `fba0a13` as **audited to convergence**: seven independent re-audit passes over the remediated tree, the last of them finding nothing across three dimensions; 45 confirmed findings fixed and, where they were behavioural, pinned by tests verified to fail on revert; 68 suites / 622 tests green, `tsc --noEmit` clean, the docker-free deploy regression passing. That is not a claim that no defects remain, and this log should not be read as making one — iteration 5 exists precisely because a skeptic was wrong once, and nothing here establishes that an eighth pass would also come back empty. What it does mean is that the **known set is closed**: everything this exercise found is either fixed in one of the 18 commits since `6d20d64`, recorded as a numbered decision in the backlog (99–123), or listed in the section above as an accepted remainder with its bound written out. The remainders are deliberate, each with a stated cost and a stated reason for not paying it now — which is the difference between a tree that has open work and a tree that has unknown work. This one has open work.
+A reader should take `fba0a13` as **audited to convergence**: seven independent re-audit passes over the remediated tree, the last of them finding nothing across three dimensions; 45 confirmed findings fixed and, where they were behavioural, pinned by tests verified to fail on revert; 68 suites / 623 tests green, `tsc --noEmit` clean, the docker-free deploy regression passing. That is not a claim that no defects remain, and this log should not be read as making one — iteration 5 exists precisely because a skeptic was wrong once, and nothing here establishes that an eighth pass would also come back empty. What it does mean is that the **known set is closed**: everything this exercise found is either fixed in one of the 18 commits since `6d20d64`, recorded as a numbered decision in the backlog (99–123), or listed in the section above as an accepted remainder with its bound written out. The remainders are deliberate, each with a stated cost and a stated reason for not paying it now — which is the difference between a tree that has open work and a tree that has unknown work. This one has open work.
