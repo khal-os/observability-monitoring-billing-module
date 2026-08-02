@@ -33,10 +33,26 @@ if (!values['from'] || !values['to']) {
 const from = parseRunbookDate(values['from']);
 const to = parseRunbookDate(values['to']);
 
-if (!from || !to || from >= to) {
+// Diagnosed separately, and the price door spells it the same way: folding
+// the two into one message told an operator who typed `--from 01/07/2026
+// --to 15/07/2026` that "--from must be strictly before --to" — dates that
+// ARE ordered in the reading that produced them, so the message sends them
+// to inspect the wrong thing on the very door decision 123 exists to keep
+// from misleading them about dates.
+if (!from) {
   console.error(
-    `Sync: --from must be strictly before --to. ${RUNBOOK_DATE_FORMAT_HINT}`,
+    `Invalid --from "${values['from']}". ${RUNBOOK_DATE_FORMAT_HINT}`,
   );
+  process.exit(1);
+}
+
+if (!to) {
+  console.error(`Invalid --to "${values['to']}". ${RUNBOOK_DATE_FORMAT_HINT}`);
+  process.exit(1);
+}
+
+if (from >= to) {
+  console.error('Sync: --from must be strictly before --to.');
   process.exit(1);
 }
 
