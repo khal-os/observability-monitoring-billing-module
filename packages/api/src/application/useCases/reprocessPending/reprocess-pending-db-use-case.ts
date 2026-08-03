@@ -16,7 +16,7 @@ import { stampTokens } from '../syncTraces/price-stamper.js';
  * here — its bill is frozen; only the audited reopen flow unblocks it.
  * Counted in the report (`blockedClosedMonth`) so the admin sees them.
  */
-export class ReprocessPendingToDbUseCase implements ReprocessPendingUseCase {
+export class ReprocessPendingDbUseCase implements ReprocessPendingUseCase {
   private readonly priceVersionRepository: PriceVersionRepository;
   private readonly traceRepository: TraceRepository;
   private readonly billingPeriodRepository: BillingPeriodRepository;

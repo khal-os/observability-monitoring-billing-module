@@ -8,71 +8,15 @@ import {
 } from './billing-summary-protocols.js';
 import { BillingPeriodRepository } from '../../interfaces/billing-period-repository.js';
 import { BillingSnapshotRepository } from '../../interfaces/billing-snapshot-repository.js';
-import { BillingPeriodModel } from '../../../domain/models/billing-period-model.js';
+import {
+  BillingPeriodModel,
+  monthWindowUtc,
+  previousMonthOf,
+  resolvePeriodStatus,
+} from '../../../domain/models/billing-period-model.js';
 import { StatementProjection } from '../../../domain/models/billing-snapshot-model.js';
 import { BillingPeriodStateError } from '../../../domain/useCases/close-billing-period-use-case.js';
 import { buildStatement } from '../billingStatement/statement-engine.js';
-
-export const monthWindowUtc = (
-  year: number,
-  month: number,
-): { start: Date; end: Date } => {
-  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
-    throw new Error(`Invalid billing period: year=${year}, month=${month}`);
-  }
-
-  return {
-    start: new Date(Date.UTC(year, month - 1, 1)),
-    end: new Date(Date.UTC(year, month, 1)),
-  };
-};
-
-export const previousMonthOf = (
-  year: number,
-  month: number,
-): { year: number; month: number } =>
-  month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 };
-
-/**
- * audit C-7.1: the live-scan bound — UTC start of the earliest month NOT
- * closed. Live aggregations (bill list, monthly rollup) scan only from
- * here; everything before is closed history, served from period docs +
- * snapshots, so scanning its full-content trace documents on every read
- * was pure waste at archive scale.
- *
- * Derivation: walk forward from the EARLIEST closed month; the first
- * non-closed month (a gap, or a reopened month) is the bound. No closed
- * month ⇒ null (unbounded — today's behavior). Assumes the runbook's
- * oldest-first close discipline: a never-closed month OLDER than the
- * earliest closed one would fall outside the scan.
- */
-export const firstOpenMonthStart = (
-  periods: BillingPeriodModel[],
-): Date | null => {
-  const closed = periods.filter((period) => period.status === 'closed');
-
-  if (closed.length === 0) return null;
-
-  const closedKeys = new Set(
-    closed.map((period) => `${period.year}-${period.month}`),
-  );
-  const earliest = [...closed].sort(
-    (a, b) => a.year - b.year || a.month - b.month,
-  )[0] as BillingPeriodModel;
-
-  let { year, month } = earliest;
-
-  while (closedKeys.has(`${year}-${month}`)) {
-    month += 1;
-
-    if (month === 13) {
-      month = 1;
-      year += 1;
-    }
-  }
-
-  return new Date(Date.UTC(year, month - 1, 1));
-};
 
 /**
  * T7: the statement read layer. A CLOSED month is served exclusively from
@@ -159,13 +103,7 @@ export class GetBillingSummaryDbUseCase implements GetBillingSummaryUseCase {
     month: number,
     period: BillingPeriodModel | null,
   ): BillingPeriodStatus {
-    if (period?.status === 'closed') return 'closed';
-
-    const now = this.now();
-
-    return year === now.getUTCFullYear() && month === now.getUTCMonth() + 1
-      ? 'in_progress'
-      : 'open';
+    return resolvePeriodStatus(year, month, period, this.now());
   }
 
   private async monthStatement(

@@ -1,8 +1,6 @@
 import { MongoDb } from '../mongo-db.js';
-import {
-  MongoDbTraceRepository,
-  TRACES_COLLECTION,
-} from './mongodb-trace-repository.js';
+import { MongoDbTraceRepository } from './mongodb-trace-repository.js';
+import { TRACES_COLLECTION } from '../collections.js';
 import {
   makeContractStampedCosts,
   makeContractTrace,

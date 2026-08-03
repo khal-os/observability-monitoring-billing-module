@@ -1,6 +1,6 @@
 import { Migration, dropIndexIfExists } from '../helpers/migration-runner.js';
-import { TRACES_COLLECTION } from '../trace/mongodb-trace-repository.js';
-import { TRACE_FILTER_COUNTERS_COLLECTION } from '../filterCounter/mongodb-filter-counter-repository.js';
+import { TRACES_COLLECTION } from '../collections.js';
+import { TRACE_FILTER_COUNTERS_COLLECTION } from '../collections.js';
 
 /**
  * QA15 answer, measured at 1M docs: the list sort is

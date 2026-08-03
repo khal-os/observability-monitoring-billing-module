@@ -1,6 +1,6 @@
-import { SyncTracesToDbUseCase } from '../../application/useCases/syncTraces/sync-traces-use-case.js';
-import { SyncBatchesToDbUseCase } from '../../application/useCases/syncBatches/sync-batches-use-case.js';
-import { ReprocessPendingToDbUseCase } from '../../application/useCases/reprocessPending/reprocess-pending-use-case.js';
+import { SyncTracesDbUseCase } from '../../application/useCases/syncTraces/sync-traces-db-use-case.js';
+import { SyncBatchesDbUseCase } from '../../application/useCases/syncBatches/sync-batches-db-use-case.js';
+import { ReprocessPendingDbUseCase } from '../../application/useCases/reprocessPending/reprocess-pending-db-use-case.js';
 import { TraceSourceClient } from '../../application/interfaces/trace-source-client.js';
 import { FakeTraceSourceClient } from '../../infrastructure/traceSource/fake-trace-source-client.js';
 import { HttpLangWatchClient } from '../../infrastructure/traceSource/langwatch/http-langwatch-client.js';
@@ -57,8 +57,8 @@ const makeTraceSourceClient = (): TraceSourceClient =>
       })
     : new FakeTraceSourceClient());
 
-export const makeSyncTracesUseCase = (): SyncTracesToDbUseCase =>
-  new SyncTracesToDbUseCase({
+export const makeSyncTracesUseCase = (): SyncTracesDbUseCase =>
+  new SyncTracesDbUseCase({
     traceSourceClient: makeTraceSourceClient(),
     priceVersionRepository: new MongoDbPriceVersionRepository(),
     traceRepository: new MongoDbTraceRepository(),
@@ -68,8 +68,8 @@ export const makeSyncTracesUseCase = (): SyncTracesToDbUseCase =>
     estimateDocumentBytes: estimateBsonBytes,
   });
 
-export const makeReprocessPendingUseCase = (): ReprocessPendingToDbUseCase =>
-  new ReprocessPendingToDbUseCase({
+export const makeReprocessPendingUseCase = (): ReprocessPendingDbUseCase =>
+  new ReprocessPendingDbUseCase({
     priceVersionRepository: new MongoDbPriceVersionRepository(),
     traceRepository: new MongoDbTraceRepository(),
     billingPeriodRepository: new MongoDbBillingPeriodRepository(),
@@ -90,7 +90,7 @@ export const traceIngestionWorkerSettings = {
  * where `make sync` over fixtures remains the path).
  */
 export const makeSyncBatchesUseCase = ():
-  | { useCase: SyncBatchesToDbUseCase; source: ClickHouseLangWatchClient }
+  | { useCase: SyncBatchesDbUseCase; source: ClickHouseLangWatchClient }
   | undefined => {
   const source = makeClickHouseClient();
 
@@ -100,7 +100,7 @@ export const makeSyncBatchesUseCase = ():
 
   return {
     source,
-    useCase: new SyncBatchesToDbUseCase({
+    useCase: new SyncBatchesDbUseCase({
       traceBatchSource: source,
       syncStateRepository: new MongoDbSyncStateRepository(),
       priceVersionRepository: new MongoDbPriceVersionRepository(),

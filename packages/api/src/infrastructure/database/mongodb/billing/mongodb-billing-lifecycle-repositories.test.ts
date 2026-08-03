@@ -10,10 +10,8 @@ import {
   MongoDbBillingSnapshotRepository,
 } from './mongodb-billing-snapshot-repository.js';
 import { MongoDbBillingQueryRepository } from './mongodb-billing-query-repository.js';
-import {
-  MongoDbTraceRepository,
-  TRACES_COLLECTION,
-} from '../trace/mongodb-trace-repository.js';
+import { MongoDbTraceRepository } from '../trace/mongodb-trace-repository.js';
+import { TRACES_COLLECTION } from '../collections.js';
 import { TraceModel } from '../../../../domain/models/trace-model.js';
 import {
   BillingSnapshotModel,

@@ -13,8 +13,8 @@ import {
 } from '../../../../domain/models/pagination.js';
 import { TraceModel } from '../../../../domain/models/trace-model.js';
 import { MongoDb } from '../mongo-db.js';
-import { TRACES_COLLECTION } from './mongodb-trace-repository.js';
-import { TRACE_FILTER_COUNTERS_COLLECTION } from '../filterCounter/mongodb-filter-counter-repository.js';
+import { TRACES_COLLECTION } from '../collections.js';
+import { TRACE_FILTER_COUNTERS_COLLECTION } from '../collections.js';
 
 /**
  * Exact totals on arbitrary filter combos are O(matching docs) — counting

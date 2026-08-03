@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { TOKEN_TYPES } from '../../domain/models/price-version-model.js';
 
 /**
  * Shared response-contract schemas. Every response schema in the API is a
@@ -30,9 +31,4 @@ export const tokenCountsViewSchema = z.strictObject({
 
 export const executionStatusSchema = z.enum(['ok', 'error']);
 export const pricingStatusSchema = z.enum(['stamped', 'pending_price']);
-export const tokenTypeSchema = z.enum([
-  'input',
-  'output',
-  'cache_read',
-  'cache_write',
-]);
+export const tokenTypeSchema = z.enum(TOKEN_TYPES);

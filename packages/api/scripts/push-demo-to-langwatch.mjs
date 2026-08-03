@@ -33,7 +33,7 @@ const CLIENT_NAMES = clientsArg.length > 0 ? clientsArg : ['hapvida', 'claro', '
 const readEnv = (client) => {
   const content = readFileSync(path.join(ROOT, 'clients', `${client}.env`), 'utf-8');
   const get = (key) => content.match(new RegExp(`^${key}=(.*)$`, 'm'))?.[1]?.trim() ?? '';
-  // Port default mirrors compose.client.yml (${LANGWATCH_PORT:-5560}).
+  // Port default mirrors compose.connector.yml (${LANGWATCH_PORT:-5560}).
   return { apiKey: get('LANGWATCH_API_KEY'), port: get('LANGWATCH_PORT') || '5560' };
 };
 

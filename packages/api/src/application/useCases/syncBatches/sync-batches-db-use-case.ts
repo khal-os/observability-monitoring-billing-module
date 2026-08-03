@@ -35,7 +35,7 @@ import { BillingPeriodRepository } from '../../interfaces/billing-period-reposit
  * after the batch was fully SCANNED; an all-fail batch (store outage,
  * not poison) throws without advancing.
  */
-export class SyncBatchesToDbUseCase implements SyncBatchesUseCase {
+export class SyncBatchesDbUseCase implements SyncBatchesUseCase {
   private readonly traceBatchSource: TraceBatchSource;
   private readonly syncStateRepository: SyncStateRepository;
   private readonly priceVersionRepository: PriceVersionRepository;

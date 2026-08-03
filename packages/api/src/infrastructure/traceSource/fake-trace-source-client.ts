@@ -7,10 +7,12 @@ import {
 } from '../../application/interfaces/trace-source-client.js';
 import { sourceTraceListSchema } from './source-trace-schema.js';
 
-// QA14: fake client backed by JSON fixtures shaped like the expected real
-// API. Nothing outside this file may depend on fixture details — consumers
-// only see the TraceSourceClient interface. The real client (pagination,
-// auth, size limits) is a future swap pending the QA14 spike.
+// Fixture-backed client for offline demos and tests — third in the
+// sync-factory chain, behind the real source clients (direct ClickHouse
+// read preferred, vendor HTTP API as fallback; QA14 RESOLVED, decision
+// 40). Fixtures are JSON shaped like the real API's payloads. Nothing
+// outside this file may depend on fixture details — consumers only see
+// the TraceSourceClient interface.
 
 const defaultFixtureFiles = (): string[] =>
   fg

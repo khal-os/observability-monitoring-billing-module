@@ -15,7 +15,7 @@ import {
 } from './sync-traces-protocols.js';
 import { PriceVersionModel, TokenType } from '../../../domain/models/price-version-model.js';
 import { TraceModel } from '../../../domain/models/trace-model.js';
-import { SyncTracesToDbUseCase } from './sync-traces-use-case.js';
+import { SyncTracesDbUseCase } from './sync-traces-db-use-case.js';
 import { InMemoryBillingPeriodRepository } from '../billingStatement/billing-test-fakes.js';
 
 const WINDOW = {
@@ -136,7 +136,7 @@ const makeSut = (args?: { estimateDocumentBytes?: EstimateDocumentBytes }) => {
   const traceRepositoryStub = new TraceRepositoryStub();
   const ingestFailureRepositoryStub = new IngestFailureRepositoryStub();
   const billingPeriodRepository = new InMemoryBillingPeriodRepository();
-  const sut = new SyncTracesToDbUseCase({
+  const sut = new SyncTracesDbUseCase({
     traceSourceClient: traceSourceClientStub,
     priceVersionRepository: priceVersionRepositoryStub,
     traceRepository: traceRepositoryStub,
@@ -156,7 +156,7 @@ const makeSut = (args?: { estimateDocumentBytes?: EstimateDocumentBytes }) => {
   };
 };
 
-describe('SyncTracesToDbUseCase', () => {
+describe('SyncTracesDbUseCase', () => {
   describe('Price resolution (QA19)', () => {
     it('MUST resolve prices as-of the TRACE date (startedAt), per trace', async () => {
       const { sut, priceVersionRepositoryStub } = makeSut();

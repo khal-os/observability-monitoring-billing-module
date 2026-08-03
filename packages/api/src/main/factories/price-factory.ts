@@ -1,6 +1,6 @@
 import { PriceVersionRepository } from '../../application/interfaces/price-version-repository.js';
 import { MongoDbPriceVersionRepository } from '../../infrastructure/database/mongodb/priceVersion/mongodb-price-version-repository.js';
-import { RegisterPriceVersionToDbUseCase } from '../../application/useCases/registerPriceVersion/register-price-version-use-case.js';
+import { RegisterPriceVersionDbUseCase } from '../../application/useCases/registerPriceVersion/register-price-version-db-use-case.js';
 import { RegisterPriceVersionUseCase } from '../../domain/useCases/register-price-version-use-case.js';
 import { RegisterPriceVersionController } from '../../presentation/controllers/prices/register-price-version-controller.js';
 import { Controller } from '../../presentation/interfaces/index.js';
@@ -11,7 +11,7 @@ export const makePriceVersionRepository = (): PriceVersionRepository =>
 
 export const makeRegisterPriceVersionUseCase =
   (): RegisterPriceVersionUseCase =>
-    new RegisterPriceVersionToDbUseCase({
+    new RegisterPriceVersionDbUseCase({
       priceVersionRepository: makePriceVersionRepository(),
       reprocessPending: makeReprocessPendingUseCase(),
     });

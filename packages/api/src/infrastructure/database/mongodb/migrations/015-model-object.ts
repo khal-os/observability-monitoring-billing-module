@@ -1,6 +1,6 @@
 import { Migration } from '../helpers/migration-runner.js';
 import { parseModelRef } from '../../../../domain/models/model-ref.js';
-import { TRACES_COLLECTION } from '../trace/mongodb-trace-repository.js';
+import { TRACES_COLLECTION } from '../collections.js';
 
 /**
  * Structural rewrite (the ONE exception so far to decision 74's

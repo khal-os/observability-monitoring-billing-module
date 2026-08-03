@@ -14,13 +14,11 @@ import {
   PRICE_VERSIONS_COLLECTION,
 } from './priceVersion/mongodb-price-version-repository.js';
 import { seedPocPrices } from './priceVersion/poc-price-seed.js';
-import {
-  MongoDbTraceRepository,
-  TRACES_COLLECTION,
-} from './trace/mongodb-trace-repository.js';
+import { MongoDbTraceRepository } from './trace/mongodb-trace-repository.js';
+import { TRACES_COLLECTION } from './collections.js';
 import { FakeTraceSourceClient } from '../../traceSource/fake-trace-source-client.js';
-import { SyncTracesToDbUseCase } from '../../../application/useCases/syncTraces/sync-traces-use-case.js';
-import { ReprocessPendingToDbUseCase } from '../../../application/useCases/reprocessPending/reprocess-pending-use-case.js';
+import { SyncTracesDbUseCase } from '../../../application/useCases/syncTraces/sync-traces-db-use-case.js';
+import { ReprocessPendingDbUseCase } from '../../../application/useCases/reprocessPending/reprocess-pending-db-use-case.js';
 import { CloseBillingPeriodDbUseCase } from '../../../application/useCases/billingLifecycle/close-billing-period-db-use-case.js';
 import { ReopenBillingPeriodDbUseCase } from '../../../application/useCases/billingLifecycle/reopen-billing-period-db-use-case.js';
 import { GetBillingSummaryDbUseCase } from '../../../application/useCases/billingSummary/get-billing-summary-db-use-case.js';
@@ -73,7 +71,7 @@ const makeSut = () => {
   const priceVersionRepository = new MongoDbPriceVersionRepository();
   const traceRepository = new MongoDbTraceRepository();
   const billingPeriodRepository = new MongoDbBillingPeriodRepository();
-  const sut = new SyncTracesToDbUseCase({
+  const sut = new SyncTracesDbUseCase({
     traceSourceClient: new FakeTraceSourceClient(),
     priceVersionRepository,
     traceRepository,
@@ -81,7 +79,7 @@ const makeSut = () => {
     ingestFailureRepository: new MongoDbIngestFailureRepository(),
     estimateDocumentBytes: estimateBsonBytes,
   });
-  const reprocess = new ReprocessPendingToDbUseCase({
+  const reprocess = new ReprocessPendingDbUseCase({
     priceVersionRepository,
     traceRepository,
     billingPeriodRepository,
@@ -398,7 +396,7 @@ describe('Sync + price stamping (integration)', () => {
     it('MUST persist the model on re-sync and stamp on reprocess with the as-of price', async () => {
       const { reprocess, priceVersionRepository } = makeSut();
       const client = new MutableTraceSourceClient();
-      const sut = new SyncTracesToDbUseCase({
+      const sut = new SyncTracesDbUseCase({
         traceSourceClient: client,
         priceVersionRepository,
         traceRepository: new MongoDbTraceRepository(),
@@ -497,7 +495,7 @@ describe('Sync + price stamping (integration)', () => {
         now: () => NOW,
       });
       const lateSyncClient = new MutableTraceSourceClient();
-      const lateSync = new SyncTracesToDbUseCase({
+      const lateSync = new SyncTracesDbUseCase({
         traceSourceClient: lateSyncClient,
         priceVersionRepository: new MongoDbPriceVersionRepository(),
         traceRepository,

@@ -1,9 +1,11 @@
 import { ClientSession, Document } from 'mongodb';
 import { FilterCounterDims } from '../../../../domain/models/filter-counter-model.js';
 import { MongoDb } from '../mongo-db.js';
-import { TRACES_COLLECTION } from '../trace/mongodb-trace-repository.js';
-
-export const TRACE_FILTER_COUNTERS_COLLECTION = 'trace_filter_counters';
+import {
+  TRACES_COLLECTION,
+  TRACE_FILTER_COUNTERS_COLLECTION,
+} from '../collections.js';
+import { filterCounterStages } from './filter-counter-pipeline.js';
 
 const tupleFilter = (dims: FilterCounterDims): Document => ({
   day: dims.day,
@@ -69,36 +71,7 @@ export class MongoDbFilterCounterRepository {
   async rebuildFromTraces(): Promise<number> {
     await MongoDb.getCollection(TRACES_COLLECTION)
       .aggregate(
-        [
-          {
-            $group: {
-              _id: {
-                day: { $dateTrunc: { date: '$startedAt', unit: 'day' } },
-                domain: { $ifNull: ['$domain', null] },
-                subdomain: { $ifNull: ['$subdomain', null] },
-                type: '$type',
-                agentId: { $ifNull: ['$agent.id', null] },
-                channelType: '$channel.type',
-                status: '$status',
-              },
-              count: { $sum: 1 },
-            },
-          },
-          {
-            $project: {
-              _id: 0,
-              day: '$_id.day',
-              domain: '$_id.domain',
-              subdomain: '$_id.subdomain',
-              type: '$_id.type',
-              agentId: '$_id.agentId',
-              channelType: '$_id.channelType',
-              status: '$_id.status',
-              count: 1,
-            },
-          },
-          { $out: TRACE_FILTER_COUNTERS_COLLECTION },
-        ],
+        [...filterCounterStages, { $out: TRACE_FILTER_COUNTERS_COLLECTION }],
         { allowDiskUse: true },
       )
       .toArray();

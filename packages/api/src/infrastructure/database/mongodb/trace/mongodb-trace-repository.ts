@@ -11,29 +11,22 @@ import { ModelRef } from '../../../../domain/models/model-ref.js';
 import { toFilterCounterDims } from '../../../../domain/models/filter-counter-model.js';
 import { deriveUnclassified } from '../../../../application/useCases/syncTraces/trace-mapper.js';
 import { MongoDb } from '../mongo-db.js';
+import { TRACES_COLLECTION } from '../collections.js';
 import { MongoDbFilterCounterRepository } from '../filterCounter/mongodb-filter-counter-repository.js';
 import { MongoDbSessionSummaryRepository } from '../session/mongodb-session-summary-repository.js';
 
-export const TRACES_COLLECTION = 'traces';
+const filterCounters = new MongoDbFilterCounterRepository();
 
-// Lazy: the counter repository imports TRACES_COLLECTION back from this
-// module — instantiating at call time keeps the cycle harmless.
-let filterCountersInstance: MongoDbFilterCounterRepository | undefined;
-const filterCounters = () =>
-  (filterCountersInstance ??= new MongoDbFilterCounterRepository());
-
-// Same lazy pattern for the materialized sessions read-model (decision
-// 80): every write that touches a session re-derives that session's
-// summary — exact by construction, self-healing on the next touch.
-let sessionSummariesInstance: MongoDbSessionSummaryRepository | undefined;
-const sessionSummaries = () =>
-  (sessionSummariesInstance ??= new MongoDbSessionSummaryRepository());
+// Materialized sessions read-model (decision 80): every write that touches
+// a session re-derives that session's summary — exact by construction,
+// self-healing on the next touch.
+const sessionSummaries = new MongoDbSessionSummaryRepository();
 
 const recomputeSessionOf = async (
   sessionId: string | undefined | null,
 ): Promise<void> => {
   if (typeof sessionId === 'string') {
-    await sessionSummaries().recompute(sessionId);
+    await sessionSummaries.recompute(sessionId);
   }
 };
 
@@ -63,7 +56,7 @@ export class MongoDbTraceRepository implements TraceRepository {
     try {
       await MongoDb.withTransaction(async (session) => {
         await traces.insertOne({ ...trace }, { session });
-        await filterCounters().increment(toFilterCounterDims(trace), session);
+        await filterCounters.increment(toFilterCounterDims(trace), session);
       });
     } catch (error) {
       // A duplicate (re-sync, or a concurrent ingestor winning the race —
@@ -165,7 +158,7 @@ export class MongoDbTraceRepository implements TraceRepository {
         const afterDims = toFilterCounterDims(stored as unknown as TraceModel);
 
         if (JSON.stringify(beforeDims) !== JSON.stringify(afterDims)) {
-          await filterCounters().applyDelta(beforeDims, afterDims, session);
+          await filterCounters.applyDelta(beforeDims, afterDims, session);
         }
 
         const unclassified = deriveUnclassified({

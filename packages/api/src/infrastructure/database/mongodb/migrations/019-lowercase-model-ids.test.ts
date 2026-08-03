@@ -1,6 +1,6 @@
 import { Document } from 'mongodb';
 import { MongoDb } from '../mongo-db.js';
-import { TRACES_COLLECTION } from '../trace/mongodb-trace-repository.js';
+import { TRACES_COLLECTION } from '../collections.js';
 import { PRICE_VERSIONS_COLLECTION } from '../priceVersion/mongodb-price-version-repository.js';
 import { priceVersionIndexes } from './001-price-version-indexes.js';
 import { lowercaseModelIds } from './019-lowercase-model-ids.js';

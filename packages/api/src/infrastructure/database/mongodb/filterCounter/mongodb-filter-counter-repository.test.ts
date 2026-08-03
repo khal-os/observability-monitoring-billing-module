@@ -1,12 +1,10 @@
 import { MongoDb } from '../mongo-db.js';
+import { MongoDbFilterCounterRepository } from './mongodb-filter-counter-repository.js';
+import { MongoDbTraceRepository } from '../trace/mongodb-trace-repository.js';
 import {
-  MongoDbFilterCounterRepository,
-  TRACE_FILTER_COUNTERS_COLLECTION,
-} from './mongodb-filter-counter-repository.js';
-import {
-  MongoDbTraceRepository,
   TRACES_COLLECTION,
-} from '../trace/mongodb-trace-repository.js';
+  TRACE_FILTER_COUNTERS_COLLECTION,
+} from '../collections.js';
 import { TraceModel } from '../../../../domain/models/trace-model.js';
 import { traceIndexes } from '../migrations/003-trace-indexes.js';
 
@@ -184,6 +182,11 @@ describe('MongoDbFilterCounterRepository (facet cube, decision 77)', () => {
     expect(counters.every((row) => (row['count'] as number) >= 0)).toBe(true);
   });
 
+  // THE incremental≡rebuild identity guard: the same traces applied through
+  // the incremental write path (insertIfAbsent → toFilterCounterDims) and
+  // through the extracted rebuild pipeline (filter-counter-pipeline.ts)
+  // must land byte-identical tuple documents — the two derivations of the
+  // cube can never drift.
   it('MUST rebuild the cube from traces to exactly the incremental state', async () => {
     await traceRepository.insertIfAbsent(makeTrace());
     await traceRepository.insertIfAbsent(

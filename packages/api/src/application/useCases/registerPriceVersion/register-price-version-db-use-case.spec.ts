@@ -1,4 +1,4 @@
-import { RegisterPriceVersionToDbUseCase } from './register-price-version-use-case.js';
+import { RegisterPriceVersionDbUseCase } from './register-price-version-db-use-case.js';
 import {
   EffectivePrices,
   PriceVersionRepository,
@@ -42,7 +42,7 @@ class ReprocessPendingStub implements ReprocessPendingUseCase {
 const makeSut = () => {
   const priceVersionRepository = new PriceVersionRepositoryStub();
   const reprocessPending = new ReprocessPendingStub();
-  const sut = new RegisterPriceVersionToDbUseCase({
+  const sut = new RegisterPriceVersionDbUseCase({
     priceVersionRepository,
     reprocessPending,
   });
@@ -50,7 +50,7 @@ const makeSut = () => {
   return { sut, priceVersionRepository, reprocessPending };
 };
 
-describe('RegisterPriceVersionToDbUseCase', () => {
+describe('RegisterPriceVersionDbUseCase', () => {
   it('MUST store the CANONICAL model key — a bare id lands under provider/id (decision 82)', async () => {
     const { sut, priceVersionRepository } = makeSut();
 
@@ -100,7 +100,7 @@ describe('RegisterPriceVersionToDbUseCase', () => {
     });
   });
 
-  it('MUST pass the internal margin columns through to the repository untouched', async () => {
+  it('MUST always declare the fixed_brl pricing type on the inserted version (decision 96)', async () => {
     const { sut, priceVersionRepository } = makeSut();
 
     await sut.register({

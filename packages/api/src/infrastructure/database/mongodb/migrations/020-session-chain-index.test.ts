@@ -1,5 +1,5 @@
 import { MongoDb } from '../mongo-db.js';
-import { TRACES_COLLECTION } from '../trace/mongodb-trace-repository.js';
+import { TRACES_COLLECTION } from '../collections.js';
 import { traceIndexes } from './003-trace-indexes.js';
 import { sessionChainIndex } from './020-session-chain-index.js';
 

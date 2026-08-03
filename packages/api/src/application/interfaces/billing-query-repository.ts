@@ -1,7 +1,4 @@
-import {
-  BillingSummaryLine,
-  PendingPriceSummary,
-} from '../../domain/useCases/get-billing-summary-use-case.js';
+import { PendingPriceSummary } from '../../domain/useCases/get-billing-summary-use-case.js';
 import { BillingUsageRecord } from '../../domain/models/billing-snapshot-model.js';
 import { CostByTokenType } from '../../domain/useCases/get-billing-series-use-case.js';
 

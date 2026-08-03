@@ -19,7 +19,10 @@ import {
   StatementModelShare,
   StatementProjection,
 } from '../../../domain/models/billing-snapshot-model.js';
-import { TokenType } from '../../../domain/models/price-version-model.js';
+import {
+  TOKEN_TYPES,
+  TokenType,
+} from '../../../domain/models/price-version-model.js';
 import {
   formatBrlExactFromMicrocents,
   formatBrlFromCents,
@@ -39,13 +42,6 @@ import {
   BillingSeriesView,
   BillingSummaryView,
 } from './billing-view-schemas.js';
-
-const TOKEN_TYPE_ORDER: TokenType[] = [
-  'input',
-  'output',
-  'cache_read',
-  'cache_write',
-];
 
 const TOKEN_TYPE_LABELS: Record<TokenType, string> = {
   input: 'input',
@@ -174,7 +170,7 @@ const toAgentGroupViews = (
     percent_of_total_display: bpToPercentDisplay(group.percentOfTotalBp),
     bar_width_percent:
       maxCost > 0 ? round2((group.costMicrocents / maxCost) * 100) : 0,
-    segments: TOKEN_TYPE_ORDER.filter(
+    segments: TOKEN_TYPES.filter(
       (tokenType) => (group.costByTokenTypeMicrocents[tokenType] ?? 0) > 0,
     ).map((tokenType) => ({
       token_type: tokenType,
@@ -516,13 +512,6 @@ export const toBillListView = (bills: BillListItem[]): BillListView => ({
 const shortMonthLabel = (year: number, month: number): string =>
   `${MONTHS_PT_SHORT[month - 1]}/${String(year).slice(2)}`;
 
-const TOKEN_SPLIT_ORDER: TokenType[] = [
-  'input',
-  'output',
-  'cache_read',
-  'cache_write',
-];
-
 /**
  * Stacked-bar geometry (decision 97): segments in statement-line order,
  * each with its share OF THE BAR — the UI stacks them bottom-up inside a
@@ -532,7 +521,7 @@ const toSegments = (
   byTokenType: { tokenType: TokenType; costMicrocents: number }[],
   totalCostMicrocents: number,
 ): BillingSeriesView['series'][number]['points'][number]['segments'] =>
-  TOKEN_SPLIT_ORDER.flatMap((tokenType) => {
+  TOKEN_TYPES.flatMap((tokenType) => {
     const entry = byTokenType.find(
       (candidate) => candidate.tokenType === tokenType,
     );

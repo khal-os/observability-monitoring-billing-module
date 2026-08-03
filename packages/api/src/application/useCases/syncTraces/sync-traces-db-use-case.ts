@@ -15,7 +15,7 @@ import {
 } from './trace-ingestor.js';
 import { BillingPeriodRepository } from '../../interfaces/billing-period-repository.js';
 
-export class SyncTracesToDbUseCase implements SyncTracesUseCase {
+export class SyncTracesDbUseCase implements SyncTracesUseCase {
   private readonly traceSourceClient: TraceSourceClient;
   private readonly priceVersionRepository: PriceVersionRepository;
   private readonly traceRepository: TraceRepository;

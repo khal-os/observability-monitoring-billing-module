@@ -11,7 +11,7 @@ import { PendingPriceSummary } from '../../../../domain/useCases/get-billing-sum
 import { BillingUsageRecord } from '../../../../domain/models/billing-snapshot-model.js';
 import { ModelRef, modelKey } from '../../../../domain/models/model-ref.js';
 import { MongoDb } from '../mongo-db.js';
-import { TRACES_COLLECTION } from '../trace/mongodb-trace-repository.js';
+import { TRACES_COLLECTION } from '../collections.js';
 
 /**
  * Unresolved quarantine (decision 100): flagged and not absorbed by any

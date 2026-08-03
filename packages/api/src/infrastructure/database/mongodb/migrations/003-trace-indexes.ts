@@ -1,5 +1,5 @@
 import { Migration } from '../helpers/migration-runner.js';
-import { TRACES_COLLECTION } from '../trace/mongodb-trace-repository.js';
+import { TRACES_COLLECTION } from '../collections.js';
 
 /**
  * T3: indexes shaped for the tab queries — period + agent + status +

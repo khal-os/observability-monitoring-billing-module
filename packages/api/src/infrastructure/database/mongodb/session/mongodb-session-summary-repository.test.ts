@@ -1,11 +1,11 @@
 import { Collection, Document } from 'mongodb';
 import { MongoDb } from '../mongo-db.js';
-import {
-  MongoDbTraceRepository,
-  TRACES_COLLECTION,
-} from '../trace/mongodb-trace-repository.js';
+import { MongoDbTraceRepository } from '../trace/mongodb-trace-repository.js';
 import {
   SESSION_SUMMARIES_COLLECTION,
+  TRACES_COLLECTION,
+} from '../collections.js';
+import {
   MongoDbSessionSummaryRepository,
   readSessionSummary,
 } from './mongodb-session-summary-repository.js';

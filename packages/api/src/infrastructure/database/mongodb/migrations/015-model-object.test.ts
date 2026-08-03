@@ -12,7 +12,7 @@
 import { Document } from 'mongodb';
 import { MongoDb } from '../mongo-db.js';
 import { modelObject } from './015-model-object.js';
-import { TRACES_COLLECTION } from '../trace/mongodb-trace-repository.js';
+import { TRACES_COLLECTION } from '../collections.js';
 
 /**
  * A stamped trace exactly as pre-structured deployments stored it: the

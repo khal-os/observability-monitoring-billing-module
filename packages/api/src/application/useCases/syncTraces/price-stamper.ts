@@ -52,20 +52,26 @@ export const stampTokens = (
     return { pricingStatus: 'pending_price', missingPriceTokenTypes };
   }
 
-  const stampedCosts: StampedTokenCost[] = usedTokenTypes.map((tokenType) => {
+  // flatMap so the missing-price case needs no non-null assertion — it is
+  // unreachable here (any missing price returned pending_price above).
+  const stampedCosts: StampedTokenCost[] = usedTokenTypes.flatMap((tokenType) => {
     const tokenCount = tokens[tokenType] as number;
-    const price = effectivePrices[tokenType]!;
+    const price = effectivePrices[tokenType];
 
-    return {
-      tokenType,
-      tokens: tokenCount,
-      appliedPriceMicrocentsPerMillion: price.priceMicrocentsPerMillion,
-      appliedPriceEffectiveFrom: price.effectiveFrom,
-      costMicrocents: costMicrocents(
-        tokenCount,
-        price.priceMicrocentsPerMillion,
-      ),
-    };
+    if (!price) return [];
+
+    return [
+      {
+        tokenType,
+        tokens: tokenCount,
+        appliedPriceMicrocentsPerMillion: price.priceMicrocentsPerMillion,
+        appliedPriceEffectiveFrom: price.effectiveFrom,
+        costMicrocents: costMicrocents(
+          tokenCount,
+          price.priceMicrocentsPerMillion,
+        ),
+      },
+    ];
   });
 
   return {

@@ -19,7 +19,7 @@ import {
  * DuplicatePriceVersionError propagates untouched (invariant 9): callers
  * answer it their own way (HTTP 409 / CLI exit code).
  */
-export class RegisterPriceVersionToDbUseCase
+export class RegisterPriceVersionDbUseCase
   implements RegisterPriceVersionUseCase
 {
   private readonly priceVersionRepository: PriceVersionRepository;

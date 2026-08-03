@@ -9,7 +9,7 @@ import {
   TraceRepository,
 } from './billing-lifecycle-protocols.js';
 import { BillingSnapshotModel } from '../../../domain/models/billing-snapshot-model.js';
-import { monthWindowUtc } from '../billingSummary/get-billing-summary-db-use-case.js';
+import { monthWindowUtc } from '../../../domain/models/billing-period-model.js';
 import {
   STATEMENT_LOGIC_VERSION,
   STATEMENT_ROUNDING_RULE,

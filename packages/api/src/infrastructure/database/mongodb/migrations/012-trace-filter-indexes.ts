@@ -1,5 +1,5 @@
 import { Migration } from '../helpers/migration-runner.js';
-import { TRACES_COLLECTION } from '../trace/mongodb-trace-repository.js';
+import { TRACES_COLLECTION } from '../collections.js';
 
 /**
  * Filter-bar facets (GET /traces/filters): an unfiltered distinct('x')

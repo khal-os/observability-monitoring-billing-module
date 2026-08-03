@@ -1,24 +1,8 @@
-import { TokenType } from '../models/price-version-model.js';
 import { TokenCounts } from '../models/trace-model.js';
 import { StatementProjection } from '../models/billing-snapshot-model.js';
+import { BillingPeriodStatus } from '../models/billing-period-model.js';
 
-/**
- * One line of the month breakdown: agent × agent version × model × token
- * type × applied unit price (decisions 48/90), where cost is the SUM of
- * ingestion-time stamps (invariant 3 — never an independent calculation
- * path). Null agent/version/model = traces without that attribution,
- * shown honestly. The full line shape (with unit prices and reconciled
- * display cents) lives in the engine's StatementLine; this slim shape
- * remains for callers that only need the dimensions.
- */
-export interface BillingSummaryLine {
-  agentId: string | null;
-  agentVersion: string | null;
-  model: string | null;
-  tokenType: TokenType;
-  tokens: number;
-  costMicrocents: number;
-}
+export type { BillingPeriodStatus } from '../models/billing-period-model.js';
 
 /** Pending traces are reported APART — never inside the R$ total (invariant 2). */
 export interface PendingPriceSummary {
@@ -26,13 +10,6 @@ export interface PendingPriceSummary {
   tokens: TokenCounts;
   models: string[];
 }
-
-/**
- * 'closed' = month frozen by T6, served from its snapshot, labeled final.
- * 'in_progress' = current calendar month, always partial (invariant 8).
- * 'open' = past month not yet closed.
- */
-export type BillingPeriodStatus = 'closed' | 'in_progress' | 'open';
 
 /** US10: the month side by side with the previous one — informative only in v1. */
 export interface BillingMonthComparison {

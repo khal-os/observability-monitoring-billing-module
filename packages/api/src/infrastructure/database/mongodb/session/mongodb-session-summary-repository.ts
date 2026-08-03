@@ -1,12 +1,13 @@
 import { Document } from 'mongodb';
 import { MongoDb } from '../mongo-db.js';
-import { TRACES_COLLECTION } from '../trace/mongodb-trace-repository.js';
+import {
+  SESSION_SUMMARIES_COLLECTION,
+  TRACES_COLLECTION,
+} from '../collections.js';
 import {
   sessionOnlyMatch,
   sessionSummaryStages,
 } from './session-summary-pipeline.js';
-
-export const SESSION_SUMMARIES_COLLECTION = 'session_summaries';
 
 const isDuplicateKey = (error: unknown): boolean =>
   (error as { code?: number }).code === 11000;

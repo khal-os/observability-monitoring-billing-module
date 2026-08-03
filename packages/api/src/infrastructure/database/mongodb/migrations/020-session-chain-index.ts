@@ -1,5 +1,5 @@
 import { Migration, dropIndexIfExists } from '../helpers/migration-runner.js';
-import { TRACES_COLLECTION } from '../trace/mongodb-trace-repository.js';
+import { TRACES_COLLECTION } from '../collections.js';
 
 /**
  * audit C-7.6: the session-detail chain read sorts by

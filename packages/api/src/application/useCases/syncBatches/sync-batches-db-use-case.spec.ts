@@ -19,7 +19,7 @@ import {
   TokenType,
 } from '../../../domain/models/price-version-model.js';
 import { TraceModel } from '../../../domain/models/trace-model.js';
-import { SyncBatchesToDbUseCase } from './sync-batches-use-case.js';
+import { SyncBatchesDbUseCase } from './sync-batches-db-use-case.js';
 import { InMemoryBillingPeriodRepository } from '../billingStatement/billing-test-fakes.js';
 
 const NOW = new Date('2026-07-23T15:00:00.000Z');
@@ -176,7 +176,7 @@ const makeSut = (args?: {
   const priceVersionRepositoryStub = new PriceVersionRepositoryStub();
   const traceRepositoryStub = new TraceRepositoryStub();
   const ingestFailureRepositoryStub = new IngestFailureRepositoryStub();
-  const sut = new SyncBatchesToDbUseCase({
+  const sut = new SyncBatchesDbUseCase({
     traceBatchSource: traceBatchSourceStub,
     syncStateRepository: syncStateRepositoryStub,
     priceVersionRepository: priceVersionRepositoryStub,
@@ -198,7 +198,7 @@ const makeSut = (args?: {
   };
 };
 
-describe('SyncBatchesToDbUseCase', () => {
+describe('SyncBatchesDbUseCase', () => {
   it('MUST fetch past the stored cursor with the quiet-period ceiling', async () => {
     const { sut, traceBatchSourceStub, syncStateRepositoryStub } = makeSut();
 

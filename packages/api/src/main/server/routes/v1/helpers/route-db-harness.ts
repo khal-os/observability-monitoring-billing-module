@@ -6,9 +6,11 @@ import {
 import { migrations } from '../../../../../infrastructure/database/mongodb/migrations/index.js';
 import { seedPocPrices } from '../../../../../infrastructure/database/mongodb/priceVersion/poc-price-seed.js';
 import { PRICE_VERSIONS_COLLECTION } from '../../../../../infrastructure/database/mongodb/priceVersion/mongodb-price-version-repository.js';
-import { TRACES_COLLECTION } from '../../../../../infrastructure/database/mongodb/trace/mongodb-trace-repository.js';
-import { TRACE_FILTER_COUNTERS_COLLECTION } from '../../../../../infrastructure/database/mongodb/filterCounter/mongodb-filter-counter-repository.js';
-import { SESSION_SUMMARIES_COLLECTION } from '../../../../../infrastructure/database/mongodb/session/mongodb-session-summary-repository.js';
+import {
+  SESSION_SUMMARIES_COLLECTION,
+  TRACES_COLLECTION,
+  TRACE_FILTER_COUNTERS_COLLECTION,
+} from '../../../../../infrastructure/database/mongodb/collections.js';
 import { BILLING_PERIODS_COLLECTION } from '../../../../../infrastructure/database/mongodb/billing/mongodb-billing-period-repository.js';
 import {
   BILLING_SNAPSHOTS_COLLECTION,

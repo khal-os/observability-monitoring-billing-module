@@ -1,9 +1,11 @@
 import { AgentRef, ExecutionStatus, TokenCounts } from './trace-model.js';
 
 /**
- * Session = DERIVED read-model (T11): traces grouped by sessionId, computed
- * at read time — no materialized state. Aggregates close by construction:
- * cost is the exact sum of member traces' stamped costs (invariant 3).
+ * Session = DERIVED read-model (T11): traces grouped by sessionId,
+ * materialized as session_summaries and re-derived on every write that
+ * touches a session, through ONE shared pipeline (decision 80) — never a
+ * source of truth. Aggregates close by construction: cost is the exact
+ * sum of member traces' stamped costs (invariant 3).
  *
  * pendingPriceCount keeps invariant 2 honest at session level: a session
  * holding pending traces exposes a PARTIAL stamped sum plus the count —

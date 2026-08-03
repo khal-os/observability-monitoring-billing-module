@@ -1,12 +1,6 @@
-import {
-  GetBillingSummaryDbUseCase,
-  firstOpenMonthStart,
-  monthWindowUtc,
-  previousMonthOf,
-} from './get-billing-summary-db-use-case.js';
+import { GetBillingSummaryDbUseCase } from './get-billing-summary-db-use-case.js';
 import { CloseBillingPeriodDbUseCase } from '../billingLifecycle/close-billing-period-db-use-case.js';
 import { BillingPeriodStateError } from '../../../domain/useCases/close-billing-period-use-case.js';
-import { BillingPeriodModel } from '../../../domain/models/billing-period-model.js';
 import {
   InMemoryBillingPeriodRepository,
   InMemoryBillingSnapshotRepository,
@@ -62,63 +56,9 @@ const makeSut = (now = NOW) => {
   };
 };
 
-describe('monthWindowUtc()', () => {
-  it('MUST build the half-open UTC calendar month window', () => {
-    expect(monthWindowUtc(2026, 6)).toEqual({
-      start: new Date('2026-06-01T00:00:00.000Z'),
-      end: new Date('2026-07-01T00:00:00.000Z'),
-    });
-    expect(monthWindowUtc(2026, 12).end).toEqual(
-      new Date('2027-01-01T00:00:00.000Z'),
-    );
-  });
-
-  it('MUST reject malformed periods', () => {
-    expect(() => monthWindowUtc(2026, 13)).toThrow();
-    expect(() => monthWindowUtc(2026, 0)).toThrow();
-    expect(() => monthWindowUtc(2026.5, 6)).toThrow();
-  });
-
-  it('previousMonthOf crosses the year boundary', () => {
-    expect(previousMonthOf(2026, 1)).toEqual({ year: 2025, month: 12 });
-    expect(previousMonthOf(2026, 7)).toEqual({ year: 2026, month: 6 });
-  });
-});
-
-describe('firstOpenMonthStart() (audit C-7.1)', () => {
-  const period = (
-    year: number,
-    month: number,
-    status: 'open' | 'closed',
-  ): BillingPeriodModel => ({ year, month, status, audit: [] });
-
-  it('is null while no month ever closed (unbounded scan — PoC behavior)', () => {
-    expect(firstOpenMonthStart([])).toBeNull();
-    expect(firstOpenMonthStart([period(2026, 6, 'open')])).toBeNull();
-  });
-
-  it('is the month after a contiguous closed run', () => {
-    expect(
-      firstOpenMonthStart([period(2026, 5, 'closed'), period(2026, 6, 'closed')]),
-    ).toEqual(new Date('2026-07-01T00:00:00.000Z'));
-  });
-
-  it('crosses the year boundary', () => {
-    expect(firstOpenMonthStart([period(2026, 12, 'closed')])).toEqual(
-      new Date('2027-01-01T00:00:00.000Z'),
-    );
-  });
-
-  it('a REOPENED (or skipped) month inside the run pulls the bound back — its live data must be scanned', () => {
-    expect(
-      firstOpenMonthStart([
-        period(2026, 4, 'closed'),
-        period(2026, 5, 'open'), // reopened
-        period(2026, 6, 'closed'),
-      ]),
-    ).toEqual(new Date('2026-05-01T00:00:00.000Z'));
-  });
-});
+// The calendar helpers (monthWindowUtc, previousMonthOf, firstOpenMonthStart)
+// and the period-status rule are covered where they live:
+// domain/models/billing-period-model.spec.ts.
 
 describe('GetBillingSummaryDbUseCase (T7)', () => {
   it('OPEN month: computes live via the engine — total ≡ sum of stamps (invariant 3)', async () => {

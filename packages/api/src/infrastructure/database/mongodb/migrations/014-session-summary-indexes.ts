@@ -1,5 +1,5 @@
 import { Migration } from '../helpers/migration-runner.js';
-import { SESSION_SUMMARIES_COLLECTION } from '../session/mongodb-session-summary-repository.js';
+import { SESSION_SUMMARIES_COLLECTION } from '../collections.js';
 
 /**
  * Bootstraps the materialized sessions read-model (decision 80). Same

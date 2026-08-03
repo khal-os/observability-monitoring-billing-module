@@ -11,9 +11,9 @@ import {
 } from '../../../../domain/models/pagination.js';
 import { TraceModel } from '../../../../domain/models/trace-model.js';
 import { MongoDb } from '../mongo-db.js';
-import { TRACES_COLLECTION } from '../trace/mongodb-trace-repository.js';
+import { TRACES_COLLECTION } from '../collections.js';
 import { sessionSummaryStages } from './session-summary-pipeline.js';
-import { SESSION_SUMMARIES_COLLECTION } from './mongodb-session-summary-repository.js';
+import { SESSION_SUMMARIES_COLLECTION } from '../collections.js';
 
 /**
  * Sessions are a DERIVED read-model (T11), now MATERIALIZED (decision

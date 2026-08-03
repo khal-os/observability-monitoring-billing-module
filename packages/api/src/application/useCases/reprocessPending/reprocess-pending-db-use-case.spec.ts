@@ -1,4 +1,4 @@
-import { ReprocessPendingToDbUseCase } from './reprocess-pending-use-case.js';
+import { ReprocessPendingDbUseCase } from './reprocess-pending-db-use-case.js';
 import {
   EffectivePrices,
   PendingPriceTrace,
@@ -107,7 +107,7 @@ const makeSut = () => {
   const traceRepository = new TraceRepositoryStub();
   const billingPeriodRepository = new InMemoryBillingPeriodRepository();
 
-  const sut = new ReprocessPendingToDbUseCase({
+  const sut = new ReprocessPendingDbUseCase({
     priceVersionRepository,
     traceRepository,
     billingPeriodRepository,
@@ -134,7 +134,7 @@ const closeMonth = (
     },
   });
 
-describe('ReprocessPendingToDbUseCase', () => {
+describe('ReprocessPendingDbUseCase', () => {
   it('T6 guard: a pending trace inside a CLOSED month is counted, never stamped', async () => {
     const { sut, traceRepository, billingPeriodRepository } = makeSut();
     await closeMonth(billingPeriodRepository, 2026, 6);

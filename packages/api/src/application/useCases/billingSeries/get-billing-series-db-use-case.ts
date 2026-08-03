@@ -9,7 +9,10 @@ import {
 } from './billing-series-protocols.js';
 import { TokenType } from '../../../domain/models/price-version-model.js';
 import { StatementLine } from '../../../domain/models/billing-snapshot-model.js';
-import { firstOpenMonthStart } from '../billingSummary/get-billing-summary-db-use-case.js';
+import {
+  firstOpenMonthStart,
+  resolvePeriodStatus,
+} from '../../../domain/models/billing-period-model.js';
 
 /** Months on a single integer axis so a continuous range is a simple loop. */
 const monthOrdinal = (year: number, month: number): number =>
@@ -79,10 +82,11 @@ export class GetBillingSeriesDbUseCase implements GetBillingSeriesUseCase {
       now.getUTCMonth() + 1,
     );
 
-    const closedMonths = new Set(
-      periods
-        .filter((period) => period.status === 'closed')
-        .map((period) => monthOrdinal(period.year, period.month)),
+    const periodByOrdinal = new Map(
+      periods.map((period) => [
+        monthOrdinal(period.year, period.month),
+        period,
+      ]),
     );
     const rollupByMonth = new Map(
       rollup.map((row) => [monthOrdinal(row.year, row.month), row]),
@@ -92,10 +96,7 @@ export class GetBillingSeriesDbUseCase implements GetBillingSeriesUseCase {
     // current month: a month with zero traffic materializes as a zero bar
     // — a gap in traffic must LOOK like a gap (the daily lens's rule,
     // applied to the monthly axis). An empty store charts nothing.
-    const knownOrdinals = [
-      ...rollupByMonth.keys(),
-      ...periods.map((period) => monthOrdinal(period.year, period.month)),
-    ];
+    const knownOrdinals = [...rollupByMonth.keys(), ...periodByOrdinal.keys()];
 
     if (knownOrdinals.length === 0) return [];
 
@@ -117,7 +118,14 @@ export class GetBillingSeriesDbUseCase implements GetBillingSeriesUseCase {
       const year = Math.floor(ordinal / 12);
       const month = (ordinal % 12) + 1;
 
-      if (closedMonths.has(ordinal)) {
+      const periodStatus = resolvePeriodStatus(
+        year,
+        month,
+        periodByOrdinal.get(ordinal),
+        now,
+      );
+
+      if (periodStatus === 'closed') {
         months.push(await this.fromSnapshot(year, month));
         continue;
       }
@@ -127,7 +135,7 @@ export class GetBillingSeriesDbUseCase implements GetBillingSeriesUseCase {
       months.push({
         year,
         month,
-        periodStatus: ordinal === currentOrdinal ? 'in_progress' : 'open',
+        periodStatus,
         totalCostMicrocents: row?.totalCostMicrocents ?? 0,
         byTokenType: row?.byTokenType ?? [],
         byAgent: row?.byAgent ?? [],
@@ -222,10 +230,8 @@ export class GetBillingSeriesDbUseCase implements GetBillingSeriesUseCase {
       this.billingPeriodRepository.listAll(),
     ]);
 
-    const closedMonths = new Set(
-      periods
-        .filter((period) => period.status === 'closed')
-        .map((period) => `${period.year}-${period.month}`),
+    const periodByMonth = new Map(
+      periods.map((period) => [`${period.year}-${period.month}`, period]),
     );
     const byTime = new Map(rollup.map((row) => [row.date.getTime(), row]));
 
@@ -236,12 +242,13 @@ export class GetBillingSeriesDbUseCase implements GetBillingSeriesUseCase {
       const row = byTime.get(time);
       const monthKey = `${date.getUTCFullYear()}-${date.getUTCMonth() + 1}`;
 
-      const periodStatus = closedMonths.has(monthKey)
-        ? 'closed'
-        : date.getUTCFullYear() === now.getUTCFullYear() &&
-            date.getUTCMonth() === now.getUTCMonth()
-          ? 'in_progress'
-          : 'open';
+      // The day's status is its MONTH's status — same domain rule, daily lens.
+      const periodStatus = resolvePeriodStatus(
+        date.getUTCFullYear(),
+        date.getUTCMonth() + 1,
+        periodByMonth.get(monthKey),
+        now,
+      );
 
       result.push({
         date,

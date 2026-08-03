@@ -10,7 +10,7 @@ export const sessionFilterQueryShape = {
   status: z.enum(['ok', 'error']).optional(),
 };
 
-const sessionFilterQuerySchema = z.object(sessionFilterQueryShape);
+const sessionFilterQuerySchema = z.strictObject(sessionFilterQueryShape);
 
 export type SessionFilterQuery = z.infer<typeof sessionFilterQuerySchema>;
 

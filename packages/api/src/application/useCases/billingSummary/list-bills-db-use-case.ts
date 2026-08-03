@@ -8,7 +8,11 @@ import {
 } from '../../../domain/useCases/list-bills-use-case.js';
 import { BillingPeriodRepository } from '../../interfaces/billing-period-repository.js';
 import { BillingSnapshotRepository } from '../../interfaces/billing-snapshot-repository.js';
-import { firstOpenMonthStart, monthWindowUtc } from './get-billing-summary-db-use-case.js';
+import {
+  firstOpenMonthStart,
+  monthWindowUtc,
+  resolvePeriodStatus,
+} from '../../../domain/models/billing-period-model.js';
 
 /**
  * The months list (T7 feed for US6/US7's selector): every OPEN month with
@@ -57,17 +61,12 @@ export class ListBillsDbUseCase implements ListBillsUseCase {
         const period = periodByMonth.get(`${row.year}-${row.month}`);
         periodByMonth.delete(`${row.year}-${row.month}`);
 
-        let periodStatus: BillingPeriodStatus;
-        if (period?.status === 'closed') {
-          periodStatus = 'closed';
-        } else if (
-          row.year === now.getUTCFullYear() &&
-          row.month === now.getUTCMonth() + 1
-        ) {
-          periodStatus = 'in_progress';
-        } else {
-          periodStatus = 'open';
-        }
+        const periodStatus = resolvePeriodStatus(
+          row.year,
+          row.month,
+          period,
+          now,
+        );
 
         return periodStatus === 'closed'
           ? this.closedItem(row.year, row.month, {
