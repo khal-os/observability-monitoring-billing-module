@@ -1,5 +1,6 @@
 import { FakeTraceSourceClient } from './fake-trace-source-client.js';
 import { sourceTraceSchema } from './source-trace-schema.js';
+import { SourceTrace, SyncWindow } from '../../application/interfaces/trace-source-client.js';
 
 const WINDOW_1 = {
   from: new Date('2026-06-01T00:00:00.000Z'),
@@ -17,13 +18,27 @@ const makeSut = () => {
   return { sut };
 };
 
+/** Drains the paged contract (audit C-6.3) — the fake yields one settled page. */
+const fetchAll = async (
+  sut: FakeTraceSourceClient,
+  window: SyncWindow,
+): Promise<SourceTrace[]> => {
+  const traces: SourceTrace[] = [];
+
+  for await (const page of sut.fetchTracesPaged(window)) {
+    traces.push(...page);
+  }
+
+  return traces;
+};
+
 describe('FakeTraceSourceClient', () => {
-  describe('fetchTraces()', () => {
+  describe('fetchTracesPaged()', () => {
     it('MUST return only traces whose startedAt falls inside the half-open window', async () => {
       const { sut } = makeSut();
 
-      const windowOne = await sut.fetchTraces(WINDOW_1);
-      const windowTwo = await sut.fetchTraces(WINDOW_2);
+      const windowOne = await fetchAll(sut, WINDOW_1);
+      const windowTwo = await fetchAll(sut, WINDOW_2);
 
       expect(windowOne.map((trace) => trace.traceId).sort()).toEqual([
         'trace-w1-001',
@@ -43,13 +58,13 @@ describe('FakeTraceSourceClient', () => {
     it('MUST compose adjacent windows without overlap or gaps', async () => {
       const { sut } = makeSut();
 
-      const all = await sut.fetchTraces({
+      const all = await fetchAll(sut, {
         from: WINDOW_1.from,
         to: WINDOW_2.to,
       });
       const split = [
-        ...(await sut.fetchTraces(WINDOW_1)),
-        ...(await sut.fetchTraces(WINDOW_2)),
+        ...(await fetchAll(sut, WINDOW_1)),
+        ...(await fetchAll(sut, WINDOW_2)),
       ];
 
       expect(split.map((trace) => trace.traceId).sort()).toEqual(
@@ -60,7 +75,7 @@ describe('FakeTraceSourceClient', () => {
     it('MUST parse timestamps into Date instances (BSON-safe at the boundary)', async () => {
       const { sut } = makeSut();
 
-      const traces = await sut.fetchTraces(WINDOW_1);
+      const traces = await fetchAll(sut, WINDOW_1);
 
       for (const trace of traces) {
         expect(trace.startedAt).toBeInstanceOf(Date);
@@ -76,7 +91,7 @@ describe('FakeTraceSourceClient', () => {
     it('MUST carry the PoC edge cases in the fixtures', async () => {
       const { sut } = makeSut();
 
-      const windowOne = await sut.fetchTraces(WINDOW_1);
+      const windowOne = await fetchAll(sut, WINDOW_1);
 
       const errorTrace = windowOne.find(
         (trace) => trace.traceId === 'trace-w1-005',
@@ -102,7 +117,7 @@ describe('FakeTraceSourceClient', () => {
     it('MUST preserve fixture order — same-session traces arrive shuffled', async () => {
       const { sut } = makeSut();
 
-      const windowOne = await sut.fetchTraces(WINDOW_1);
+      const windowOne = await fetchAll(sut, WINDOW_1);
       const checkoutSession = windowOne
         .filter((trace) => trace.sessionId === 'sess-checkout-001')
         .map((trace) => trace.traceId);

@@ -9,11 +9,12 @@ import {
   TraceBatch,
   TraceBatchSource,
 } from '../../../../application/interfaces/trace-batch-source.js';
+import { PoisonRowRepository } from '../../../../application/interfaces/poison-row-repository.js';
 import {
   SpanRow,
   SummaryRow,
+  parseSummaryRow,
   spanRowSchema,
-  summaryRowSchema,
 } from './clickhouse-row-schema.js';
 import { mapSummaryTrace } from './clickhouse-row-mapper.js';
 import {
@@ -30,6 +31,14 @@ import {
  * that IS the upgrade procedure (decision 59).
  */
 export const EXPECTED_LANGWATCH_SCHEMA_VERSION = 35;
+
+/**
+ * Internal page size for the windowed backfill (audit C-6.3): bounds
+ * memory to one page of summaries + spans + content, whatever the window
+ * size — a 49-day onboarding backfill used to buffer everything and OOM
+ * before the first insert. Matches the continuous loop's default batch.
+ */
+export const WINDOW_PAGE_SIZE = 1000;
 
 export type QueryFn = (
   query: string,
@@ -73,13 +82,16 @@ const SPANS_SELECT = `
  * at most the newest ~100 traces per window and spans only via an N+1
  * detail GET, which does not survive real volume. Implements BOTH ports:
  * cursor-paged batches for the continuous worker (TraceBatchSource) and
- * the one-off half-open window contract (TraceSourceClient) so
- * `make sync` keeps working unchanged.
+ * the paged half-open window contract (TraceSourceClient) so `make sync`
+ * keeps working unchanged.
  *
- * Rows that fail validation/mapping are POISON: skipped and logged with
- * their id, never fatal, and the cursor advances past them (decision 62 —
- * one bad row must not stall ingestion; the log is the recovery trail).
- * EXCEPT when a whole non-trivial batch is poison (decision 79): that is
+ * Rows that fail validation/mapping are POISON: skipped, logged with
+ * their id AND persisted to the poison_rows collection (audit C-6.2 —
+ * container logs rotate; the durable record is the recovery trail), never
+ * fatal, and the cursor advances past them (decision 62 — one bad row
+ * must not stall ingestion). Summary rows whose ONLY defect is a bad
+ * token count are salvaged instead (see parseSummaryRow). EXCEPT when a
+ * whole non-trivial batch is poison (decision 79): that is
  * indistinguishable from schema drift (the startup tripwire runs once —
  * a LangWatch upgrade mid-run would otherwise convert 100% of traffic to
  * skipped-and-logged rows while the cursor advances past them, a silent
@@ -91,6 +103,7 @@ export class ClickHouseLangWatchClient
   private readonly tenantId?: string;
   private readonly quietPeriodMs: number;
   private readonly queryFn: QueryFn;
+  private readonly poisonRowRepository?: PoisonRowRepository;
 
   constructor(args: {
     url: string;
@@ -101,11 +114,14 @@ export class ClickHouseLangWatchClient
     tenantId?: string;
     /** Windowed-sync clamp (decision 61) — defaults to 15 min. */
     quietPeriodMs?: number;
+    /** audit C-6.2: durable poison trail — optional so tests/fixtures stay log-only. */
+    poisonRowRepository?: PoisonRowRepository;
     /** Test seam, like the HTTP client's fetchFn. */
     queryFn?: QueryFn;
   }) {
     this.tenantId = args.tenantId;
     this.quietPeriodMs = args.quietPeriodMs ?? DEFAULT_QUIET_PERIOD_MS;
+    this.poisonRowRepository = args.poisonRowRepository;
     this.queryFn = args.queryFn ?? makeClickHouseQueryFn(args);
   }
 
@@ -133,6 +149,29 @@ export class ClickHouseLangWatchClient
     }
   }
 
+  /**
+   * The SOURCE's clock (audit C-6.4): the quiet period is measured on
+   * UpdatedAt — the source's write times — so it must be anchored to the
+   * source's clock, not the worker's. One cheap SELECT per cycle.
+   */
+  async sourceNow(): Promise<Date> {
+    const rows = await this.queryFn(
+      'SELECT toUnixTimestamp64Milli(now64(3)) AS nowMs',
+      {},
+    );
+
+    const nowMs = Number((rows[0] as { nowMs?: unknown })?.nowMs);
+
+    if (!Number.isFinite(nowMs)) {
+      throw new Error(
+        'Sync: ClickHouse clock read (now64) returned no usable value — ' +
+          'refusing to guess the quiet-period ceiling (audit C-6.4).',
+      );
+    }
+
+    return new Date(nowMs);
+  }
+
   async fetchBatch(args: {
     after: SyncCursor | null;
     limit: number;
@@ -156,7 +195,10 @@ export class ClickHouseLangWatchClient
       },
     );
 
-    const traces = await this.toSourceTraces(rows);
+    const context = args.after
+      ? `cursor=(${args.after.updatedAt.toISOString()}, ${args.after.traceId})`
+      : 'cursor=start';
+    const traces = await this.toSourceTraces(rows, context);
 
     assertNotAllPoison(rows.length, traces.length);
 
@@ -167,11 +209,23 @@ export class ClickHouseLangWatchClient
     };
   }
 
-  /** Half-open [from, to) on the trace's own start instant — CLI contract. */
-  async fetchTraces(requestedWindow: SyncWindow): Promise<SourceTrace[]> {
+  /**
+   * Half-open [from, to) on the trace's own start instant — CLI contract,
+   * served in bounded pages (audit C-6.3) keyed by the (OccurredAt,
+   * TraceId) tuple cursor, the windowed twin of fetchBatch's machinery.
+   */
+  async *fetchTracesPaged(
+    requestedWindow: SyncWindow,
+  ): AsyncIterable<SourceTrace[]> {
     // Same quiet period as the continuous loop (decision 61): an in-flight
-    // trace ingested mid-build freezes a partial, immutable stamp.
-    const safe = clampWindowToQuietPeriod(requestedWindow, this.quietPeriodMs);
+    // trace ingested mid-build freezes a partial, immutable stamp. The
+    // clock is the SOURCE's (audit C-6.4), same as the ceiling below.
+    const now = await this.sourceNow();
+    const safe = clampWindowToQuietPeriod(
+      requestedWindow,
+      this.quietPeriodMs,
+      now,
+    );
 
     if (!safe) {
       console.warn(
@@ -179,7 +233,7 @@ export class ClickHouseLangWatchClient
           '(decision 61: in-flight traces would freeze partial stamps).',
       );
 
-      return [];
+      return;
     }
 
     if (safe.clamped) {
@@ -189,43 +243,113 @@ export class ClickHouseLangWatchClient
       );
     }
 
-    const window = safe.window;
-    const rows = await this.queryFn(
-      `${SUMMARY_SELECT}
-  WHERE s.OccurredAt >= fromUnixTimestamp64Milli({fromMs:Int64})
-    AND s.OccurredAt < fromUnixTimestamp64Milli({toMs:Int64})
-    ${this.tenantId ? 'AND s.TenantId = {tenantId:String}' : ''}
-  ORDER BY s.OccurredAt ASC, s.TraceId ASC`,
-      {
-        fromMs: window.from.getTime(),
-        toMs: window.to.getTime(),
-        ...(this.tenantId ? { tenantId: this.tenantId } : {}),
-      },
+    // audit B-4: the quiet period must hold on the UPDATE axis too — a
+    // trace STARTED long ago but still receiving spans (long agent run,
+    // human-in-the-loop pause) passes the OccurredAt clamp and would be
+    // stamped with partial tokens, immutably. Defer any row updated after
+    // the ceiling; the warn tells the operator a later re-run may fetch
+    // more (the deferred rows stay in the source).
+    const updatedBefore = new Date(now.getTime() - this.quietPeriodMs);
+
+    console.warn(
+      `Sync: rows still updating after ${updatedBefore.toISOString()} are ` +
+        'deferred (quiet period on the update axis, audit B-4) — re-run ' +
+        'the window later to pick up traces that were still receiving spans.',
     );
 
-    const traces = await this.toSourceTraces(rows);
+    const window = safe.window;
+    const context = `window=[${window.from.toISOString()}, ${window.to.toISOString()})`;
+    let afterOccurredAtMs = 0;
+    let afterTraceId = '';
 
-    assertNotAllPoison(rows.length, traces.length);
+    for (;;) {
+      const rows = await this.queryFn(
+        `${SUMMARY_SELECT}
+  WHERE s.OccurredAt >= fromUnixTimestamp64Milli({fromMs:Int64})
+    AND s.OccurredAt < fromUnixTimestamp64Milli({toMs:Int64})
+    AND s.UpdatedAt < fromUnixTimestamp64Milli({updatedBeforeMs:Int64})
+    AND (s.OccurredAt, s.TraceId) > (fromUnixTimestamp64Milli({afterOccurredAtMs:Int64}), {afterTraceId:String})
+    ${this.tenantId ? 'AND s.TenantId = {tenantId:String}' : ''}
+  ORDER BY s.OccurredAt ASC, s.TraceId ASC
+  LIMIT {limit:UInt32}`,
+        {
+          fromMs: window.from.getTime(),
+          toMs: window.to.getTime(),
+          updatedBeforeMs: updatedBefore.getTime(),
+          afterOccurredAtMs,
+          afterTraceId,
+          limit: WINDOW_PAGE_SIZE,
+          ...(this.tenantId ? { tenantId: this.tenantId } : {}),
+        },
+      );
 
-    return traces;
+      if (rows.length === 0) {
+        return;
+      }
+
+      const traces = await this.toSourceTraces(rows, context);
+
+      assertNotAllPoison(rows.length, traces.length);
+
+      if (traces.length > 0) {
+        yield traces;
+      }
+
+      if (rows.length < WINDOW_PAGE_SIZE) {
+        return;
+      }
+
+      const next = windowCursorOf(rows);
+
+      if (!next) {
+        // Unreachable past the all-poison breaker (a full page with no
+        // representable row would have thrown) — defensive stop, never
+        // an infinite re-read of the same page.
+        return;
+      }
+
+      afterOccurredAtMs = next.occurredAtMs;
+      afterTraceId = next.traceId;
+    }
   }
 
-  private async toSourceTraces(rawRows: unknown[]): Promise<SourceTrace[]> {
+  private async toSourceTraces(
+    rawRows: unknown[],
+    context: string,
+  ): Promise<SourceTrace[]> {
     const summaries: SummaryRow[] = [];
 
     for (const raw of rawRows) {
-      const parsed = summaryRowSchema.safeParse(raw);
+      const parsed = parseSummaryRow(raw);
 
-      if (parsed.success) {
-        summaries.push(parsed.data);
+      if (parsed.ok) {
+        if (parsed.salvagedFields.length > 0) {
+          // audit C-6.2 salvage: bad token counts alone never drop a
+          // trace — counts nulled, content preserved, logged here.
+          console.warn(
+            `Sync: summary row salvaged (traceId=${parsed.row.traceId}): ` +
+              `invalid token counts nulled (${parsed.salvagedFields.join(', ')}); ` +
+              'the trace proceeds with content preserved (audit C-6.2).',
+          );
+        }
+
+        summaries.push(parsed.row);
         continue;
       }
 
+      const rowId = String((raw as { traceId?: unknown })?.traceId ?? 'unknown');
+
       console.warn(
-        `Sync: poison summary row skipped (traceId=${String(
-          (raw as { traceId?: unknown })?.traceId ?? 'unknown',
-        )}): ${parsed.error.message}`,
+        `Sync: poison summary row skipped (traceId=${rowId}): ${parsed.error}`,
       );
+      await this.poisonRowRepository?.record({
+        kind: 'summary',
+        id: rowId,
+        context,
+        error: parsed.error,
+        seenAt: new Date(),
+        rawRow: raw,
+      });
     }
 
     if (summaries.length === 0) {
@@ -234,6 +358,7 @@ export class ClickHouseLangWatchClient
 
     const spansByTrace = await this.fetchSpans(
       summaries.map((summary) => summary.traceId),
+      context,
     );
 
     const traces: SourceTrace[] = [];
@@ -247,6 +372,14 @@ export class ClickHouseLangWatchClient
         console.warn(
           `Sync: poison trace skipped (traceId=${summary.traceId}): ${String(error)}`,
         );
+        await this.poisonRowRepository?.record({
+          kind: 'summary',
+          id: summary.traceId,
+          context,
+          error: String(error),
+          seenAt: new Date(),
+          rawRow: summary,
+        });
       }
     }
 
@@ -255,6 +388,7 @@ export class ClickHouseLangWatchClient
 
   private async fetchSpans(
     traceIds: string[],
+    context: string,
   ): Promise<Map<string, SpanRow[]>> {
     const rows = await this.queryFn(SPANS_SELECT, { traceIds });
     const spansByTrace = new Map<string, SpanRow[]>();
@@ -263,11 +397,19 @@ export class ClickHouseLangWatchClient
       const parsed = spanRowSchema.safeParse(raw);
 
       if (!parsed.success) {
+        const rowId = String((raw as { spanId?: unknown })?.spanId ?? 'unknown');
+
         console.warn(
-          `Sync: poison span row skipped (spanId=${String(
-            (raw as { spanId?: unknown })?.spanId ?? 'unknown',
-          )}): ${parsed.error.message}`,
+          `Sync: poison span row skipped (spanId=${rowId}): ${parsed.error.message}`,
         );
+        await this.poisonRowRepository?.record({
+          kind: 'span',
+          id: rowId,
+          context,
+          error: parsed.error.message,
+          seenAt: new Date(),
+          rawRow: raw,
+        });
         continue;
       }
 
@@ -324,6 +466,26 @@ const nextCursorOf = (rawRows: unknown[]): SyncCursor | null => {
 
     if (Number.isFinite(updatedAtMs) && typeof row.traceId === 'string') {
       return { updatedAt: new Date(updatedAtMs), traceId: row.traceId };
+    }
+  }
+
+  return null;
+};
+
+/**
+ * Windowed twin of nextCursorOf (audit C-6.3): the page cursor rides
+ * (OccurredAt, TraceId) — the window's ORDER BY axis — with the same
+ * poison-tolerant backwards scan.
+ */
+const windowCursorOf = (
+  rawRows: unknown[],
+): { occurredAtMs: number; traceId: string } | null => {
+  for (let i = rawRows.length - 1; i >= 0; i -= 1) {
+    const row = rawRows[i] as { occurredAtMs?: unknown; traceId?: unknown };
+    const occurredAtMs = Number(row?.occurredAtMs);
+
+    if (Number.isFinite(occurredAtMs) && typeof row.traceId === 'string') {
+      return { occurredAtMs, traceId: row.traceId };
     }
   }
 

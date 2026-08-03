@@ -55,3 +55,54 @@ export const spanRowSchema = z.looseObject({
 
 export type SummaryRow = z.infer<typeof summaryRowSchema>;
 export type SpanRow = z.infer<typeof spanRowSchema>;
+
+export type SummaryRowParse =
+  | { ok: true; row: SummaryRow; salvagedFields: string[] }
+  | { ok: false; error: string };
+
+/** The only fields the salvage rule may repair — never identity/timestamps. */
+const SALVAGEABLE_TOKEN_FIELDS = new Set(['promptTokens', 'completionTokens']);
+
+/**
+ * audit C-6.2 salvage rule: a summary row failing ONLY the token-count
+ * refinement (negative/fractional counts — an instrumentation defect, not
+ * schema drift) is SALVAGED: the offending counts are nulled and the
+ * trace proceeds — content preserved, tokens fall back to span sums or
+ * absent (pending_price/unclassified beats a dropped trace). Rows failing
+ * structurally (missing id/timestamps, wrong shapes) remain poison. This
+ * also removes the old asymmetry where the same bad-token defect dropped
+ * the whole trace at summary level but only the count at span level.
+ */
+export const parseSummaryRow = (raw: unknown): SummaryRowParse => {
+  const parsed = summaryRowSchema.safeParse(raw);
+
+  if (parsed.success) {
+    return { ok: true, row: parsed.data, salvagedFields: [] };
+  }
+
+  const offendingFields = new Set(
+    parsed.error.issues.map((issue) => String(issue.path[0])),
+  );
+
+  const salvageable =
+    typeof raw === 'object' &&
+    raw !== null &&
+    [...offendingFields].every((field) => SALVAGEABLE_TOKEN_FIELDS.has(field));
+
+  if (salvageable) {
+    const retried = summaryRowSchema.safeParse({
+      ...(raw as Record<string, unknown>),
+      ...Object.fromEntries([...offendingFields].map((field) => [field, null])),
+    });
+
+    if (retried.success) {
+      return {
+        ok: true,
+        row: retried.data,
+        salvagedFields: [...offendingFields].sort(),
+      };
+    }
+  }
+
+  return { ok: false, error: parsed.error.message };
+};

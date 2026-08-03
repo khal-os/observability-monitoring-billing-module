@@ -83,7 +83,13 @@ export const mapToTrace = (
         span.finishedAt.getTime() - span.startedAt.getTime(),
         0,
       ),
-      offsetMs: span.startedAt.getTime() - trace.startedAt.getTime(),
+      // Clock skew between source hosts can yield a span "starting"
+      // before its own trace; the stored snapshot is canonical, so clamp
+      // at the write boundary — same rationale as durationMs (audit C-6.5).
+      offsetMs: Math.max(
+        span.startedAt.getTime() - trace.startedAt.getTime(),
+        0,
+      ),
       status: span.status,
       errorMessage: span.errorMessage,
       tokens: span.tokens ? canonicalTokens(span.tokens) : undefined,
@@ -140,6 +146,9 @@ export const mapToTrace = (
     // copy would go stale the moment a price is registered.
     pendingPrice: undefined,
     unclassified: classifyAttribution(trace),
+    // Named so the null-at-write-boundary convention holds; set to true
+    // only by the pre-insert size guard (content-size-guard.ts, audit B-3).
+    contentTruncated: undefined,
     ingestedAt,
     input: trace.input,
     output: trace.output,

@@ -1,5 +1,10 @@
 import {
   EffectivePrices,
+  EstimateDocumentBytes,
+  IngestFailureRecord,
+  IngestFailureRepository,
+  IngestTruncationRecord,
+  InsertIfAbsentResult,
   TraceSourceClient,
   SourceTrace,
   PriceVersionRepository,
@@ -37,10 +42,12 @@ const makeTrace = (overrides: Partial<SourceTrace> = {}): SourceTrace => ({
 });
 
 class TraceSourceClientStub implements TraceSourceClient {
-  traces: SourceTrace[] = [makeTrace()];
+  pages: SourceTrace[][] = [[makeTrace()]];
 
-  async fetchTraces(window: SyncWindow): Promise<SourceTrace[]> {
-    return this.traces;
+  async *fetchTracesPaged(window: SyncWindow): AsyncIterable<SourceTrace[]> {
+    for (const page of this.pages) {
+      yield page;
+    }
   }
 }
 
@@ -66,9 +73,14 @@ class PriceVersionRepositoryStub implements PriceVersionRepository {
 class TraceRepositoryStub implements TraceRepository {
   inserted: TraceModel[] = [];
   attributionUpdates: { traceId: string; attribution: TraceAttribution }[] = [];
-  insertResult: 'inserted' | 'skipped' = 'inserted';
+  insertResult: InsertIfAbsentResult = 'inserted';
+  failOn = new Set<string>();
 
-  async insertIfAbsent(trace: TraceModel): Promise<'inserted' | 'skipped'> {
+  async insertIfAbsent(trace: TraceModel): Promise<InsertIfAbsentResult> {
+    if (this.failOn.has(trace.traceId)) {
+      throw new Error(`store down at ${trace.traceId}`);
+    }
+
     if (this.insertResult === 'inserted') {
       this.inserted.push(trace);
     }
@@ -95,15 +107,35 @@ class TraceRepositoryStub implements TraceRepository {
   }
 }
 
-const makeSut = () => {
+class IngestFailureRepositoryStub implements IngestFailureRepository {
+  failures: IngestFailureRecord[] = [];
+  truncations: IngestTruncationRecord[] = [];
+
+  async recordFailure(record: IngestFailureRecord): Promise<void> {
+    this.failures.push(record);
+  }
+
+  async recordTruncation(record: IngestTruncationRecord): Promise<void> {
+    this.truncations.push(record);
+  }
+}
+
+const SMALL_DOCUMENT_BYTES = 1024;
+
+const makeSut = (args?: { estimateDocumentBytes?: EstimateDocumentBytes }) => {
   const traceSourceClientStub = new TraceSourceClientStub();
   const priceVersionRepositoryStub = new PriceVersionRepositoryStub();
   const traceRepositoryStub = new TraceRepositoryStub();
+  const ingestFailureRepositoryStub = new IngestFailureRepositoryStub();
+  const billingPeriodRepository = new InMemoryBillingPeriodRepository();
   const sut = new SyncTracesToDbUseCase({
     traceSourceClient: traceSourceClientStub,
     priceVersionRepository: priceVersionRepositoryStub,
     traceRepository: traceRepositoryStub,
-    billingPeriodRepository: new InMemoryBillingPeriodRepository(),
+    billingPeriodRepository,
+    ingestFailureRepository: ingestFailureRepositoryStub,
+    estimateDocumentBytes:
+      args?.estimateDocumentBytes ?? ((): number => SMALL_DOCUMENT_BYTES),
   });
 
   return {
@@ -111,6 +143,8 @@ const makeSut = () => {
     traceSourceClientStub,
     priceVersionRepositoryStub,
     traceRepositoryStub,
+    ingestFailureRepositoryStub,
+    billingPeriodRepository,
   };
 };
 
@@ -135,7 +169,7 @@ describe('SyncTracesToDbUseCase', () => {
       const { sut, traceSourceClientStub, priceVersionRepositoryStub, traceRepositoryStub } =
         makeSut();
 
-      traceSourceClientStub.traces = [makeTrace({ model: undefined })];
+      traceSourceClientStub.pages = [[makeTrace({ model: undefined })]];
       const findPricesSpy = jest.spyOn(
         priceVersionRepositoryStub,
         'findEffectivePrices',
@@ -172,13 +206,13 @@ describe('SyncTracesToDbUseCase', () => {
     it('MUST carry userId, environment and experiment into the stored trace (decision 70)', async () => {
       const { sut, traceSourceClientStub, traceRepositoryStub } = makeSut();
 
-      traceSourceClientStub.traces = [
+      traceSourceClientStub.pages = [[
         makeTrace({
           userId: 'user-5511987654321',
           environment: 'prod',
           experiment: { name: 'assistant-tone', variant: 'B', variantVersion: '2' },
         }),
-      ];
+      ]];
 
       await sut.sync(WINDOW);
 
@@ -255,9 +289,9 @@ describe('SyncTracesToDbUseCase', () => {
     it('MUST store traces with missing attribution, flagged with reasons', async () => {
       const { sut, traceSourceClientStub, traceRepositoryStub } = makeSut();
 
-      traceSourceClientStub.traces = [
+      traceSourceClientStub.pages = [[
         makeTrace({ agent: undefined, model: undefined }),
-      ];
+      ]];
 
       await sut.sync(WINDOW);
 
@@ -265,6 +299,196 @@ describe('SyncTracesToDbUseCase', () => {
       expect(traceRepositoryStub.inserted[0]?.unclassified).toEqual({
         reasons: ['missing agentId', 'missing model'],
       });
+    });
+  });
+
+  describe('Per-trace isolation and dead-letter (audit B-3)', () => {
+    it('MUST dead-letter a poison trace mid-batch and continue with the rest', async () => {
+      const {
+        sut,
+        traceSourceClientStub,
+        traceRepositoryStub,
+        ingestFailureRepositoryStub,
+      } = makeSut();
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      traceSourceClientStub.pages = [[
+        makeTrace({ traceId: 'trace-001' }),
+        makeTrace({ traceId: 'trace-poison' }),
+        makeTrace({ traceId: 'trace-003' }),
+      ]];
+      traceRepositoryStub.failOn.add('trace-poison');
+
+      const report = await sut.sync(WINDOW);
+
+      expect(report).toMatchObject({ fetched: 3, inserted: 2, failed: 1 });
+      expect(traceRepositoryStub.inserted.map((trace) => trace.traceId)).toEqual(
+        ['trace-001', 'trace-003'],
+      );
+      expect(ingestFailureRepositoryStub.failures).toEqual([
+        expect.objectContaining({
+          traceId: 'trace-poison',
+          context: 'window=[2026-06-01T00:00:00.000Z, 2026-06-15T00:00:00.000Z)',
+          error: expect.stringContaining('store down at trace-poison'),
+        }),
+      ]);
+
+      warn.mockRestore();
+    });
+
+    it('MUST throw WITHOUT dead-letter salvation when a whole non-trivial page fails — store outage, not poison', async () => {
+      const {
+        sut,
+        traceSourceClientStub,
+        traceRepositoryStub,
+      } = makeSut();
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const page = Array.from({ length: 10 }, (_, index) =>
+        makeTrace({ traceId: `trace-${index}` }),
+      );
+
+      traceSourceClientStub.pages = [page];
+      for (const trace of page) {
+        traceRepositoryStub.failOn.add(trace.traceId);
+      }
+
+      await expect(sut.sync(WINDOW)).rejects.toThrow(/store outage/);
+
+      warn.mockRestore();
+    });
+  });
+
+  describe('Oversized traces (audit B-3/Q8 size guard)', () => {
+    const HUGE = 'HUGE_CONTENT_MARKER';
+    const OVERSIZE_BYTES = 20 * 1024 * 1024;
+    // Content-sensitive estimator: anything still carrying the huge
+    // payload reads as oversized; clipped documents read small.
+    const estimator: EstimateDocumentBytes = (document) =>
+      JSON.stringify(document)?.includes(HUGE)
+        ? OVERSIZE_BYTES
+        : SMALL_DOCUMENT_BYTES;
+
+    it('MUST store the trace with truncated content markers, flag it, and keep tokens/costs intact', async () => {
+      const {
+        sut,
+        traceSourceClientStub,
+        traceRepositoryStub,
+        ingestFailureRepositoryStub,
+      } = makeSut({ estimateDocumentBytes: estimator });
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      traceSourceClientStub.pages = [[
+        makeTrace({
+          spans: [
+            {
+              spanId: 'span-1',
+              type: 'llm',
+              name: 'chat',
+              startedAt: new Date('2026-06-05T14:00:00.000Z'),
+              finishedAt: new Date('2026-06-05T14:00:02.000Z'),
+              status: 'ok',
+              input: HUGE,
+              output: 'resposta',
+            },
+          ],
+        }),
+      ]];
+
+      const report = await sut.sync(WINDOW);
+
+      const stored = traceRepositoryStub.inserted[0];
+
+      expect(report).toMatchObject({ inserted: 1, failed: 0 });
+      expect(stored?.contentTruncated).toBe(true);
+      expect(stored?.spans[0]?.input).toEqual({
+        truncated: true,
+        originalBytes: OVERSIZE_BYTES,
+      });
+      expect(stored?.spans[0]?.output).toEqual({
+        truncated: true,
+        originalBytes: SMALL_DOCUMENT_BYTES,
+      });
+      // Trace-level content survives — clipping the spans was enough.
+      expect(stored?.input).toBe('entrada');
+      // Tokens and the stamp are computed from counts, not content.
+      expect(stored?.tokensTotal).toBe(1200 + 350);
+      expect(stored?.pricingStatus).toBe('stamped');
+      expect(stored?.totalCostMicrocents).toBe(1200 * 275 + 350 * 275);
+
+      // Recorded as a truncation EVENT, not a failure.
+      expect(ingestFailureRepositoryStub.truncations).toEqual([
+        expect.objectContaining({
+          traceId: 'trace-001',
+          originalBytes: OVERSIZE_BYTES,
+        }),
+      ]);
+      expect(ingestFailureRepositoryStub.failures).toEqual([]);
+
+      warn.mockRestore();
+    });
+  });
+
+  describe('Token divergence on skipped re-syncs (audit B-4 residual, Q3)', () => {
+    it('MUST count + warn when the source now reports more tokens than stored — never mutating anything', async () => {
+      const { sut, traceRepositoryStub } = makeSut();
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      // Stored total (100) ≠ source total (1200 + 350).
+      traceRepositoryStub.insertResult = {
+        outcome: 'skipped',
+        storedTokensTotal: 100,
+      };
+
+      const report = await sut.sync(WINDOW);
+
+      expect(report).toMatchObject({ skipped: 1, tokenDivergence: 1 });
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('divergent token totals'),
+      );
+      // Attribution refresh still happens; nothing else is touched.
+      expect(traceRepositoryStub.attributionUpdates).toHaveLength(1);
+
+      warn.mockRestore();
+    });
+
+    it('MUST NOT count divergence when the skipped branch reports a matching total', async () => {
+      const { sut, traceRepositoryStub } = makeSut();
+
+      traceRepositoryStub.insertResult = {
+        outcome: 'skipped',
+        storedTokensTotal: 1200 + 350,
+      };
+
+      const report = await sut.sync(WINDOW);
+
+      expect(report).toMatchObject({ skipped: 1, tokenDivergence: 0 });
+    });
+  });
+
+  describe('Closed-month quarantine (T6, closed months loaded once — audit C-7.3)', () => {
+    it('MUST quarantine a trace dated inside a closed month', async () => {
+      const { sut, traceRepositoryStub, billingPeriodRepository } = makeSut();
+
+      await billingPeriodRepository.markClosed({
+        year: 2026,
+        month: 6,
+        closedAt: new Date('2026-07-01T00:00:00.000Z'),
+        snapshotVersion: 1,
+        audit: {
+          at: new Date('2026-07-01T00:00:00.000Z'),
+          action: 'close',
+          trigger: 'runbook',
+          snapshotVersion: 1,
+        },
+      });
+
+      const report = await sut.sync(WINDOW);
+
+      expect(report.quarantined).toBe(1);
+      expect(traceRepositoryStub.inserted[0]?.billingQuarantine).toEqual(
+        expect.objectContaining({ reason: 'period_closed' }),
+      );
     });
   });
 });

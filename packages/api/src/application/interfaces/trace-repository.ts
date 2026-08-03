@@ -45,13 +45,25 @@ export interface PendingStamp {
   stampedAt: Date;
 }
 
+/**
+ * audit B-4 residual: the skipped branch MAY carry the stored trace's
+ * consolidated token total, so the ingest path can detect source/store
+ * token divergence with no second read. Adapters that already hold the
+ * stored document SHOULD return the object form; the bare 'skipped'
+ * stays valid (divergence visibility is then simply unavailable).
+ */
+export type InsertIfAbsentResult =
+  | 'inserted'
+  | 'skipped'
+  | { outcome: 'skipped'; storedTokensTotal: number };
+
 export interface TraceRepository {
   /**
    * Idempotent write keyed by the natural traceId: re-syncing a window can
    * never double-count, and an existing stamp is NEVER overwritten. One
    * trace = one document (decision 47), so the write is atomic.
    */
-  insertIfAbsent(trace: TraceModel): Promise<'inserted' | 'skipped'>;
+  insertIfAbsent(trace: TraceModel): Promise<InsertIfAbsentResult>;
 
   /**
    * Refreshes attribution FROM THE SOURCE only — the price stamp is

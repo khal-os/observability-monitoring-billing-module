@@ -9,6 +9,9 @@ import { MongoDbPriceVersionRepository } from '../../infrastructure/database/mon
 import { MongoDbTraceRepository } from '../../infrastructure/database/mongodb/trace/mongodb-trace-repository.js';
 import { MongoDbSyncStateRepository } from '../../infrastructure/database/mongodb/syncState/mongodb-sync-state-repository.js';
 import { MongoDbBillingPeriodRepository } from '../../infrastructure/database/mongodb/billing/mongodb-billing-period-repository.js';
+import { MongoDbIngestFailureRepository } from '../../infrastructure/database/mongodb/ingestFailures/mongodb-ingest-failure-repository.js';
+import { MongoDbPoisonRowRepository } from '../../infrastructure/database/mongodb/ingestFailures/mongodb-poison-row-repository.js';
+import { estimateBsonBytes } from '../../infrastructure/database/mongodb/ingestFailures/bson-size-estimator.js';
 import { config } from '../../infrastructure/index.js';
 
 const INGESTION_DEFAULTS = {
@@ -34,6 +37,8 @@ const makeClickHouseClient = (): ClickHouseLangWatchClient | undefined =>
         database: config.langwatchClickhouseDatabase ?? 'langwatch',
         tenantId: config.langwatchProjectId,
         quietPeriodMs: quietPeriodMs(),
+        // audit C-6.2: skipped rows leave a durable record, not just a log.
+        poisonRowRepository: new MongoDbPoisonRowRepository(),
       })
     : undefined;
 
@@ -47,6 +52,8 @@ const makeTraceSourceClient = (): TraceSourceClient =>
         endpoint: config.langwatchEndpoint,
         apiKey: config.langwatchApiKey,
         quietPeriodMs: quietPeriodMs(),
+        // audit C-6.2: same durable poison trail as the ClickHouse path.
+        poisonRowRepository: new MongoDbPoisonRowRepository(),
       })
     : new FakeTraceSourceClient());
 
@@ -56,6 +63,9 @@ export const makeSyncTracesUseCase = (): SyncTracesToDbUseCase =>
     priceVersionRepository: new MongoDbPriceVersionRepository(),
     traceRepository: new MongoDbTraceRepository(),
     billingPeriodRepository: new MongoDbBillingPeriodRepository(),
+    // audit B-3: dead-letter trail + pre-insert size guard.
+    ingestFailureRepository: new MongoDbIngestFailureRepository(),
+    estimateDocumentBytes: estimateBsonBytes,
   });
 
 export const makeReprocessPendingUseCase = (): ReprocessPendingToDbUseCase =>
@@ -96,6 +106,9 @@ export const makeSyncBatchesUseCase = ():
       priceVersionRepository: new MongoDbPriceVersionRepository(),
       traceRepository: new MongoDbTraceRepository(),
       billingPeriodRepository: new MongoDbBillingPeriodRepository(),
+      // audit B-3: dead-letter trail + pre-insert size guard.
+      ingestFailureRepository: new MongoDbIngestFailureRepository(),
+      estimateDocumentBytes: estimateBsonBytes,
       batchSize: config.traceIngestionBatchSize ?? INGESTION_DEFAULTS.batchSize,
       quietPeriodMs: quietPeriodMs(),
     }),

@@ -22,6 +22,8 @@ import { FakeTraceSourceClient } from '../../traceSource/fake-trace-source-clien
 import { SyncTracesToDbUseCase } from '../../../application/useCases/syncTraces/sync-traces-use-case.js';
 import { ReprocessPendingToDbUseCase } from '../../../application/useCases/reprocessPending/reprocess-pending-use-case.js';
 import { MongoDbBillingPeriodRepository } from './billing/mongodb-billing-period-repository.js';
+import { MongoDbIngestFailureRepository } from './ingestFailures/mongodb-ingest-failure-repository.js';
+import { estimateBsonBytes } from './ingestFailures/bson-size-estimator.js';
 import { GetTraceDetailDbUseCase } from '../../../application/useCases/queryTraces/get-trace-detail-db-use-case.js';
 import { MongoDbTraceQueryRepository } from './trace/mongodb-trace-query-repository.js';
 import { brlToMicrocents } from '../../../common/helpers/money/money.js';
@@ -64,6 +66,8 @@ const makeSut = () => {
     priceVersionRepository,
     traceRepository,
     billingPeriodRepository,
+    ingestFailureRepository: new MongoDbIngestFailureRepository(),
+    estimateDocumentBytes: estimateBsonBytes,
   });
   const reprocess = new ReprocessPendingToDbUseCase({
     priceVersionRepository,
@@ -353,8 +357,10 @@ describe('Sync + price stamping (integration)', () => {
     class MutableTraceSourceClient {
       traces: SourceTrace[] = [];
 
-      async fetchTraces(): Promise<SourceTrace[]> {
-        return this.traces;
+      async *fetchTracesPaged(): AsyncIterable<SourceTrace[]> {
+        if (this.traces.length > 0) {
+          yield this.traces;
+        }
       }
     }
 
@@ -382,6 +388,8 @@ describe('Sync + price stamping (integration)', () => {
         priceVersionRepository,
         traceRepository: new MongoDbTraceRepository(),
         billingPeriodRepository: new MongoDbBillingPeriodRepository(),
+        ingestFailureRepository: new MongoDbIngestFailureRepository(),
+        estimateDocumentBytes: estimateBsonBytes,
       });
 
       // First sync: the source does not report the model yet

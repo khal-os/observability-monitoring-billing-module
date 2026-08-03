@@ -27,7 +27,8 @@ export class FakeTraceSourceClient implements TraceSourceClient {
     this.fixtureFiles = args.fixtureFiles ?? defaultFixtureFiles();
   }
 
-  async fetchTraces(window: SyncWindow): Promise<SourceTrace[]> {
+  /** Static, settled fixtures — the paged contract's single-page form (audit C-6.3). */
+  async *fetchTracesPaged(window: SyncWindow): AsyncIterable<SourceTrace[]> {
     const traces = this.fixtureFiles.flatMap((file) =>
       sourceTraceListSchema.parse(JSON.parse(readFileSync(file, 'utf-8'))),
     );
@@ -35,9 +36,13 @@ export class FakeTraceSourceClient implements TraceSourceClient {
     // Half-open window [from, to): windows compose without double-counting.
     // Fixture file order is preserved on purpose — the real API gives no
     // ordering guarantee, and same-session traces arrive shuffled.
-    return traces.filter(
+    const inWindow = traces.filter(
       (trace) =>
         trace.startedAt >= window.from && trace.startedAt < window.to,
     );
+
+    if (inWindow.length > 0) {
+      yield inWindow;
+    }
   }
 }

@@ -20,7 +20,8 @@ import { makeDatabase } from '../factories/database-factory.js';
  * the restart policy surface a visible crash loop instead of syncing an
  * unverified schema. Loop errors are treated as transient: logged, then
  * retried with doubling backoff (poison ROWS never even throw — the
- * source skips and logs them, decision 62).
+ * source skips and records them, decision 62 + audit C-6.2; a poison
+ * TRACE is dead-lettered by the use case, audit B-3).
  */
 let stopping = false;
 let wake: (() => void) | undefined;
@@ -82,6 +83,8 @@ try {
   let lastReprocessAt = 0;
 
   while (!stopping) {
+    let drainFailed = false;
+
     try {
       // Drain the backlog: batch after batch until caught up. The stop
       // flag is honored between batches — never mid-batch.
@@ -94,21 +97,34 @@ try {
       }
 
       backoffMs = TRANSIENT_BACKOFF_BASE_MS; // healthy cycle → reset
-
-      // Periodic reprocess sweep (decision 63: also triggered directly by
-      // the price-insert job; this is the backstop cadence).
-      if (
-        !stopping &&
-        Date.now() - lastReprocessAt >= traceIngestionWorkerSettings.reprocessIntervalMs
-      ) {
-        await makeReprocessPendingUseCase().reprocess();
-        lastReprocessAt = Date.now();
-      }
     } catch (error) {
       console.error(
         `Trace ingestion worker: cycle failed (retrying in ${backoffMs / 1000}s): ` +
           `${String(error)}`,
       );
+      drainFailed = true;
+    }
+
+    // Periodic reprocess sweep (decision 63: also triggered directly by
+    // the price-insert job; this is the backstop cadence). Runs on its
+    // OWN cadence regardless of drain success (audit B-3): a stalled
+    // drain must not starve pending re-stamps.
+    if (
+      !stopping &&
+      Date.now() - lastReprocessAt >= traceIngestionWorkerSettings.reprocessIntervalMs
+    ) {
+      try {
+        await makeReprocessPendingUseCase().reprocess();
+        lastReprocessAt = Date.now();
+      } catch (error) {
+        console.error(
+          `Trace ingestion worker: reprocess sweep failed (next cadence retries): ` +
+            `${String(error)}`,
+        );
+      }
+    }
+
+    if (drainFailed) {
       await sleep(backoffMs);
       backoffMs = Math.min(backoffMs * 2, TRANSIENT_BACKOFF_CAP_MS);
       continue;

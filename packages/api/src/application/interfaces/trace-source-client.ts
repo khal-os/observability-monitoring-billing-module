@@ -67,5 +67,12 @@ export interface SyncWindow {
 }
 
 export interface TraceSourceClient {
-  fetchTraces(window: SyncWindow): Promise<SourceTrace[]>;
+  /**
+   * Half-open [from, to) window on the trace's own start instant, served
+   * as an ordered stream of BOUNDED pages (audit C-6.3): the 49-day
+   * onboarding backfill of a busy source must never be buffered whole —
+   * the consumer ingests page-by-page, releasing each page before the
+   * next. Sources without native paging yield a single page.
+   */
+  fetchTracesPaged(window: SyncWindow): AsyncIterable<SourceTrace[]>;
 }

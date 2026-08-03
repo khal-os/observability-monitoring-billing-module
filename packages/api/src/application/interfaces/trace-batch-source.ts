@@ -44,4 +44,14 @@ export interface TraceBatchSource {
      */
     updatedBefore: Date;
   }): Promise<TraceBatch>;
+
+  /**
+   * The SOURCE's clock, when the source can serve it cheaply (audit
+   * C-6.4): the quiet period is measured against the source's write
+   * times, so a worker clock N minutes behind the source would silently
+   * shrink the 15-minute quiet period to 15−N and re-open the
+   * partial-stamp hole decision 61 closed. Optional — sources without a
+   * queryable clock fall back to the worker's clock.
+   */
+  sourceNow?(): Promise<Date>;
 }

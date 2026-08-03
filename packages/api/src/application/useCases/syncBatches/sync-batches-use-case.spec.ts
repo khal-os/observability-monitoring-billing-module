@@ -1,5 +1,9 @@
 import {
   EffectivePrices,
+  IngestFailureRecord,
+  IngestFailureRepository,
+  IngestTruncationRecord,
+  InsertIfAbsentResult,
   PendingStamp,
   PriceVersionRepository,
   SourceTrace,
@@ -62,6 +66,15 @@ class TraceBatchSourceStub implements TraceBatchSource {
   }
 }
 
+/** audit C-6.4: a source that CAN serve its own clock (skewed from the worker's). */
+class ClockedTraceBatchSourceStub extends TraceBatchSourceStub {
+  sourceClock = new Date(NOW.getTime() + 120_000);
+
+  async sourceNow(): Promise<Date> {
+    return this.sourceClock;
+  }
+}
+
 class SyncStateRepositoryStub implements SyncStateRepository {
   cursor: SyncCursor | null = null;
   writes: SyncCursor[] = [];
@@ -99,11 +112,11 @@ class TraceRepositoryStub implements TraceRepository {
   inserted: TraceModel[] = [];
   attributionUpdates: { traceId: string; attribution: TraceAttribution }[] =
     [];
-  insertResult: 'inserted' | 'skipped' = 'inserted';
-  failOn?: string;
+  insertResult: InsertIfAbsentResult = 'inserted';
+  failOn = new Set<string>();
 
-  async insertIfAbsent(trace: TraceModel): Promise<'inserted' | 'skipped'> {
-    if (this.failOn === trace.traceId) {
+  async insertIfAbsent(trace: TraceModel): Promise<InsertIfAbsentResult> {
+    if (this.failOn.has(trace.traceId)) {
       throw new Error(`store down at ${trace.traceId}`);
     }
 
@@ -133,17 +146,36 @@ class TraceRepositoryStub implements TraceRepository {
   }
 }
 
-const makeSut = (args?: { batchSize?: number }) => {
-  const traceBatchSourceStub = new TraceBatchSourceStub();
+class IngestFailureRepositoryStub implements IngestFailureRepository {
+  failures: IngestFailureRecord[] = [];
+  truncations: IngestTruncationRecord[] = [];
+
+  async recordFailure(record: IngestFailureRecord): Promise<void> {
+    this.failures.push(record);
+  }
+
+  async recordTruncation(record: IngestTruncationRecord): Promise<void> {
+    this.truncations.push(record);
+  }
+}
+
+const makeSut = (args?: {
+  batchSize?: number;
+  traceBatchSource?: TraceBatchSourceStub;
+}) => {
+  const traceBatchSourceStub = args?.traceBatchSource ?? new TraceBatchSourceStub();
   const syncStateRepositoryStub = new SyncStateRepositoryStub();
   const priceVersionRepositoryStub = new PriceVersionRepositoryStub();
   const traceRepositoryStub = new TraceRepositoryStub();
+  const ingestFailureRepositoryStub = new IngestFailureRepositoryStub();
   const sut = new SyncBatchesToDbUseCase({
     traceBatchSource: traceBatchSourceStub,
     syncStateRepository: syncStateRepositoryStub,
     priceVersionRepository: priceVersionRepositoryStub,
     traceRepository: traceRepositoryStub,
     billingPeriodRepository: new InMemoryBillingPeriodRepository(),
+    ingestFailureRepository: ingestFailureRepositoryStub,
+    estimateDocumentBytes: (): number => 1024,
     batchSize: args?.batchSize ?? 2,
     quietPeriodMs: QUIET_MS,
     now: () => NOW,
@@ -154,6 +186,7 @@ const makeSut = (args?: { batchSize?: number }) => {
     traceBatchSourceStub,
     syncStateRepositoryStub,
     traceRepositoryStub,
+    ingestFailureRepositoryStub,
   };
 };
 
@@ -174,6 +207,21 @@ describe('SyncBatchesToDbUseCase', () => {
     ]);
   });
 
+  it('MUST anchor the quiet-period ceiling on the SOURCE clock when the source serves one (audit C-6.4)', async () => {
+    const clockedSource = new ClockedTraceBatchSourceStub();
+    const { sut, traceBatchSourceStub } = makeSut({
+      traceBatchSource: clockedSource,
+    });
+
+    await sut.syncNextBatch();
+
+    // Worker clock (NOW) is 2 min behind the source's — using it would
+    // shrink the quiet period; the ceiling must ride the source clock.
+    expect(traceBatchSourceStub.calls[0]?.updatedBefore).toEqual(
+      new Date(clockedSource.sourceClock.getTime() - QUIET_MS),
+    );
+  });
+
   it('MUST ingest the batch and only then advance the cursor (work first, bookmark second)', async () => {
     const { sut, syncStateRepositoryStub, traceRepositoryStub } = makeSut();
 
@@ -186,22 +234,69 @@ describe('SyncBatchesToDbUseCase', () => {
     expect(report).toMatchObject({ scanned: 1, inserted: 1, caughtUp: true });
   });
 
-  it('MUST NOT advance the cursor when ingestion fails mid-batch', async () => {
-    const { sut, traceBatchSourceStub, syncStateRepositoryStub, traceRepositoryStub } =
-      makeSut();
+  it('MUST dead-letter a poison trace mid-batch, continue, and STILL advance the cursor (audit B-3)', async () => {
+    const {
+      sut,
+      traceBatchSourceStub,
+      syncStateRepositoryStub,
+      traceRepositoryStub,
+      ingestFailureRepositoryStub,
+    } = makeSut();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
     traceBatchSourceStub.batch = {
       traces: [makeTrace('trace-001'), makeTrace('trace-002')],
       nextCursor: cursorOf('trace-002'),
       scanned: 2,
     };
-    traceRepositoryStub.failOn = 'trace-002';
+    traceRepositoryStub.failOn.add('trace-002');
 
-    await expect(sut.syncNextBatch()).rejects.toThrow('store down');
+    const report = await sut.syncNextBatch();
 
-    // Crash story: cursor untouched → the batch is re-read next cycle and
-    // trace-001 is deduplicated by insertIfAbsent.
+    // The poison trace no longer blocks the cursor — the dead-letter row
+    // is the recovery trail; head-of-line blocking was the B-3 bug.
+    expect(report).toMatchObject({ scanned: 2, inserted: 1, failed: 1 });
+    expect(syncStateRepositoryStub.writes).toEqual([cursorOf('trace-002')]);
+    expect(ingestFailureRepositoryStub.failures).toEqual([
+      expect.objectContaining({
+        traceId: 'trace-002',
+        context: 'cursor=start',
+        error: expect.stringContaining('store down at trace-002'),
+      }),
+    ]);
+
+    warn.mockRestore();
+  });
+
+  it('MUST throw WITHOUT advancing when every trace of a non-trivial batch fails — store outage, not poison (audit B-3 breaker)', async () => {
+    const {
+      sut,
+      traceBatchSourceStub,
+      syncStateRepositoryStub,
+      traceRepositoryStub,
+    } = makeSut({ batchSize: 10 });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const traces = Array.from({ length: 10 }, (_, index) =>
+      makeTrace(`trace-${index}`),
+    );
+
+    traceBatchSourceStub.batch = {
+      traces,
+      nextCursor: cursorOf('trace-9'),
+      scanned: 10,
+    };
+    for (const trace of traces) {
+      traceRepositoryStub.failOn.add(trace.traceId);
+    }
+
+    await expect(sut.syncNextBatch()).rejects.toThrow(/store outage/);
+
+    // Crash story preserved: cursor untouched → the batch is re-read next
+    // cycle and deduplicated by insertIfAbsent.
     expect(syncStateRepositoryStub.writes).toEqual([]);
+
+    warn.mockRestore();
   });
 
   it('MUST keep the cursor untouched on an empty batch', async () => {
@@ -238,5 +333,24 @@ describe('SyncBatchesToDbUseCase', () => {
 
     expect(report).toMatchObject({ inserted: 0, skipped: 1 });
     expect(traceRepositoryStub.attributionUpdates).toHaveLength(1);
+  });
+
+  it('MUST count token divergence on a skipped re-sync that reports a different stored total (audit B-4 residual, Q3)', async () => {
+    const { sut, traceRepositoryStub } = makeSut();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    traceRepositoryStub.insertResult = {
+      outcome: 'skipped',
+      storedTokensTotal: 100, // source now says 1200 + 350
+    };
+
+    const report = await sut.syncNextBatch();
+
+    expect(report).toMatchObject({ skipped: 1, tokenDivergence: 1 });
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('divergent token totals'),
+    );
+
+    warn.mockRestore();
   });
 });
