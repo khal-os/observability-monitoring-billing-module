@@ -106,7 +106,7 @@ services:
   # of silently double-draining. LangWatch replicas are irrelevant here —
   # this worker reads ClickHouse, not the app.
   trace-ingestion-worker:
-    image: ${API_IMAGE:-platform-api:local}
+    image: ${CONNECTOR_IMAGE:-platform-connector:local}
     container_name: ${CLIENT_NAME}-trace-ingestion-worker
     command: ["node", "dist/main/jobs/run-trace-ingestion-loop.js"]
     init: true # forward SIGTERM to node (the loop finishes its batch first)
@@ -115,7 +115,6 @@ services:
     stop_grace_period: 60s
     environment:
       ENVIRONMENT: production
-      SERVER_PORT: "3000" # unused (no server) but required by config validation
       CLIENT_NAME: ${CLIENT_NAME}
       MONGO_DB_HOST: ${MONGO_DB_HOST:-mongo}
       MONGO_DB_PORT: ${MONGO_DB_PORT:-27017}

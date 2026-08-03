@@ -32,7 +32,7 @@ name: ${CLIENT_NAME}
 
 services:
   api:
-    image: ${API_IMAGE:-platform-api:local}
+    image: ${MODULE_IMAGE:-platform-module:local}
     container_name: ${CLIENT_NAME:?set CLIENT_NAME via --env-file (see clients/example.env)}-api
     init: true # not for signals (the app drains SIGTERM itself, C-5.4): PID-1 zombie reaping + backstop if node is ever shell-wrapped
     environment:

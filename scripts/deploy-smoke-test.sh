@@ -191,7 +191,7 @@ case_ "D · contrato publicado do teto de contagem == comportamento do código"
 # A iteração 2 passou a limitar o total TAMBÉM sem filtros (decisão 116) e
 # não mexeu em nenhuma superfície que o cliente lê. Nada no código quebra
 # quando a prosa mente — por isso a checagem é aqui, cruzando as duas.
-CAP_LINE='packages/module/src/infrastructure/database/mongodb/trace/mongodb-trace-query-repository.ts'
+CAP_LINE='packages/core/src/infrastructure/database/mongodb/trace/mongodb-trace-query-repository.ts'
 if grep -q '^\s*const totalCapped = rawTotal > TOTAL_CAP;$' "$CAP_LINE"; then
   ok "o código limita o total nas DUAS metades (com e sem filtros)"
 else

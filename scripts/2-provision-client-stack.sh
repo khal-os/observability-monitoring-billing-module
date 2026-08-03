@@ -20,8 +20,9 @@ banner 2 "provisão — imagens · stack · migrações"
 API_PORT="$(host_port API_PORT)"; LANGWATCH_PORT="$(host_port LANGWATCH_PORT)"
 
 # ---------- images ----------
-docker image inspect "$(get API_IMAGE)" > /dev/null 2>&1 \
-  || { step "buildando imagens (api + ui)"; live make build || die "build falhou"; }
+docker image inspect "$(get MODULE_IMAGE)" > /dev/null 2>&1 \
+  && docker image inspect "$(get CONNECTOR_IMAGE)" > /dev/null 2>&1 \
+  || { step "buildando imagens (module + connector + ui)"; live make build || die "build falhou"; }
 docker image inspect platform-ui:local > /dev/null 2>&1 \
   || { step "buildando imagem da UI"; live docker build -f docker/ui.Dockerfile -t platform-ui:local . || die "build da UI falhou"; }
 

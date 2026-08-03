@@ -15,7 +15,8 @@
 #   --mongo-user U        enable mongo auth (with --mongo-pass; BEFORE first boot)
 #   --mongo-pass P
 #   --langwatch-key KEY   LangWatch project API key (can be applied later by re-running)
-#   --image REF           API image reference          (default: platform-api:local)
+#   --image REF           module image reference       (default: platform-module:local)
+#   --connector-image REF connector image reference    (default: platform-connector:local)
 #   --env KEY=VALUE       set/override ANY contract var (repeatable) — e.g.
 #                         --env TRACE_INGESTION_QUIET_PERIOD_SECONDS=60 --env TRACE_INGESTION_BATCH_SIZE=200
 #                         (see clients/example.env for the full contract)
@@ -27,7 +28,7 @@ require_name "${1:-}"; shift || true
 banner 1 "env — contrato do cliente"
 
 API_PORT="" LANGWATCH_PORT="" UI_PORT="" MONGO_HOST_PORT="" MONGO_USER="" MONGO_PASS=""
-LANGWATCH_KEY="" IMAGE="platform-api:local"
+LANGWATCH_KEY="" IMAGE="platform-module:local" CONNECTOR_IMAGE_REF="platform-connector:local"
 declare -a ENV_OVERRIDES=()
 
 while [[ $# -gt 0 ]]; do
@@ -40,6 +41,7 @@ while [[ $# -gt 0 ]]; do
     --mongo-pass)      MONGO_PASS="$2"; shift 2 ;;
     --langwatch-key)   LANGWATCH_KEY="$2"; shift 2 ;;
     --image)           IMAGE="$2"; shift 2 ;;
+    --connector-image) CONNECTOR_IMAGE_REF="$2"; shift 2 ;;
     --env)             [[ "$2" =~ ^[A-Z_]+=.*$ ]] || die "--env espera KEY=VALUE: '$2'"
                        ENV_OVERRIDES+=("$2"); shift 2 ;;
     *) die "opção desconhecida: $1" ;;
@@ -89,7 +91,8 @@ LW_NEXTAUTH_SECRET=$(openssl rand -base64 32)
 LW_API_TOKEN_JWT_SECRET=$(openssl rand -base64 32)
 LW_CREDENTIALS_SECRET=$(openssl rand -base64 32)
 
-API_IMAGE=${IMAGE}
+MODULE_IMAGE=${IMAGE}
+CONNECTOR_IMAGE=${CONNECTOR_IMAGE_REF}
 
 # Sync-worker DEMO knobs — fast feedback for demo stacks. Production
 # defaults are 60/1000/900/3600 (see clients/example.env, decision 61).

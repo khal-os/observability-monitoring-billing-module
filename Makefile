@@ -2,7 +2,7 @@
 # CLIENT=<name>, which selects clients/<name>.env (the env contract —
 # see clients/example.env). Deploying a new client = writing its env file.
 #
-#   make build                                  # build the API image locally
+#   make build                                  # build the module+connector+ui images locally
 #   make up CLIENT=hapvida                      # dev form (build block + demo fixtures)
 #   make up-prod CLIENT=hapvida                 # production form (image ref only)
 #   make migrate CLIENT=hapvida
@@ -43,7 +43,7 @@ SCRUB = env -u COMPOSE_PROJECT_NAME -u CLIENT_NAME -u API_PORT \
           -u AUTH_SYSTEM_URL -u AUTH_SYSTEM_CLIENT_ID -u AUTH_SYSTEM_CLIENT_SECRET \
           -u MONGO_DB_HOST -u MONGO_DB_PORT -u MONGO_MEMORY_LIMIT \
           -u MONGO_DB_USER -u MONGO_DB_PASSWORD -u MONGO_HOST_PORT \
-          -u API_IMAGE -u UI_IMAGE -u UI_PORT \
+          -u MODULE_IMAGE -u CONNECTOR_IMAGE -u UI_IMAGE -u UI_PORT \
           -u LW_NEXTAUTH_SECRET -u LW_API_TOKEN_JWT_SECRET -u LW_CREDENTIALS_SECRET \
           -u TRACE_INGESTION_INTERVAL_SECONDS -u TRACE_INGESTION_BATCH_SIZE \
           -u TRACE_INGESTION_QUIET_PERIOD_SECONDS -u REPROCESS_INTERVAL_SECONDS \
@@ -89,7 +89,8 @@ require-client:
 	@grep -qx "COMPOSE_PROJECT_NAME=$(CLIENT)" "$(ENVFILE)" || { echo "$(ENVFILE) must contain exactly COMPOSE_PROJECT_NAME=$(CLIENT) — otherwise this client's containers land in another compose project"; exit 1; }
 
 build:
-	docker build -f docker/api.Dockerfile -t platform-api:local .
+	docker build -f docker/module.Dockerfile -t platform-module:local .
+	docker build -f docker/connector.Dockerfile -t platform-connector:local .
 	docker build -f docker/ui.Dockerfile -t platform-ui:local .
 
 # --remove-orphans: a renamed service (e.g. sync-worker →
@@ -149,7 +150,7 @@ seed-prices: require-client
 
 sync: require-client
 	@test -n "$(FROM)" -a -n "$(TO)" || { echo "usage: make sync CLIENT=<name> FROM=YYYY-MM-DD TO=YYYY-MM-DD"; exit 1; }
-	$(SYNC_COMPOSE) run --rm --no-deps api node dist/main/jobs/run-sync.js --from $(FROM) --to $(TO)
+	$(SYNC_COMPOSE) run --rm --no-deps trace-ingestion-worker node dist/main/jobs/run-sync.js --from $(FROM) --to $(TO)
 
 # --effective-from is spelled the SAME way POST /prices spells it (C-2 —
 # the two doors cannot diverge): YYYY-MM-DD reads as UTC midnight, and a

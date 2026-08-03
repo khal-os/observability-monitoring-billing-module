@@ -29,7 +29,8 @@
 #   --mongo-pass P
 #   --langwatch-key KEY   LangWatch project API key (from onboarding; can be
 #                         applied later by re-running with this flag)
-#   --image REF           API image reference          (default: platform-api:local)
+#   --image REF           module image reference       (default: platform-module:local)
+#   --connector-image REF connector image reference    (default: platform-connector:local)
 #   --env KEY=VALUE       set/override ANY contract var (repeatable) — e.g.
 #                         --env TRACE_INGESTION_QUIET_PERIOD_SECONDS=60
 #   --demo-traces         push demo traces into LangWatch (default)
@@ -64,7 +65,7 @@ DEMO_TRACES=1 DEMO_PRICES=1
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --api-port|--langwatch-port|--ui-port|--mongo-host-port|--mongo-user|--mongo-pass|--langwatch-key|--image|--env)
+    --api-port|--langwatch-port|--ui-port|--mongo-host-port|--mongo-user|--mongo-pass|--langwatch-key|--image|--connector-image|--env)
       INIT_ARGS+=("$1" "$2"); shift 2 ;;
     --demo-traces)     DEMO_TRACES=1; shift ;;
     --no-demo-traces)  DEMO_TRACES=0; shift ;;
