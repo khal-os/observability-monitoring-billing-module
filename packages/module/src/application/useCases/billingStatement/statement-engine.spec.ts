@@ -3,8 +3,8 @@ import {
   collectAppliedPriceVersions,
   createStatementFold,
 } from './statement-engine.js';
-import { BillingUsageRecord } from '@khal/core/domain/models/billing-snapshot-model.js';
-import { costMicrocents } from '@khal/core/common/helpers/money/money.js';
+import { BillingUsageRecord } from '@observability/core/domain/models/billing-snapshot-model.js';
+import { costMicrocents } from '@observability/core/common/helpers/money/money.js';
 
 const PRICE_INPUT = 2_500_000_000; // R$ 25,00 / M
 const PRICE_INPUT_V2 = 3_000_000_000; // mid-month change: R$ 30,00 / M

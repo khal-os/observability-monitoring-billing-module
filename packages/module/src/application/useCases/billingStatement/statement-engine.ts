@@ -6,16 +6,16 @@ import {
   StatementLine,
   StatementModelShare,
   StatementProjection,
-} from '@khal/core/domain/models/billing-snapshot-model.js';
+} from '@observability/core/domain/models/billing-snapshot-model.js';
 import {
   TOKEN_TYPES,
   TokenType,
-} from '@khal/core/domain/models/price-version-model.js';
+} from '@observability/core/domain/models/price-version-model.js';
 import {
   costMicrocents,
   reconcileDisplayCents,
   sumMicrocents,
-} from '@khal/core/common/helpers/money/money.js';
+} from '@observability/core/common/helpers/money/money.js';
 
 /**
  * THE billing calculation (invariant 3 made mechanical): one pure function

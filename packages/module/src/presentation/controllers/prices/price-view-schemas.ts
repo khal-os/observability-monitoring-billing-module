@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { tokenTypeSchema } from '../../helpers/docs-schemas.js';
-import { brlToMicrocents } from '@khal/core/common/helpers/money/money.js';
-import { isoDateRule } from '@khal/core/common/helpers/iso-date-rule.js';
+import { brlToMicrocents } from '@observability/core/common/helpers/money/money.js';
+import { isoDateRule } from '@observability/core/common/helpers/iso-date-rule.js';
 
 const convertsToMicrocents = (value: string): boolean => {
   try {

@@ -1,4 +1,4 @@
-import { MongoDb } from '@khal/core/infrastructure/database/mongodb/mongo-db.js';
+import { MongoDb } from '@observability/core/infrastructure/database/mongodb/mongo-db.js';
 import {
   MongoDbSyncStateRepository,
   SYNC_STATE_COLLECTION,

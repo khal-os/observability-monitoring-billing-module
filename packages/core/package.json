@@ -1,5 +1,5 @@
 {
-  "name": "@khal/core",
+  "name": "@observability/core",
   "version": "1.0.0",
   "description": "The store and its rules: domain models, price stamping, reprocess, MongoDB repositories. No HTTP, no trace sources.",
   "type": "module",

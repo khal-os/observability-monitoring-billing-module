@@ -1,7 +1,7 @@
 import { toBillingSummaryView } from './billing-view-model.js';
 import { BillingSummary } from './billing-protocols.js';
 import { buildStatement } from '../../../application/useCases/billingStatement/statement-engine.js';
-import { usageRecord } from '@khal/core/application/testSupport/billing-test-fakes.js';
+import { usageRecord } from '@observability/core/application/testSupport/billing-test-fakes.js';
 
 /** "R$ 1.234,56" → integer cents, digits only — no float parsing. */
 const centsOf = (display: string): number =>

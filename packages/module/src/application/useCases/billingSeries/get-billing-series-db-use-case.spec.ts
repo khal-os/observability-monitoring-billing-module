@@ -8,7 +8,7 @@ import {
   QuarantineReconcilerStub,
   StubBillingQueryRepository,
   usageRecord,
-} from '@khal/core/application/testSupport/billing-test-fakes.js';
+} from '@observability/core/application/testSupport/billing-test-fakes.js';
 
 const NOW = new Date('2026-07-19T12:00:00.000Z');
 

@@ -1,9 +1,9 @@
 import { SourceTrace } from '../../interfaces/trace-source-client.js';
-import { TraceModel, UnclassifiedInfo } from '@khal/core/domain/models/trace-model.js';
-import { ModelRef, parseModelRef } from '@khal/core/domain/models/model-ref.js';
-import { SpanModel } from '@khal/core/domain/models/span-model.js';
-import { StampOutcome } from '@khal/core/application/useCases/priceStamping/price-stamper.js';
-import { deriveUnclassified } from '@khal/core/domain/models/derive-unclassified.js';
+import { TraceModel, UnclassifiedInfo } from '@observability/core/domain/models/trace-model.js';
+import { ModelRef, parseModelRef } from '@observability/core/domain/models/model-ref.js';
+import { SpanModel } from '@observability/core/domain/models/span-model.js';
+import { StampOutcome } from '@observability/core/application/useCases/priceStamping/price-stamper.js';
+import { deriveUnclassified } from '@observability/core/domain/models/derive-unclassified.js';
 
 /**
  * Missing/invalid attribution never drops a trace — it is stored and

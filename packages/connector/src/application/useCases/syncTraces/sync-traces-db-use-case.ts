@@ -14,8 +14,8 @@ import {
   ingestSourceTrace,
   isSystemicStoreError,
 } from './trace-ingestor.js';
-import { closedMonthKeys } from '@khal/core/domain/models/month-key.js';
-import { BillingPeriodRepository } from '@khal/core/application/interfaces/billing-period-repository.js';
+import { closedMonthKeys } from '@observability/core/domain/models/month-key.js';
+import { BillingPeriodRepository } from '@observability/core/application/interfaces/billing-period-repository.js';
 
 export class SyncTracesDbUseCase implements SyncTracesUseCase {
   private readonly traceSourceClient: TraceSourceClient;

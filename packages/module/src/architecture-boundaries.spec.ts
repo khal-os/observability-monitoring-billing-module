@@ -1,21 +1,21 @@
 /**
- * Architecture fitness tests for @khal/module — the module sees only traces
- * already ingested; the trace source lives entirely in @khal/connector:
+ * Architecture fitness tests for @observability/module — the module sees only traces
+ * already ingested; the trace source lives entirely in @observability/connector:
  *
  * 1. The module is VENDOR-BLIND BY PACKAGE: no trace-source vendor name may
  *    appear anywhere here. Stronger than the pre-split rule, which had to
  *    allow the adapter directory — the split moved it out wholesale.
- * 2. @khal/connector may be imported by TESTS ONLY (the route harness seeds
+ * 2. @observability/connector may be imported by TESTS ONLY (the route harness seeds
  *    through the real ingestion; the pipeline test proves invariant 3
  *    end-to-end) — never by production files, so the shipped module has no
  *    path to a trace source.
  * 3. Dependency direction: application must not reach infrastructure,
  *    presentation or main; presentation only domain (+ its own layer and
- *    common). Cross-package imports count: '@khal/core/<layer>/...' is
+ *    common). Cross-package imports count: '@observability/core/<layer>/...' is
  *    treated as that layer — the package boundary must not launder a
  *    forbidden dependency.
  * 4. Storage backend containment (decision 56): storage lives in
- *    @khal/core/infrastructure/database; it counts as "storage" here.
+ *    @observability/core/infrastructure/database; it counts as "storage" here.
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -49,13 +49,13 @@ const importsOf = (file: string): string[] => {
 
 /**
  * Path of an import relative to a src tree — local relative imports AND
- * workspace imports of @khal/core (whose src mirrors the same layer
- * layout). Both must obey the same layer rules: '@khal/core/…' is not a
+ * workspace imports of @observability/core (whose src mirrors the same layer
+ * layout). Both must obey the same layer rules: '@observability/core/…' is not a
  * loophole around them.
  */
 const resolvedPathOf = (file: string, specifier: string): string | null => {
-  if (specifier.startsWith('@khal/core/')) {
-    return specifier.slice('@khal/core/'.length).replace(/\.js$/, '.ts');
+  if (specifier.startsWith('@observability/core/')) {
+    return specifier.slice('@observability/core/'.length).replace(/\.js$/, '.ts');
   }
 
   if (!specifier.startsWith('.')) return null;
@@ -71,7 +71,7 @@ const layerOfImport = (file: string, specifier: string): string | null =>
 
 const VENDOR = /langwatch/i;
 
-describe('Architecture boundaries (@khal/module)', () => {
+describe('Architecture boundaries (@observability/module)', () => {
   it('MUST keep the whole package vendor-blind (the adapter lives in the connector)', () => {
     const offenders = allFiles
       .filter(
@@ -84,7 +84,7 @@ describe('Architecture boundaries (@khal/module)', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('MUST confine @khal/connector to test files — production code has no path to a trace source', () => {
+  it('MUST confine @observability/connector to test files — production code has no path to a trace source', () => {
     const offenders = allFiles
       .filter((file) => {
         const path = posixRelative(file);
@@ -96,7 +96,7 @@ describe('Architecture boundaries (@khal/module)', () => {
           return false;
 
         return importsOf(file).some((specifier) =>
-          specifier.startsWith('@khal/connector/'),
+          specifier.startsWith('@observability/connector/'),
         );
       })
       .map(posixRelative);

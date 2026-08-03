@@ -5,7 +5,7 @@ import {
   SessionListFilters,
   SessionQueryRepository,
 } from './query-sessions-protocols.js';
-import { SessionSummaryModel } from '@khal/core/domain/models/session-model.js';
+import { SessionSummaryModel } from '@observability/core/domain/models/session-model.js';
 
 export class ListSessionsDbUseCase implements ListSessionsUseCase {
   private readonly sessionQueryRepository: SessionQueryRepository;

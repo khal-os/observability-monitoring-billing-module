@@ -1,4 +1,4 @@
-# Platform CONNECTOR image (@khal/connector + @khal/core) — the trace-source
+# Platform CONNECTOR image (@observability/connector + @observability/core) — the trace-source
 # side: the continuous ingestion worker (default CMD) and the manual
 # run-sync job. Build context = workspace ROOT:
 #
@@ -21,12 +21,12 @@ COPY packages/core/package.json packages/core/
 COPY packages/module/package.json packages/module/
 COPY packages/connector/package.json packages/connector/
 COPY packages/ui/package.json packages/ui/
-RUN npm ci --workspace=@khal/connector
+RUN npm ci --workspace=@observability/connector
 COPY packages/core/tsconfig.json packages/core/tsconfig.build.json packages/core/
 COPY packages/core/src packages/core/src
 COPY packages/connector/tsconfig.json packages/connector/tsconfig.build.json packages/connector/
 COPY packages/connector/src packages/connector/src
-RUN npm run build --workspace=@khal/connector \
+RUN npm run build --workspace=@observability/connector \
   && find packages/core/dist packages/connector/dist \
        \( -name '*.spec.js' -o -name '*.test.js' -o -name '*.map' \) -delete
 
@@ -39,7 +39,7 @@ COPY packages/core/package.json packages/core/
 COPY packages/module/package.json packages/module/
 COPY packages/connector/package.json packages/connector/
 COPY packages/ui/package.json packages/ui/
-RUN npm ci --workspace=@khal/connector --omit=dev && npm cache clean --force
+RUN npm ci --workspace=@observability/connector --omit=dev && npm cache clean --force
 COPY --from=build /app/packages/core/dist packages/core/dist
 COPY --from=build /app/packages/connector/dist packages/connector/dist
 COPY packages/connector/src/infrastructure/traceSource/fixtures \

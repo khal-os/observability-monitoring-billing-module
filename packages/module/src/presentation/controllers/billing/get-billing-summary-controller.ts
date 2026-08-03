@@ -12,7 +12,7 @@ import {
   yearMonthQueryShape,
 } from '../../helpers/query-validation.js';
 import { toBillingSummaryView } from './billing-view-model.js';
-import { BillingPeriodStateError } from '@khal/core/domain/useCases/close-billing-period-use-case.js';
+import { BillingPeriodStateError } from '@observability/core/domain/useCases/close-billing-period-use-case.js';
 
 /** Strict (C-3): an unknown param is a 400, never silently ignored. */
 const summaryQuerySchema = z.strictObject(yearMonthQueryShape);

@@ -15,8 +15,8 @@ import {
   ingestSourceTrace,
   isSystemicStoreError,
 } from '../syncTraces/trace-ingestor.js';
-import { closedMonthKeys } from '@khal/core/domain/models/month-key.js';
-import { BillingPeriodRepository } from '@khal/core/application/interfaces/billing-period-repository.js';
+import { closedMonthKeys } from '@observability/core/domain/models/month-key.js';
+import { BillingPeriodRepository } from '@observability/core/application/interfaces/billing-period-repository.js';
 
 /**
  * One bounded step of the watermark loop (T2 continuous form). The

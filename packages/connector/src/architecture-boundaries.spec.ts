@@ -1,5 +1,5 @@
 /**
- * Architecture fitness tests for @khal/connector — the trace-source side.
+ * Architecture fitness tests for @observability/connector — the trace-source side.
  * These ENFORCE that swapping the vendor (LangWatch today) can never touch
  * business rules:
  *
@@ -9,11 +9,11 @@
  *    (main/factories/sync-factory.ts). domain/application are vendor-blind
  *    by test, not by convention — a different connector fills the same
  *    slot by replacing the adapter, not the sync logic.
- * 2. The connector depends on @khal/core ONLY: importing @khal/module
+ * 2. The connector depends on @observability/core ONLY: importing @observability/module
  *    (even in tests) would make the source side depend on the read API.
  * 3. Dependency direction: domain depends on nothing outer; application
  *    must not reach infrastructure or main. Cross-package imports count:
- *    '@khal/core/<layer>/...' is treated as that layer.
+ *    '@observability/core/<layer>/...' is treated as that layer.
  * 4. Storage backend containment (decision 56): the mongodb driver only
  *    inside infrastructure/database/mongodb/ (this package's ingestion
  *    bookkeeping repos); core's repos count as storage for layer rules.
@@ -48,12 +48,12 @@ const importsOf = (file: string): string[] => {
 
 /**
  * Path of an import relative to a src tree — local relative imports AND
- * workspace imports of @khal/core (whose src mirrors the same layer
+ * workspace imports of @observability/core (whose src mirrors the same layer
  * layout). Both must obey the same layer rules.
  */
 const resolvedPathOf = (file: string, specifier: string): string | null => {
-  if (specifier.startsWith('@khal/core/')) {
-    return specifier.slice('@khal/core/'.length).replace(/\.js$/, '.ts');
+  if (specifier.startsWith('@observability/core/')) {
+    return specifier.slice('@observability/core/'.length).replace(/\.js$/, '.ts');
   }
 
   if (!specifier.startsWith('.')) return null;
@@ -76,7 +76,7 @@ const VENDOR_ALLOWED_PREFIXES = [
   'architecture-boundaries.spec.ts',
 ];
 
-describe('Architecture boundaries (@khal/connector)', () => {
+describe('Architecture boundaries (@observability/connector)', () => {
   it('MUST keep every layer outside the adapter vendor-blind (swap-safe)', () => {
     const offenders = allFiles
       .filter((file) => {
@@ -92,11 +92,11 @@ describe('Architecture boundaries (@khal/connector)', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('MUST NOT import @khal/module — the source side never depends on the read API', () => {
+  it('MUST NOT import @observability/module — the source side never depends on the read API', () => {
     const offenders = allFiles
       .filter((file) =>
         importsOf(file).some((specifier) =>
-          specifier.startsWith('@khal/module'),
+          specifier.startsWith('@observability/module'),
         ),
       )
       .map(posixRelative);

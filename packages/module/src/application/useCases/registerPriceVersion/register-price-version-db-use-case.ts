@@ -8,7 +8,7 @@ import {
 import {
   modelKey,
   parseModelRef,
-} from '@khal/core/domain/models/model-ref.js';
+} from '@observability/core/domain/models/model-ref.js';
 
 /**
  * THE single registration path for a price version — the HTTP endpoint and

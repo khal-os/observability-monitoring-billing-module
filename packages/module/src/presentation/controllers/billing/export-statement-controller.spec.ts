@@ -5,12 +5,12 @@ import {
 } from './billing-protocols.js';
 import { InvalidParamError, MissingParamError } from '../../errors/index.js';
 import { apiErrorSchema } from '../../helpers/docs-schemas.js';
-import { BillingPeriodStateError } from '@khal/core/domain/useCases/close-billing-period-use-case.js';
+import { BillingPeriodStateError } from '@observability/core/domain/useCases/close-billing-period-use-case.js';
 import { buildStatement } from '../../../application/useCases/billingStatement/statement-engine.js';
 import {
   usageRecord,
-} from '@khal/core/application/testSupport/billing-test-fakes.js';
-import { BillingUsageRecord } from '@khal/core/domain/models/billing-snapshot-model.js';
+} from '@observability/core/application/testSupport/billing-test-fakes.js';
+import { BillingUsageRecord } from '@observability/core/domain/models/billing-snapshot-model.js';
 
 /**
  * US17 through the wire (M3): the PARCIAL watermark discipline (QA13 —

@@ -100,7 +100,7 @@ const config = {
     '^(\\.\\.?\\/.+)\\.js$': '$1',
     // Workspace packages resolve via exports maps (node16) at build/runtime;
     // jest runs CommonJS with node10 resolution, so map them to source.
-    '^@khal/core/(.*)\\.js$': '<rootDir>/../core/src/$1.ts',
+    '^@observability/core/(.*)\\.js$': '<rootDir>/../core/src/$1.ts',
   },
 
   // An array of regexp pattern strings, matched against all module paths before considered 'visible' to the module loader

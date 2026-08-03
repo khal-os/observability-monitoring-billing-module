@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import path from 'path';
 import { z } from 'zod';
-import { MongoDbEnvironmentVariables } from '@khal/core/infrastructure/configuration/interfaces/mongodb-environment-variables.js';
+import { MongoDbEnvironmentVariables } from '@observability/core/infrastructure/configuration/interfaces/mongodb-environment-variables.js';
 import {
   LangWatchEnvironmentVariables,
   TraceIngestionWorkerEnvironmentVariables,

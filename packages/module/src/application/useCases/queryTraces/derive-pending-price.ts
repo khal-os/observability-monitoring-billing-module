@@ -1,7 +1,7 @@
-import { TraceModel } from '@khal/core/domain/models/trace-model.js';
-import { modelKey } from '@khal/core/domain/models/model-ref.js';
-import { PriceVersionRepository } from '@khal/core/application/interfaces/price-version-repository.js';
-import { findMissingPriceTokenTypes } from '@khal/core/application/useCases/priceStamping/price-stamper.js';
+import { TraceModel } from '@observability/core/domain/models/trace-model.js';
+import { modelKey } from '@observability/core/domain/models/model-ref.js';
+import { PriceVersionRepository } from '@observability/core/application/interfaces/price-version-repository.js';
+import { findMissingPriceTokenTypes } from '@observability/core/application/useCases/priceStamping/price-stamper.js';
 
 /**
  * Derives pendingPrice.missingTokenTypes AT READ TIME — the deliberate

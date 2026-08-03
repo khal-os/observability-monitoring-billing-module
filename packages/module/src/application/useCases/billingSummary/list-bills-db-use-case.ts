@@ -5,16 +5,16 @@ import {
 import {
   BillListItem,
   ListBillsUseCase,
-} from '@khal/core/domain/useCases/list-bills-use-case.js';
-import { BillingPeriodRepository } from '@khal/core/application/interfaces/billing-period-repository.js';
-import { BillingSnapshotRepository } from '@khal/core/application/interfaces/billing-snapshot-repository.js';
+} from '@observability/core/domain/useCases/list-bills-use-case.js';
+import { BillingPeriodRepository } from '@observability/core/application/interfaces/billing-period-repository.js';
+import { BillingSnapshotRepository } from '@observability/core/application/interfaces/billing-snapshot-repository.js';
 import {
   BillingPeriodModel,
   closedMonthWindows,
   firstOpenMonthStart,
   monthWindowUtc,
   resolvePeriodStatus,
-} from '@khal/core/domain/models/billing-period-model.js';
+} from '@observability/core/domain/models/billing-period-model.js';
 
 /**
  * The months list (T7 feed for US6/US7's selector): every OPEN month with

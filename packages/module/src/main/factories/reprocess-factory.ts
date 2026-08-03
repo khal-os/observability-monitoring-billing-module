@@ -1,7 +1,7 @@
-import { ReprocessPendingDbUseCase } from '@khal/core/application/useCases/reprocessPending/reprocess-pending-db-use-case.js';
-import { MongoDbPriceVersionRepository } from '@khal/core/infrastructure/database/mongodb/priceVersion/mongodb-price-version-repository.js';
-import { MongoDbTraceRepository } from '@khal/core/infrastructure/database/mongodb/trace/mongodb-trace-repository.js';
-import { MongoDbBillingPeriodRepository } from '@khal/core/infrastructure/database/mongodb/billing/mongodb-billing-period-repository.js';
+import { ReprocessPendingDbUseCase } from '@observability/core/application/useCases/reprocessPending/reprocess-pending-db-use-case.js';
+import { MongoDbPriceVersionRepository } from '@observability/core/infrastructure/database/mongodb/priceVersion/mongodb-price-version-repository.js';
+import { MongoDbTraceRepository } from '@observability/core/infrastructure/database/mongodb/trace/mongodb-trace-repository.js';
+import { MongoDbBillingPeriodRepository } from '@observability/core/infrastructure/database/mongodb/billing/mongodb-billing-period-repository.js';
 
 /**
  * The module's OWN wiring of the reprocess sweep (decisions 82/57/83):

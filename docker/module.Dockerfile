@@ -1,4 +1,4 @@
-# Platform MODULE image (@khal/module + @khal/core) — the read API. Build
+# Platform MODULE image (@observability/module + @observability/core) — the read API. Build
 # context = workspace ROOT (the npm-workspaces root):
 #
 #   docker build -f docker/module.Dockerfile -t platform-module:local .
@@ -8,7 +8,7 @@
 #   always run from the workspace root (npm workspaces).
 # - Runtime deps hoist to the root node_modules, so the image preserves the
 #   root/packages nesting and Node resolves imports by walking up from
-#   packages/module/dist to /app/node_modules. @khal/core resolves through
+#   packages/module/dist to /app/node_modules. @observability/core resolves through
 #   its workspace symlink + exports map into packages/core/dist.
 # - packages/{core,module}/package.json ("type":"module") must sit next to
 #   each dist/, or Node parses the ESM output (top-level await) as CommonJS
@@ -17,7 +17,7 @@
 #   core first via project references).
 # - This image is VENDOR-FREE BY CONSTRUCTION: no trace-source code, no
 #   fixtures — ingestion ships in platform-connector (connector.Dockerfile).
-#   @khal/connector is a devDependency (test seeding only); --omit=dev keeps
+#   @observability/connector is a devDependency (test seeding only); --omit=dev keeps
 #   it out of the runtime stage.
 # - Every workspace package.json must be present for npm ci to resolve the
 #   workspace graph, even packages this image never runs.
@@ -29,12 +29,12 @@ COPY packages/core/package.json packages/core/
 COPY packages/module/package.json packages/module/
 COPY packages/connector/package.json packages/connector/
 COPY packages/ui/package.json packages/ui/
-RUN npm ci --workspace=@khal/module
+RUN npm ci --workspace=@observability/module
 COPY packages/core/tsconfig.json packages/core/tsconfig.build.json packages/core/
 COPY packages/core/src packages/core/src
 COPY packages/module/tsconfig.json packages/module/tsconfig.build.json packages/module/
 COPY packages/module/src packages/module/src
-RUN npm run build --workspace=@khal/module \
+RUN npm run build --workspace=@observability/module \
   && find packages/core/dist packages/module/dist \
        \( -name '*.spec.js' -o -name '*.test.js' -o -name '*.map' \) -delete
 
@@ -47,7 +47,7 @@ COPY packages/core/package.json packages/core/
 COPY packages/module/package.json packages/module/
 COPY packages/connector/package.json packages/connector/
 COPY packages/ui/package.json packages/ui/
-RUN npm ci --workspace=@khal/module --omit=dev && npm cache clean --force
+RUN npm ci --workspace=@observability/module --omit=dev && npm cache clean --force
 COPY --from=build /app/packages/core/dist packages/core/dist
 COPY --from=build /app/packages/module/dist packages/module/dist
 

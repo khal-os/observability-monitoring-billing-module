@@ -23,25 +23,27 @@ content) → live views (traces/sessions) + monthly aggregates (billing).
 
 ## Package layout (decision 125 — module ⊥ connector)
 
-npm workspaces, one logical module, one version:
+Ubiquitous language: this repo is the **observability COMPONENT** of Khal
+OS; a component = **module + connector** (hence the npm scope
+`@observability/`). npm workspaces, one component, one version:
 
-- `packages/core` (`@khal/core`) — the store and its rules: domain models,
+- `packages/core` (`@observability/core`) — the store and its rules: domain models,
   price-stamper, reprocess, ALL MongoDB repositories, migrations, the one
-  date rule (`iso-date-rule`). Bottom of the graph — imports no `@khal/*`.
-- `packages/module` (`@khal/module`) — the read API (traces/sessions/
+  date rule (`iso-date-rule`). Bottom of the graph — imports no `@observability/*`.
+- `packages/module` (`@observability/module`) — the read API (traces/sessions/
   billing), prices, month lifecycle, server. **Vendor-blind by package**:
-  no `langwatch` string anywhere; `@khal/connector` is a devDependency for
+  no `langwatch` string anywhere; `@observability/connector` is a devDependency for
   test seeding ONLY (route harness + pipeline test), enforced by test.
-- `packages/connector` (`@khal/connector`) — the trace-source side:
+- `packages/connector` (`@observability/connector`) — the trace-source side:
   LangWatch adapters (ClickHouse/HTTP/fake+fixtures), syncTraces/
   syncBatches, ingestion bookkeeping repos, worker loop + `run-sync` job.
-- `packages/ui` (`@khal/ui`) — static client UI.
+- `packages/ui` (`@observability/ui`) — static client UI.
 
 Graph: `module → core ← connector` (never module ↔ connector in production
 code). Docker mirrors it: `platform-module` (vendor-free by construction)
 and `platform-connector` (worker + fixtures) — see `docker/*.Dockerfile`.
 Each package has its own `architecture-boundaries.spec.ts`; cross-package
-imports count as the layer they name (`@khal/core/<layer>/…`).
+imports count as the layer they name (`@observability/core/<layer>/…`).
 
 ## Invariants — never violate these
 

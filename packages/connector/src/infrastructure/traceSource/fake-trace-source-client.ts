@@ -22,7 +22,7 @@ const defaultFixtureFiles = (): string[] =>
           // From the connector's own cwd (container, jobs, this package's
           // tests) and from the workspace root.
           '**/src/infrastructure/traceSource/fixtures/*.json',
-          // From a SIBLING package's cwd: @khal/module's route suites seed
+          // From a SIBLING package's cwd: @observability/module's route suites seed
           // through the real ingestion (dev-only dependency), and the
           // node_modules symlink route is ignored below — so the fixtures
           // are named by their workspace path.

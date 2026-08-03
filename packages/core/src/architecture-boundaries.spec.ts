@@ -1,12 +1,12 @@
 /**
- * Architecture fitness tests for @khal/core — the store and its rules.
+ * Architecture fitness tests for @observability/core — the store and its rules.
  *
  * 1. Core is VENDOR-BLIND BY PACKAGE: no trace-source vendor name may
  *    appear anywhere in this package (the vendor adapter lives in
- *    @khal/connector). Stronger than the old single-package rule, which
+ *    @observability/connector). Stronger than the old single-package rule, which
  *    had to allow the adapter directory.
  * 2. Core is the BOTTOM of the workspace graph: it must not import any
- *    workspace package (@khal/*) — module and connector depend on core,
+ *    workspace package (@observability/*) — module and connector depend on core,
  *    never the reverse.
  * 3. Dependency direction inside the package: domain depends on nothing
  *    outer; application only on domain; common on nothing.
@@ -56,7 +56,7 @@ const layerOfImport = (file: string, specifier: string): string | null =>
 
 const VENDOR = /langwatch/i;
 
-describe('Architecture boundaries (@khal/core)', () => {
+describe('Architecture boundaries (@observability/core)', () => {
   it('MUST keep the whole package vendor-blind (the adapter lives in the connector)', () => {
     const offenders = allFiles
       .filter(
@@ -72,7 +72,7 @@ describe('Architecture boundaries (@khal/core)', () => {
   it('MUST NOT import any workspace package — core is the bottom of the graph', () => {
     const offenders = allFiles
       .filter((file) =>
-        importsOf(file).some((specifier) => specifier.startsWith('@khal/')),
+        importsOf(file).some((specifier) => specifier.startsWith('@observability/')),
       )
       .map(posixRelative);
 

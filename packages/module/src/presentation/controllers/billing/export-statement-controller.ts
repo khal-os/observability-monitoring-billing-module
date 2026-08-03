@@ -13,7 +13,7 @@ import { buildBadRequest } from '../../helpers/http-helper.js';
 import { InvalidParamError } from '../../errors/index.js';
 import { toBillingSummaryView } from './billing-view-model.js';
 import { BillingSummaryView } from './billing-view-schemas.js';
-import { BillingPeriodStateError } from '@khal/core/domain/useCases/close-billing-period-use-case.js';
+import { BillingPeriodStateError } from '@observability/core/domain/useCases/close-billing-period-use-case.js';
 
 /**
  * US17: ONE statement-export resource — the representation is a query

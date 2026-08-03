@@ -4,13 +4,13 @@ import { makeRegisterPriceVersionUseCase } from '../factories/price-factory.js';
 import {
   TOKEN_TYPES,
   TokenType,
-} from '@khal/core/domain/models/price-version-model.js';
-import { brlToMicrocents } from '@khal/core/common/helpers/money/money.js';
-import { DuplicatePriceVersionError } from '@khal/core/domain/errors/duplicate-price-version-error.js';
+} from '@observability/core/domain/models/price-version-model.js';
+import { brlToMicrocents } from '@observability/core/common/helpers/money/money.js';
+import { DuplicatePriceVersionError } from '@observability/core/domain/errors/duplicate-price-version-error.js';
 import {
   RUNBOOK_DATE_FORMAT_HINT,
   parseRunbookDate,
-} from '@khal/core/common/helpers/parse-runbook-date.js';
+} from '@observability/core/common/helpers/parse-runbook-date.js';
 
 /**
  * T4 runbook (v1 has no admin UI): registers a NEW price version — always

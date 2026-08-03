@@ -1,5 +1,5 @@
-import { TraceModel } from '@khal/core/domain/models/trace-model.js';
-import { SpanModel } from '@khal/core/domain/models/span-model.js';
+import { TraceModel } from '@observability/core/domain/models/trace-model.js';
+import { SpanModel } from '@observability/core/domain/models/span-model.js';
 import { EstimateDocumentBytes } from '../../interfaces/ingest-failure-repository.js';
 
 /**

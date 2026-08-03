@@ -1,7 +1,7 @@
 {
-  "name": "@khal/connector",
+  "name": "@observability/connector",
   "version": "1.0.0",
-  "description": "The trace-source side: LangWatch adapters (ClickHouse/HTTP/fake), the sync write path and the ingestion worker. Depends on @khal/core only.",
+  "description": "The trace-source side: LangWatch adapters (ClickHouse/HTTP/fake), the sync write path and the ingestion worker. Depends on @observability/core only.",
   "type": "module",
   "private": true,
   "exports": {
@@ -32,7 +32,7 @@
   },
   "dependencies": {
     "@clickhouse/client": "^1.23.1",
-    "@khal/core": "*",
+    "@observability/core": "*",
     "dotenv": "^17.4.2",
     "fast-glob": "^3.3.3",
     "mongodb": "^7.2.0",

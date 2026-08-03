@@ -5,7 +5,7 @@
  */
 import request from 'supertest';
 import { server } from '../../app.js';
-import { makeReprocessPendingUseCase } from '@khal/connector/main/factories/sync-factory.js';
+import { makeReprocessPendingUseCase } from '@observability/connector/main/factories/sync-factory.js';
 import { makePriceVersionRepository } from '../../../factories/price-factory.js';
 import {
   routeDbHarness,
@@ -15,9 +15,9 @@ import {
   brlToMicrocents,
   formatBrlExactFromMicrocents,
   formatBrlFromMicrocents,
-} from '@khal/core/common/helpers/money/money.js';
-import { formatBrlDisplay } from '@khal/core/common/helpers/display/display.js';
-import { StampedTokenCost } from '@khal/core/domain/models/trace-model.js';
+} from '@observability/core/common/helpers/money/money.js';
+import { formatBrlDisplay } from '@observability/core/common/helpers/display/display.js';
+import { StampedTokenCost } from '@observability/core/domain/models/trace-model.js';
 
 const app = server.app;
 

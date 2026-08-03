@@ -5,7 +5,7 @@ import { join } from 'node:path';
  * Decision 123's connector half: `make sync` is both the only manual
  * backfill door into the permanent archive and the dead-letter recovery
  * door — a silently-different window loses the trace twice (invariant 6).
- * Parser behavior is specced next to it in @khal/core; the job is a
+ * Parser behavior is specced next to it in @observability/core; the job is a
  * top-level-await script that connects the database on import, so its ONE
  * line of wiring is pinned here at source level (same technique as
  * architecture-boundaries): putting `new Date(values['from'])` back would
@@ -16,7 +16,7 @@ describe('runbook date wiring (decision 123, sync door)', () => {
 
   it('MUST be the border run-sync.ts actually uses', () => {
     expect(job).toContain(
-      "from '@khal/core/common/helpers/parse-runbook-date.js'",
+      "from '@observability/core/common/helpers/parse-runbook-date.js'",
     );
     expect(job).toContain("parseRunbookDate(values['from'])");
     expect(job).toContain("parseRunbookDate(values['to'])");

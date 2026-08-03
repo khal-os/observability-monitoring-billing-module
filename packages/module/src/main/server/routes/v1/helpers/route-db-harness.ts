@@ -1,23 +1,23 @@
-import { MongoDb } from '@khal/core/infrastructure/database/mongodb/mongo-db.js';
+import { MongoDb } from '@observability/core/infrastructure/database/mongodb/mongo-db.js';
 import {
   MIGRATIONS_COLLECTION,
   runMigrations,
-} from '@khal/core/infrastructure/database/mongodb/helpers/migration-runner.js';
-import { migrations } from '@khal/core/infrastructure/database/mongodb/migrations/index.js';
-import { seedPocPrices } from '@khal/core/infrastructure/database/mongodb/priceVersion/poc-price-seed.js';
-import { PRICE_VERSIONS_COLLECTION } from '@khal/core/infrastructure/database/mongodb/priceVersion/mongodb-price-version-repository.js';
+} from '@observability/core/infrastructure/database/mongodb/helpers/migration-runner.js';
+import { migrations } from '@observability/core/infrastructure/database/mongodb/migrations/index.js';
+import { seedPocPrices } from '@observability/core/infrastructure/database/mongodb/priceVersion/poc-price-seed.js';
+import { PRICE_VERSIONS_COLLECTION } from '@observability/core/infrastructure/database/mongodb/priceVersion/mongodb-price-version-repository.js';
 import {
   SESSION_SUMMARIES_COLLECTION,
   TRACES_COLLECTION,
   TRACE_FILTER_COUNTERS_COLLECTION,
-} from '@khal/core/infrastructure/database/mongodb/collections.js';
-import { BILLING_PERIODS_COLLECTION } from '@khal/core/infrastructure/database/mongodb/billing/mongodb-billing-period-repository.js';
+} from '@observability/core/infrastructure/database/mongodb/collections.js';
+import { BILLING_PERIODS_COLLECTION } from '@observability/core/infrastructure/database/mongodb/billing/mongodb-billing-period-repository.js';
 import {
   BILLING_SNAPSHOTS_COLLECTION,
   BILLING_SNAPSHOT_USAGE_COLLECTION,
-} from '@khal/core/infrastructure/database/mongodb/billing/mongodb-billing-snapshot-repository.js';
-import { makeSyncTracesUseCase } from '@khal/connector/main/factories/sync-factory.js';
-import { StampedTokenCost } from '@khal/core/domain/models/trace-model.js';
+} from '@observability/core/infrastructure/database/mongodb/billing/mongodb-billing-snapshot-repository.js';
+import { makeSyncTracesUseCase } from '@observability/connector/main/factories/sync-factory.js';
+import { StampedTokenCost } from '@observability/core/domain/models/trace-model.js';
 
 /**
  * THE single storage-aware helper behind the route suites. The HTTP-level

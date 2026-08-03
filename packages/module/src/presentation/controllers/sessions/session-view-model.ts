@@ -1,6 +1,6 @@
-import { SessionSummaryModel } from '@khal/core/domain/models/session-model.js';
-import { SessionDetail } from '@khal/core/domain/useCases/get-session-detail-use-case.js';
-import { formatBrlFromMicrocents } from '@khal/core/common/helpers/money/money.js';
+import { SessionSummaryModel } from '@observability/core/domain/models/session-model.js';
+import { SessionDetail } from '@observability/core/domain/useCases/get-session-detail-use-case.js';
+import { formatBrlFromMicrocents } from '@observability/core/common/helpers/money/money.js';
 import {
   contentToText,
   formatAgeDisplay,
@@ -8,7 +8,7 @@ import {
   formatDateTimeDisplay,
   formatDurationDisplay,
   formatIntDisplay,
-} from '@khal/core/common/helpers/display/display.js';
+} from '@observability/core/common/helpers/display/display.js';
 import { toTraceListItem } from '../traces/trace-view-model.js';
 import {
   SessionDetailView,

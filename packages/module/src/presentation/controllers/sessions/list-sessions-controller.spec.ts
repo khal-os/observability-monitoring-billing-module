@@ -5,7 +5,7 @@ import {
   Pagination,
   SessionListFilters,
 } from './sessions-protocols.js';
-import { SessionSummaryModel } from '@khal/core/domain/models/session-model.js';
+import { SessionSummaryModel } from '@observability/core/domain/models/session-model.js';
 import { InvalidParamError } from '../../errors/index.js';
 
 const makeSession = (

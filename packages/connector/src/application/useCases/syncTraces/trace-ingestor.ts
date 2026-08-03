@@ -1,17 +1,17 @@
-import { EffectivePrices } from '@khal/core/application/interfaces/price-version-repository.js';
-import { PriceVersionRepository } from '@khal/core/application/interfaces/price-version-repository.js';
-import { TraceRepository } from '@khal/core/application/interfaces/trace-repository.js';
+import { EffectivePrices } from '@observability/core/application/interfaces/price-version-repository.js';
+import { PriceVersionRepository } from '@observability/core/application/interfaces/price-version-repository.js';
+import { TraceRepository } from '@observability/core/application/interfaces/trace-repository.js';
 import {
   EstimateDocumentBytes,
   IngestFailureKind,
   IngestFailureRepository,
 } from '../../interfaces/ingest-failure-repository.js';
-import { BillingPeriodRepository } from '@khal/core/application/interfaces/billing-period-repository.js';
+import { BillingPeriodRepository } from '@observability/core/application/interfaces/billing-period-repository.js';
 import { SourceTrace } from '../../interfaces/trace-source-client.js';
-import { BillingPeriodModel } from '@khal/core/domain/models/billing-period-model.js';
-import { modelKey } from '@khal/core/domain/models/model-ref.js';
-import { stampTokens } from '@khal/core/application/useCases/priceStamping/price-stamper.js';
-import { closedMonthKeys, monthKeyOf } from '@khal/core/domain/models/month-key.js';
+import { BillingPeriodModel } from '@observability/core/domain/models/billing-period-model.js';
+import { modelKey } from '@observability/core/domain/models/model-ref.js';
+import { stampTokens } from '@observability/core/application/useCases/priceStamping/price-stamper.js';
+import { closedMonthKeys, monthKeyOf } from '@observability/core/domain/models/month-key.js';
 import { mapToTrace, sourceModelRef, sumTokens } from './trace-mapper.js';
 import {
   UnstorableTraceError,

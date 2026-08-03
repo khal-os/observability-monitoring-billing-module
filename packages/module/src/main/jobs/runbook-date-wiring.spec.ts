@@ -1,12 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseRunbookDate } from '@khal/core/common/helpers/parse-runbook-date.js';
+import { parseRunbookDate } from '@observability/core/common/helpers/parse-runbook-date.js';
 import { registerPriceVersionRequestSchema } from '../../presentation/controllers/prices/price-view-schemas.js';
 
 /**
  * Decision 123's module half: the runbook price door and POST /prices are
  * the SAME border. Behavior of the parser is specced next to it in
- * @khal/core; what belongs HERE is (a) the cross-door equivalence against
+ * @observability/core; what belongs HERE is (a) the cross-door equivalence against
  * this package's real HTTP schema and (b) the source-level pin of the job's
  * one line of wiring — the job is a top-level-await script that connects
  * the database on import, so it cannot be exercised in-process (same
@@ -56,7 +56,7 @@ describe('runbook date wiring (decision 123, price door)', () => {
     const job = readFileSync(join(__dirname, 'insert-price-version.ts'), 'utf-8');
 
     expect(job).toContain(
-      "from '@khal/core/common/helpers/parse-runbook-date.js'",
+      "from '@observability/core/common/helpers/parse-runbook-date.js'",
     );
     expect(job).toContain('parseRunbookDate(effectiveFromRaw)');
     expect(job).not.toContain('new Date(effectiveFromRaw)');

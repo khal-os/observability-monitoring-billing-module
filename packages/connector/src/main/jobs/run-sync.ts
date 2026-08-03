@@ -4,7 +4,7 @@ import { makeDatabase } from '../factories/database-factory.js';
 import {
   RUNBOOK_DATE_FORMAT_HINT,
   parseRunbookDate,
-} from '@khal/core/common/helpers/parse-runbook-date.js';
+} from '@observability/core/common/helpers/parse-runbook-date.js';
 
 /**
  * T2-lite sync job. Windows are half-open [from, to) and idempotent:

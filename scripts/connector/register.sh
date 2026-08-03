@@ -15,7 +15,7 @@
 # For the resolved credential to be REAL (not dev-secret-*), start the register
 # with the vault seed (see khal-platform docs/platform/connector-register/sops.md):
 #   VAULT_CREDENTIALS_JSON='{"workos-vault://langwatch-cliente":"<api key>"}' \
-#     pnpm --filter @khal/connector-register dev
+#     pnpm --filter @observability/connector-register dev
 #
 # Env overrides (all optional):
 #   REGISTER_URL   default http://127.0.0.1:7103

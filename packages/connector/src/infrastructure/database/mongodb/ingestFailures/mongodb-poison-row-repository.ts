@@ -2,10 +2,10 @@ import {
   PoisonRowRecord,
   PoisonRowRepository,
 } from '../../../../application/interfaces/poison-row-repository.js';
-import { MongoDb } from '@khal/core/infrastructure/database/mongodb/mongo-db.js';
-import { retryOnceOnDuplicateKey } from '@khal/core/infrastructure/database/mongodb/helpers/retry-once-on-duplicate-key.js';
+import { MongoDb } from '@observability/core/infrastructure/database/mongodb/mongo-db.js';
+import { retryOnceOnDuplicateKey } from '@observability/core/infrastructure/database/mongodb/helpers/retry-once-on-duplicate-key.js';
 
-import { POISON_ROWS_COLLECTION } from '@khal/core/infrastructure/database/mongodb/collections.js';
+import { POISON_ROWS_COLLECTION } from '@observability/core/infrastructure/database/mongodb/collections.js';
 
 /**
  * audit C-6.2: the raw row is forensics, not contract — archived only when

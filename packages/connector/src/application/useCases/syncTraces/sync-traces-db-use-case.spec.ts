@@ -13,10 +13,10 @@ import {
   TraceRepository,
   PendingStamp,
 } from './sync-traces-protocols.js';
-import { PriceVersionModel, TokenType } from '@khal/core/domain/models/price-version-model.js';
-import { TraceModel } from '@khal/core/domain/models/trace-model.js';
+import { PriceVersionModel, TokenType } from '@observability/core/domain/models/price-version-model.js';
+import { TraceModel } from '@observability/core/domain/models/trace-model.js';
 import { SyncTracesDbUseCase } from './sync-traces-db-use-case.js';
-import { InMemoryBillingPeriodRepository } from '@khal/core/application/testSupport/billing-test-fakes.js';
+import { InMemoryBillingPeriodRepository } from '@observability/core/application/testSupport/billing-test-fakes.js';
 
 const WINDOW = {
   from: new Date('2026-06-01T00:00:00.000Z'),

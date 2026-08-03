@@ -1,9 +1,9 @@
 import { z } from 'zod';
-import { isoDateRule } from '@khal/core/common/helpers/iso-date-rule.js';
+import { isoDateRule } from '@observability/core/common/helpers/iso-date-rule.js';
 import { HttpResponse } from '../interfaces/index.js';
 import { InvalidParamError, MissingParamError } from '../errors/index.js';
 import { buildBadRequest } from './http-helper.js';
-import { MAX_PAGINATION_SKIP } from '@khal/core/domain/models/pagination.js';
+import { MAX_PAGINATION_SKIP } from '@observability/core/domain/models/pagination.js';
 
 export const paginationSchema = {
   page: z.coerce.number().int().min(1).default(1),

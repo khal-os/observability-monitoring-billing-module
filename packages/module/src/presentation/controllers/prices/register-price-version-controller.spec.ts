@@ -9,7 +9,7 @@ import {
   InvalidParamError,
   MissingParamError,
 } from '../../errors/index.js';
-import { DuplicatePriceVersionError } from '@khal/core/domain/errors/duplicate-price-version-error.js';
+import { DuplicatePriceVersionError } from '@observability/core/domain/errors/duplicate-price-version-error.js';
 
 const JUNE_1 = new Date('2026-06-01T00:00:00.000Z');
 

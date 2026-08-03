@@ -1,6 +1,6 @@
 import { config } from '../../infrastructure/index.js';
-import { MongoDb } from '@khal/core/infrastructure/database/index.js';
-import { Database } from '@khal/core/infrastructure/interfaces/database.js';
+import { MongoDb } from '@observability/core/infrastructure/database/index.js';
+import { Database } from '@observability/core/infrastructure/interfaces/database.js';
 
 /**
  * THE storage seam of the connector runtime (decision 56): the worker and

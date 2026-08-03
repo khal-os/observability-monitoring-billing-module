@@ -17,10 +17,10 @@ import {
 import {
   PriceVersionModel,
   TokenType,
-} from '@khal/core/domain/models/price-version-model.js';
-import { TraceModel } from '@khal/core/domain/models/trace-model.js';
+} from '@observability/core/domain/models/price-version-model.js';
+import { TraceModel } from '@observability/core/domain/models/trace-model.js';
 import { SyncBatchesDbUseCase } from './sync-batches-db-use-case.js';
-import { InMemoryBillingPeriodRepository } from '@khal/core/application/testSupport/billing-test-fakes.js';
+import { InMemoryBillingPeriodRepository } from '@observability/core/application/testSupport/billing-test-fakes.js';
 
 const NOW = new Date('2026-07-23T15:00:00.000Z');
 const QUIET_MS = 900_000;

@@ -4,8 +4,8 @@ import { makeCloseBillingPeriodUseCase } from '../factories/billing-factory.js';
 import {
   BillingCloseBlockedError,
   BillingPeriodStateError,
-} from '@khal/core/domain/useCases/close-billing-period-use-case.js';
-import { formatBrlFromCents } from '@khal/core/common/helpers/money/money.js';
+} from '@observability/core/domain/useCases/close-billing-period-use-case.js';
+import { formatBrlFromCents } from '@observability/core/common/helpers/money/money.js';
 
 /**
  * T6 runbook (decision 87 — the ONLY close trigger in v1): freezes a
