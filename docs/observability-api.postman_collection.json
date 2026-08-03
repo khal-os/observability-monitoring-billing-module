@@ -1,8 +1,18 @@
 {
  "info": {
   "name": "Módulo de Observabilidade — API",
-  "description": "Uma API, três faces: Billing (quanto custou), Traces (as execuções reais) e Sessions (as conversas).\n\nTodos os valores client-facing são em R$; custos vêm do carimbo de preço aplicado na ingestão (imutável). Traces sem preço aplicável aparecem como `pending_price` — nunca R$ 0,00.\n\n**Convenções de query**\n- Datas/período: ISO 8601 em UTC, janelas half-open `[from, to)`.\n- Filtros multi-valor (decisão 76): repita o parâmetro para OR — `?agent=a&agent=b`. OR dentro do campo, AND entre campos.\n- Paginação: `page` (1-based) e `page_size` (máx. 100), server-side, mais recente primeiro.\n\nAjuste a variável `baseUrl` para o deployment desejado (padrão: stack local do cliente em `http://localhost:3002`).",
+  "description": "Uma API, três faces: Billing (quanto custou), Traces (as execuções reais) e Sessions (as conversas).\n\nTodos os valores client-facing são em R$; custos vêm do carimbo de preço aplicado na ingestão (imutável). Traces sem preço aplicável aparecem como `pending_price` — nunca R$ 0,00.\n\n**Convenções de query**\n- Datas/período: ISO 8601 em UTC, janelas half-open `[from, to)`.\n- Filtros multi-valor (decisão 76): repita o parâmetro para OR — `?agent=a&agent=b`. OR dentro do campo, AND entre campos.\n- Paginação: `page` (1-based) e `page_size` (máx. 100), server-side, mais recente primeiro.\n\nAjuste a variável `baseUrl` para o deployment desejado (padrão: stack local do cliente em `http://localhost:3002`).\n\n**Auth (M2M, condicionada por ambiente)**: a coleção envia `Authorization: Bearer {{token}}` em toda request. O token só é necessário quando o deployment configura `AUTH_SYSTEM_URL` — sem essa variável a API responde aberta (comportamento PoC) e o header vazio é ignorado. As rotas de docs permanecem abertas mesmo com auth ativa.",
   "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+ },
+ "auth": {
+  "type": "bearer",
+  "bearer": [
+   {
+    "key": "token",
+    "value": "{{token}}",
+    "type": "string"
+   }
+  ]
  },
  "variable": [
   {
@@ -29,6 +39,12 @@
    "key": "month",
    "value": "6",
    "type": "string"
+  },
+  {
+   "key": "token",
+   "value": "",
+   "type": "string",
+   "description": "Bearer token M2M aceito pelo khal Auth System. Necessário APENAS quando AUTH_SYSTEM_URL está configurada no deployment; caso contrário deixe vazio."
   }
  ],
  "item": [
@@ -285,6 +301,52 @@
      }
     },
     {
+     "name": "Opções dos dropdowns de filtro de sessões",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/api/v1/sessions/filters",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "api",
+        "v1",
+        "sessions",
+        "filters"
+       ],
+       "query": [
+        {
+         "key": "from",
+         "value": "2026-06-01T00:00:00.000Z",
+         "description": "Início do período (inclusivo, UTC). Filtra pelo INÍCIO da sessão (QA17).",
+         "disabled": true
+        },
+        {
+         "key": "to",
+         "value": "2026-07-01T00:00:00.000Z",
+         "description": "Fim do período (exclusivo, UTC).",
+         "disabled": true
+        },
+        {
+         "key": "agent",
+         "value": "agent-atendimento",
+         "description": "Id do agente da sessão (valor único).",
+         "disabled": true
+        },
+        {
+         "key": "status",
+         "value": "error",
+         "description": "error se QUALQUER trace da sessão falhou (valor único).",
+         "disabled": true
+        }
+       ]
+      },
+      "description": "Valores distintos de agente e status com contagem de SESSÕES por opção — `{value, count}[]` em `agents` e `statuses` — servidos pelo read-model materializado (decisão 80).\n\nCascata com auto-exclusão (decisão 76): as opções do campo X honram todos os filtros EXCETO o do próprio X — um dropdown selecionado continua listando suas alternativas. Sem paginação."
+     }
+    },
+    {
      "name": "Sessão com a cadeia de traces",
      "request": {
       "method": "GET",
@@ -397,6 +459,38 @@
        ]
       },
       "description": "Mensal (default): um total por mês — fechados do snapshot, abertos ao vivo. Diária (granularity=day, decisão 97): baldes de dia UTC, hoje parcial, quarentenados excluídos. Barras empilhadas por tipo de token (segments/stack_percent) nas cores do extrato."
+     }
+    },
+    {
+     "name": "Série diária (decisão 97)",
+     "request": {
+      "method": "GET",
+      "header": [],
+      "url": {
+       "raw": "{{baseUrl}}/api/v1/billing/series?granularity=day&days=30",
+       "host": [
+        "{{baseUrl}}"
+       ],
+       "path": [
+        "api",
+        "v1",
+        "billing",
+        "series"
+       ],
+       "query": [
+        {
+         "key": "granularity",
+         "value": "day",
+         "description": "'month' (default) ou 'day'."
+        },
+        {
+         "key": "days",
+         "value": "30",
+         "description": "1-90, default 30. Só com granularity=day — combinado com months responde 400."
+        }
+       ]
+      },
+      "description": "Mesmos carimbos da série mensal em baldes de dia UTC (decisão 97): hoje sempre parcial, quarentenados excluídos — os dias de um mês fechado somam exatamente a fatura congelada. Barras empilhadas por tipo de token (segments/stack_percent) nas cores das linhas do extrato.\n\nEstrito: `days` pertence à granularidade diária; `months` à mensal — o parâmetro da granularidade errada responde 400."
      }
     },
     {

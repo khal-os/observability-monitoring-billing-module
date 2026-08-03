@@ -3,6 +3,8 @@
  * strict zod schemas used here to parse REAL responses — if the docs and
  * the API ever diverge (or any internal field leaks), this suite fails.
  */
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import request from 'supertest';
 import { server } from '../../app.js';
 import { routeDbHarness } from './helpers/route-db-harness.js';
@@ -71,6 +73,50 @@ describe('API Docs (OpenAPI)', () => {
         FORBIDDEN_INTERNAL_KEYS,
       );
     });
+
+    it('MUST mirror the package version — one number, not two (C-4.1)', async () => {
+      const packageVersion = (
+        JSON.parse(
+          readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf8'),
+        ) as { version: string }
+      ).version;
+
+      const response = await request(app)
+        .get('/api/v1/docs/openapi.json')
+        .expect(200);
+
+      expect(response.body.info.version).toBe(packageVersion);
+      expect(response.body.info.version).toMatch(/^\d+\.\d+\.\d+$/);
+    });
+
+    it('MUST document the env-gated bearer auth: scheme, top-level security and a 401 on every path (C-4.1)', async () => {
+      const response = await request(app)
+        .get('/api/v1/docs/openapi.json')
+        .expect(200);
+
+      expect(response.body.components.securitySchemes.bearerAuth).toEqual(
+        expect.objectContaining({ type: 'http', scheme: 'bearer' }),
+      );
+      expect(
+        response.body.components.securitySchemes.bearerAuth.description,
+      ).toContain('AUTH_SYSTEM_URL');
+      expect(response.body.security).toEqual([{ bearerAuth: [] }]);
+
+      const paths = response.body.paths as Record<
+        string,
+        Record<string, { responses: Record<string, unknown> }>
+      >;
+
+      for (const [pathName, operations] of Object.entries(paths)) {
+        for (const [method, operation] of Object.entries(operations)) {
+          expect({
+            path: pathName,
+            method,
+            has401: '401' in operation.responses,
+          }).toEqual({ path: pathName, method, has401: true });
+        }
+      }
+    });
   });
 
   describe('GET /api/v1/docs', () => {
@@ -81,6 +127,24 @@ describe('API Docs (OpenAPI)', () => {
 
       expect(response.headers['content-type']).toContain('text/html');
       expect(response.text.toLowerCase()).toContain('swagger');
+    });
+
+    it('MUST 301 the slashless spelling to the canonical /api/v1/docs/ (C-5.3)', async () => {
+      const response = await request(app).get('/api/v1/docs').expect(301);
+
+      expect(response.headers.location).toBe('/api/v1/docs/');
+    });
+
+    it('MUST answer a garbage sub-path as JSON 404, not the docs page (C-5.3)', async () => {
+      const response = await request(app)
+        .get('/api/v1/docs/nao-existe')
+        .expect(404)
+        .expect('Content-Type', /json/);
+
+      expect(response.body).toEqual({
+        name: 'NotFoundError',
+        msg: 'Not found: GET /api/v1/docs/nao-existe',
+      });
     });
   });
 

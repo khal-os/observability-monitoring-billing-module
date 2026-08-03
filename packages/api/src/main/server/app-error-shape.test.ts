@@ -49,4 +49,52 @@ describe('App error shape', () => {
 
     expect(response.headers['x-powered-by']).toBeUndefined();
   });
+
+  it('MUST answer an oversized JSON body as 413 — the original status, not a flattened 400 (C-5.1)', async () => {
+    const response = await request(app)
+      .post('/api/v1/prices')
+      .set('Content-Type', 'application/json')
+      .send(`{"model":"${'x'.repeat(120 * 1024)}"}`)
+      .expect(413)
+      .expect('Content-Type', /json/);
+
+    expect(response.body).toEqual({
+      name: 'PayloadTooLargeError',
+      msg: 'Payload too large',
+    });
+  });
+
+  describe('405 for a known path with the wrong method (C-5.2)', () => {
+    it('MUST answer DELETE /api/v1/prices as 405 with Allow: POST', async () => {
+      const response = await request(app)
+        .delete('/api/v1/prices')
+        .expect(405)
+        .expect('Content-Type', /json/);
+
+      expect(response.headers.allow).toBe('POST');
+      expect(response.body).toEqual({
+        name: 'MethodNotAllowedError',
+        msg: 'Method not allowed: DELETE /api/v1/prices',
+      });
+    });
+
+    it('MUST answer POST /api/v1/traces as 405 with Allow: GET', async () => {
+      const response = await request(app).post('/api/v1/traces').expect(405);
+
+      expect(response.headers.allow).toBe('GET');
+      expect(response.body).toEqual({
+        name: 'MethodNotAllowedError',
+        msg: 'Method not allowed: POST /api/v1/traces',
+      });
+    });
+
+    it('MUST keep answering an unknown path as plain 404 (GET /api/v1/nope)', async () => {
+      const response = await request(app).get('/api/v1/nope').expect(404);
+
+      expect(response.body).toEqual({
+        name: 'NotFoundError',
+        msg: 'Not found: GET /api/v1/nope',
+      });
+    });
+  });
 });

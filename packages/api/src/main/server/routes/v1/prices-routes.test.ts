@@ -60,6 +60,38 @@ describe('Prices Routes', () => {
         .send({ ...validBody(), efective_from: '2026-06-01' })
         .expect(400);
     });
+
+    it('MUST return 400 for a zero or overflowing price (C-2 — never a R$ 0,00 stamp, never a 500)', async () => {
+      const zeroResponse = await request(app)
+        .post('/api/v1/prices')
+        .send({ ...validBody(), price_brl_per_million: '0' })
+        .expect(400);
+
+      expect(zeroResponse.body).toEqual({
+        name: 'InvalidParamError',
+        msg: 'Invalid parameter: price_brl_per_million',
+      });
+
+      await request(app)
+        .post('/api/v1/prices')
+        .send({ ...validBody(), price_brl_per_million: '999999999999' })
+        .expect(400);
+    });
+
+    it('MUST NOT accept a form-encoded body — only JSON parses (C-1: no urlencoded parser)', async () => {
+      // Without the urlencoded middleware the body never parses, so the
+      // strict contract sees an empty body and answers 400 — a form post
+      // must never register a price.
+      const response = await request(app)
+        .post('/api/v1/prices')
+        .type('form')
+        .send(
+          'model=meta%2Fllama-4-scout&token_type=input&price_brl_per_million=1.00&effective_from=2026-06-01',
+        )
+        .expect(400);
+
+      expect(response.body.name).toBe('MissingParamError');
+    });
   });
 
   describe('POST /api/v1/prices — US3: the missing price unblocks pending traces', () => {

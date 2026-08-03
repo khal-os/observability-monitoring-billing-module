@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { z } from 'zod';
 import { apiErrorSchema } from '../../presentation/helpers/docs-schemas.js';
 import {
@@ -33,10 +35,35 @@ const toSchema = (schema: z.ZodType) => z.toJSONSchema(schema);
 const toRequestSchema = (schema: z.ZodType) =>
   z.toJSONSchema(schema, { io: 'input' });
 
+/**
+ * info.version mirrors the package version — one number, not two (C-4.1).
+ * Read from disk relative to the process cwd: every entry point (npm
+ * scripts, jest, the container CMD) runs from packages/api — the same
+ * contract environment-setup.ts already relies on for .env files.
+ */
+const packageVersion = (): string =>
+  (
+    JSON.parse(
+      readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf8'),
+    ) as { version: string }
+  ).version;
+
 const errorResponse = (description: string) => ({
   description,
   content: { 'application/json': { schema: toSchema(apiErrorSchema) } },
 });
+
+/**
+ * Shared 401 (C-4.1): auth is env-gated — active only when the deployment
+ * sets AUTH_SYSTEM_URL (decision 84); without it the API answers open
+ * (PoC behavior) and this response never occurs.
+ */
+const unauthorizedResponse = () =>
+  errorResponse(
+    'Token Bearer ausente ou rejeitado pelo Auth System. Só ocorre quando ' +
+      'AUTH_SYSTEM_URL está configurada no deployment — sem ela a API ' +
+      'responde aberta (comportamento PoC).',
+  );
 
 const okResponse = (description: string, schema: z.ZodType) => ({
   description,
@@ -136,13 +163,29 @@ export const buildOpenApiDocument = (clientName?: string) => ({
     title: clientName
       ? `Módulo de Observabilidade — ${clientName.toUpperCase()}`
       : 'Módulo de Observabilidade — API',
-    version: '0.1.0',
+    version: packageVersion(),
     description:
       'Uma API, três faces: Billing (quanto custou), Traces (as execuções ' +
       'reais) e Sessions (as conversas). Todos os valores client-facing são ' +
       'em R$; custos vêm do carimbo de preço aplicado na ingestão (imutável). ' +
       'Traces sem preço aplicável aparecem como pending_price — nunca R$ 0,00.',
   },
+  components: {
+    securitySchemes: {
+      bearerAuth: {
+        type: 'http',
+        scheme: 'bearer',
+        description:
+          'Auth M2M condicionada por ambiente (decisão 84): exigida apenas ' +
+          'quando o deployment configura AUTH_SYSTEM_URL — o token é ' +
+          'validado por introspecção no khal Auth System (autenticado ou ' +
+          'não, sem escopos). Sem a variável, a API responde aberta (PoC). ' +
+          'As rotas de docs (/api/v1/docs* e openapi.json) permanecem ' +
+          'abertas — são o healthcheck.',
+      },
+    },
+  },
+  security: [{ bearerAuth: [] }],
   tags: [
     { name: 'Traces', description: 'Execuções reais por trás dos números.' },
     { name: 'Sessions', description: 'Conversas: traces agrupados por sessão (read-model derivado).' },
@@ -162,6 +205,7 @@ export const buildOpenApiDocument = (clientName?: string) => ({
         responses: {
           '200': okResponse('Página de traces.', traceListResponseSchema),
           '400': errorResponse('Parâmetro de consulta inválido.'),
+          '401': unauthorizedResponse(),
           '500': errorResponse('Erro interno.'),
         },
       },
@@ -187,6 +231,7 @@ export const buildOpenApiDocument = (clientName?: string) => ({
             traceFilterOptionsResponseSchema,
           ),
           '400': errorResponse('Parâmetro de consulta inválido.'),
+          '401': unauthorizedResponse(),
           '500': errorResponse('Erro interno.'),
         },
       },
@@ -202,6 +247,8 @@ export const buildOpenApiDocument = (clientName?: string) => ({
         parameters: [pathParam('id', 'Id do trace.')],
         responses: {
           '200': okResponse('Trace completo.', traceDetailResponseSchema),
+          '400': errorResponse('Parâmetro de consulta desconhecido.'),
+          '401': unauthorizedResponse(),
           '404': errorResponse('Trace não encontrado.'),
           '500': errorResponse('Erro interno.'),
         },
@@ -219,6 +266,7 @@ export const buildOpenApiDocument = (clientName?: string) => ({
         responses: {
           '200': okResponse('Página de sessões.', sessionListResponseSchema),
           '400': errorResponse('Parâmetro de consulta inválido.'),
+          '401': unauthorizedResponse(),
           '500': errorResponse('Erro interno.'),
         },
       },
@@ -239,6 +287,7 @@ export const buildOpenApiDocument = (clientName?: string) => ({
             sessionFilterOptionsResponseSchema,
           ),
           '400': errorResponse('Parâmetro de consulta inválido.'),
+          '401': unauthorizedResponse(),
           '500': errorResponse('Erro interno.'),
         },
       },
@@ -250,6 +299,8 @@ export const buildOpenApiDocument = (clientName?: string) => ({
         parameters: [pathParam('id', 'Id da sessão.')],
         responses: {
           '200': okResponse('Agregados + cadeia (transcrição).', sessionDetailResponseSchema),
+          '400': errorResponse('Parâmetro de consulta desconhecido.'),
+          '401': unauthorizedResponse(),
           '404': errorResponse('Sessão não encontrada.'),
           '500': errorResponse('Erro interno.'),
         },
@@ -267,6 +318,8 @@ export const buildOpenApiDocument = (clientName?: string) => ({
           'pendentes contados à parte, fora do total; quarentena visível.',
         responses: {
           '200': okResponse('Faturas.', billListResponseSchema),
+          '400': errorResponse('Parâmetro de consulta desconhecido (o endpoint não aceita parâmetros).'),
+          '401': unauthorizedResponse(),
           '500': errorResponse('Erro interno.'),
         },
       },
@@ -299,7 +352,8 @@ export const buildOpenApiDocument = (clientName?: string) => ({
         ],
         responses: {
           '200': okResponse('Extrato do mês.', billingSummaryResponseSchema),
-          '400': errorResponse('Ano/mês ausentes ou malformados.'),
+          '400': errorResponse('Ano/mês ausentes, malformados ou parâmetro desconhecido.'),
+          '401': unauthorizedResponse(),
           '500': errorResponse('Erro interno.'),
         },
       },
@@ -335,7 +389,12 @@ export const buildOpenApiDocument = (clientName?: string) => ({
         ],
         responses: {
           '200': okResponse('Série de custo.', billingSeriesResponseSchema),
-          '400': errorResponse('Parâmetro granularity/months/days malformado.'),
+          '400': errorResponse(
+            'Parâmetro granularity/months/days malformado, desconhecido ou ' +
+              'da granularidade errada (days exige granularity=day; months ' +
+              'exige granularity=month).',
+          ),
+          '401': unauthorizedResponse(),
           '500': errorResponse('Erro interno.'),
         },
       },
@@ -350,6 +409,8 @@ export const buildOpenApiDocument = (clientName?: string) => ({
           'fechamento. < 3 dias completos → insufficient_data.',
         responses: {
           '200': okResponse('Projeção.', billingProjectionResponseSchema),
+          '400': errorResponse('Parâmetro de consulta desconhecido (o endpoint não aceita parâmetros).'),
+          '401': unauthorizedResponse(),
           '500': errorResponse('Erro interno.'),
         },
       },
@@ -375,7 +436,8 @@ export const buildOpenApiDocument = (clientName?: string) => ({
         ],
         responses: {
           '200': { description: 'text/csv (attachment) ou text/html imprimível.' },
-          '400': errorResponse('Ano/mês/format ausentes ou malformados.'),
+          '400': errorResponse('Ano/mês/format ausentes, malformados ou parâmetro desconhecido.'),
+          '401': unauthorizedResponse(),
           '500': errorResponse('Erro interno.'),
         },
       },
@@ -408,6 +470,7 @@ export const buildOpenApiDocument = (clientName?: string) => ({
             registerPriceVersionResponseSchema,
           ),
           '400': errorResponse('Corpo inválido (campo ausente, malformado ou desconhecido).'),
+          '401': unauthorizedResponse(),
           '409': errorResponse(
             'Versão já existe para (model, token_type, effective_from) — registre um novo effective_from.',
           ),

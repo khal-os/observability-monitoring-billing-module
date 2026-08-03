@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from 'express';
 import {
   InvalidParamError,
+  PayloadTooLargeError,
   ServerError,
 } from '../../../presentation/errors/index.js';
 
@@ -22,10 +23,16 @@ export const errorHandlerMiddleware = (
   }
 
   // body-parser tags client faults with a 4xx status (malformed JSON,
-  // bad charset, oversized payload…) — the request is the problem.
+  // bad charset, oversized payload…) — the request is the problem. The
+  // ORIGINAL status is preserved (C-5.1): flattening a 413 into a 400
+  // would tell the client to retry the same oversized body.
   const status = error.statusCode ?? error.status;
   if (status !== undefined && status >= 400 && status < 500) {
-    res.status(400).json(new InvalidParamError('body'));
+    res
+      .status(status)
+      .json(
+        status === 413 ? new PayloadTooLargeError() : new InvalidParamError('body'),
+      );
     return;
   }
 

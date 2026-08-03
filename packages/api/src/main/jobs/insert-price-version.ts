@@ -45,6 +45,23 @@ if (!TOKEN_TYPES.includes(tokenType)) {
   process.exit(1);
 }
 
+// Same price rules as POST /prices (C-2 — the two doors cannot diverge):
+// bounded decimal string, and NEVER zero — an accidental "0" would stamp
+// every pending trace at R$ 0,00 immutably (invariant 2).
+if (!/^\d{1,8}(\.\d{1,8})?$/.test(priceBrl)) {
+  console.error(
+    `Invalid --price-brl "${priceBrl}". Expected a decimal string like "2.75" (up to 8 integer and 8 decimal digits).`,
+  );
+  process.exit(1);
+}
+
+if (Number(priceBrl) === 0) {
+  console.error(
+    'Invalid --price-brl: price_brl_per_million must be greater than zero.',
+  );
+  process.exit(1);
+}
+
 const effectiveFrom = new Date(effectiveFromRaw);
 
 if (Number.isNaN(effectiveFrom.getTime())) {
