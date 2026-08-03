@@ -126,11 +126,15 @@ export const reconcileDisplayCents = (
 ): { totalCents: number; partsCents: number[] } => {
   const totalCents = microcentsToDisplayCents(sumMicrocents(partsMicrocents));
 
-  const floors = partsMicrocents.map((microcents) =>
-    Math.trunc(microcents / MICROCENTS_PER_CENT),
-  );
+  // Exact floor via the exact remainder (% is exact on safe integers):
+  // float division near 2^53 µ¢ can cross an integer boundary and misfloor,
+  // which would leave the parts not closing with the total.
   const remainders = partsMicrocents.map(
     (microcents) => microcents % MICROCENTS_PER_CENT,
+  );
+  const floors = partsMicrocents.map(
+    (microcents, index) =>
+      (microcents - (remainders[index] as number)) / MICROCENTS_PER_CENT,
   );
 
   let deficit = totalCents - floors.reduce((sum, cents) => sum + cents, 0);

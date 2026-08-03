@@ -140,5 +140,25 @@ describe('Money helpers', () => {
       expect(totalCents).toBe(0);
       expect(partsCents).toEqual([]);
     });
+
+    it('MUST close parts with the total at extreme magnitude (near MAX_SAFE_INTEGER µ¢)', () => {
+      // Two parts summing to exactly Number.MAX_SAFE_INTEGER (2^53 − 1 µ¢,
+      // ≈ R$ 90 million) — the module's asserted ceiling. Floors must come
+      // from the exact remainder, never float division, so the parts still
+      // close with the half-up total at the very edge of the domain.
+      const parts = [4_503_599_627_370_495, 4_503_599_627_370_496];
+      expect((parts[0] as number) + (parts[1] as number)).toBe(
+        Number.MAX_SAFE_INTEGER,
+      );
+
+      const { totalCents, partsCents } = reconcileDisplayCents(parts);
+
+      expect(totalCents).toBe(9_007_199_255); // half-up of 9007199254.740991 centavos
+      expect(partsCents.reduce((sum, cents) => sum + cents, 0)).toBe(
+        totalCents,
+      );
+      // Largest remainder (370496 > 370495) receives the deficit cent.
+      expect(partsCents).toEqual([4_503_599_627, 4_503_599_628]);
+    });
   });
 });
