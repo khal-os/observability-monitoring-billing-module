@@ -16,7 +16,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 const findSrcDir = (): string => {
   const candidates = [
     join(process.cwd(), 'src'),
-    join(process.cwd(), 'packages', 'api', 'src'),
+    join(process.cwd(), 'packages', 'module', 'src'),
   ];
   const srcDir = candidates.find((candidate) =>
     existsSync(join(candidate, 'domain')),

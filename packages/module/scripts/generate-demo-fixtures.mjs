@@ -1,8 +1,8 @@
 /**
  * Generates realistic per-client demo traffic as source fixtures.
  *
- *   node packages/api/scripts/generate-demo-fixtures.mjs                    # the 3 PoC profiles
- *   node packages/api/scripts/generate-demo-fixtures.mjs --client tim        # generic profile for ANY client
+ *   node packages/module/scripts/generate-demo-fixtures.mjs                    # the 3 PoC profiles
+ *   node packages/module/scripts/generate-demo-fixtures.mjs --client tim        # generic profile for ANY client
  *
  * Writes demo-data/<client>/window-<month>.json, which compose bind-mounts
  * over the API image's fixture directory so `make sync CLIENT=<client>` ingests

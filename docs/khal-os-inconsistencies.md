@@ -2,11 +2,11 @@
 
 **Data:** 27/07/2026
 **Fonte comparada:** site de documentação Khal OS (`khal-os-docs_2.html` — Geral, Plataforma, App/Module/Connector/Agent Register, Auth System, ADRs 1–77)
-**Código auditado:** este repositório (`packages/api`, stack LangWatch de `compose.connector.yml`)
+**Código auditado:** este repositório (`packages/module`, stack LangWatch de `compose.connector.yml`)
 
 ## Enquadramento
 
-Na arquitetura Khal OS este repositório é o **Module de Tracing** (`packages/api`) mais o **connector LangWatch** que ele lê. Fora do escopo desta auditoria, por decisão de revisão:
+Na arquitetura Khal OS este repositório é o **Module de Tracing** (`packages/module`) mais o **connector LangWatch** que ele lê. Fora do escopo desta auditoria, por decisão de revisão:
 
 - `packages/ui` — mock de visualização da API, não é o app do marco.
 - `packages/register` — mock de teste local, não é o Connector Register.
@@ -40,7 +40,7 @@ Na arquitetura Khal OS este repositório é o **Module de Tracing** (`packages/a
 
 > **Aceite:** … então recebo **agregados** (custo/contagem, com filtros), **nunca trace cru**; o app não toca ClickHouse nem o connector.
 
-**Código:** `GET /api/v1/traces/:id` devolve o trace inteiro — `content.input`/`output` e payload próprio por span (`packages/api/src/presentation/controllers/traces/trace-view-schemas.ts:93` e `:61`); `GET /api/v1/sessions/:id` devolve a cadeia com conteúdo por trace (`sessions/session-view-schemas.ts:51`).
+**Código:** `GET /api/v1/traces/:id` devolve o trace inteiro — `content.input`/`output` e payload próprio por span (`packages/module/src/presentation/controllers/traces/trace-view-schemas.ts:93` e `:61`); `GET /api/v1/sessions/:id` devolve a cadeia com conteúdo por trace (`sessions/session-view-schemas.ts:51`).
 
 **Análise:** a regra vem de **uma** resposta do Martino (a ADR-77 é transcrição dela, não fonte independente — sua própria coluna de racional diz "compila o modelo confirmado sem inventar"), dada no contexto do **manifesto** do module. Todas as cláusulas ao redor tratam da **fronteira** ("o app não toca ClickHouse nem o connector"), então "trace cru" com maior probabilidade significa *a linha crua do fornecedor* — que este repositório nunca devolve: ele serve o modelo próprio do contrato T1, atrás de um adapter isolado por testes de arquitetura. Lido ao pé da letra, o texto elimina US19/US22 (o núcleo de "transparência e confiança") e torna o Farol idêntico ao Billing, o que quebra a própria divisão de 2 apps do marco.
 

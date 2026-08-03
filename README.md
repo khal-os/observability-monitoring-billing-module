@@ -212,7 +212,7 @@ sessions, durations, spans, error rate, three models — dated over the last
 honest pipeline: pushed into the client's LangWatch via the collector API,
 then ingested by the real sync with prices stamped at write time.
 
-`node packages/api/scripts/generate-demo-fixtures.mjs` (no args) still
+`node packages/module/scripts/generate-demo-fixtures.mjs` (no args) still
 produces the three richer PoC profiles (hapvida/claro/vivo);
 `--client <name> [--traces N]` produces any client's generic set.
 

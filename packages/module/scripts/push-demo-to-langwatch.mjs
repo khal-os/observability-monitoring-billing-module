@@ -4,8 +4,8 @@
  * via the collector API — so the platform can then ingest it back through
  * the REAL sync path (HttpLangWatchClient), never writing to Mongo directly.
  *
- *   node packages/api/scripts/push-demo-to-langwatch.mjs            # all clients
- *   node packages/api/scripts/push-demo-to-langwatch.mjs vivo      # one client
+ *   node packages/module/scripts/push-demo-to-langwatch.mjs            # all clients
+ *   node packages/module/scripts/push-demo-to-langwatch.mjs vivo      # one client
  *
  * Reads LANGWATCH_API_KEY + LANGWATCH_PORT from clients/<name>.env.
  *

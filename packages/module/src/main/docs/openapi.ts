@@ -38,7 +38,7 @@ const toRequestSchema = (schema: z.ZodType) =>
 /**
  * info.version mirrors the package version — one number, not two (C-4.1).
  * Read from disk relative to the process cwd: every entry point (npm
- * scripts, jest, the container CMD) runs from packages/api — the same
+ * scripts, jest, the container CMD) runs from packages/module — the same
  * contract environment-setup.ts already relies on for .env files.
  */
 const packageVersion = (): string =>

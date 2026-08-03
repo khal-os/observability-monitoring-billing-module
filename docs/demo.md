@@ -12,7 +12,7 @@
 > demonstrar).
 
 Roteiro do `docs/produto/poc.md` ("Roteiro da demo"), passo a passo, com os
-comandos reais. Todos os comandos rodam em `packages/api`.
+comandos reais. Todos os comandos rodam em `packages/module`.
 
 ## Pré-requisitos
 

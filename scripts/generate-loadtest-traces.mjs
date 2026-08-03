@@ -16,7 +16,7 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 
 const require = createRequire(
-  path.join(path.dirname(fileURLToPath(import.meta.url)), '../packages/api/package.json'),
+  path.join(path.dirname(fileURLToPath(import.meta.url)), '../packages/module/package.json'),
 );
 const { MongoClient } = require('mongodb');
 

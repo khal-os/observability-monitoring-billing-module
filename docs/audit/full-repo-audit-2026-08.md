@@ -36,7 +36,7 @@ Everything else is graded M/L: contract-hardening, consistency drift, duplicatio
 ## 1. P0 — Security & data-destruction (fix first, small diffs)
 
 ### A-1 · CRITICAL — Documented auth enablement does not work: `AUTH_SYSTEM_*` never reaches the container
-- **Files:** `compose.module.yml:38-48` (api `environment:` block) · `clients/example.env:30-32` · `packages/api/src/infrastructure/configuration/helpers/environment-setup.ts:46-48` · `Makefile:35-49` (SCRUB list) · README §"API auth" · decision 84
+- **Files:** `compose.module.yml:38-48` (api `environment:` block) · `clients/example.env:30-32` · `packages/module/src/infrastructure/configuration/helpers/environment-setup.ts:46-48` · `Makefile:35-49` (SCRUB list) · README §"API auth" · decision 84
 - **Verified:** repo-wide grep — `AUTH_SYSTEM` appears **only** in `example.env` comments. No compose file, script, or Makefile forwards it. Docker's `--env-file` feeds compose *interpolation* only, never container environment; `.dockerignore:21-22` excludes `**/.env.*` from images.
 - **Failure:** operator uncomments the three vars per README, redeploys, believes auth is on. In-container `AUTH_SYSTEM_URL` is `undefined` → `makeAuthMiddleware()` returns the passthrough (`auth-factory.ts:12`) → the API — full **unmasked** trace content — stays open. The loud fail-closed warning at `auth-factory.ts:18` never fires because it's gated on the URL being set. Decision 84's smoke test evidently ran outside compose.
 - **Fix:**
@@ -59,7 +59,7 @@ Everything else is graded M/L: contract-hardening, consistency drift, duplicatio
 - **Note:** this changes deployment behavior for anyone relying on LAN access — flagged as an **open question** (§7-Q4) rather than auto-applied; my recommendation is loopback-by-default.
 
 ### A-3 · HIGH — `rmSync` path traversal in the fixtures generator
-- **File:** `packages/api/scripts/generate-demo-fixtures.mjs` (~:480-507)
+- **File:** `packages/module/scripts/generate-demo-fixtures.mjs` (~:480-507)
 - **Verified:** `const dir = path.join(OUT_ROOT, name)` where `name` is raw `argv[clientFlag + 1]`; then `rmSync(dir, { recursive: true, force: true })`. `--client ..` resolves to the repo root. Shell wrappers validate the slug, but the script header documents direct invocation.
 - **Fix:** at the top of the write loop:
   ```js
@@ -68,7 +68,7 @@ Everything else is graded M/L: contract-hardening, consistency drift, duplicatio
   (same regex as `deploy-lib.sh:106`), plus a belt-and-braces `path.resolve(dir).startsWith(path.resolve(OUT_ROOT) + path.sep)` assertion before `rmSync`.
 
 ### A-4 · MEDIUM — CSV export: spreadsheet formula injection + unquoted `\r`
-- **File:** `packages/api/src/presentation/controllers/billing/export-statement-controller.ts:23-26`
+- **File:** `packages/module/src/presentation/controllers/billing/export-statement-controller.ts:23-26`
 - **Verified:** `csvEscape` quotes only `"`, `;`, `\n`. `line.agent_id` / `line.model` originate from LangWatch trace metadata (agent-controlled). `=HYPERLINK(...)`, `@SUM(...)`, `=cmd|'/C calc'!A0` pass through verbatim into a file designed to "open straight in Excel". A literal `\r` in a cell breaks row structure (rows join with `\r\n`).
 - **Fix:** in `csvEscape`: (1) extend the quote-trigger class to `/[";\n\r]/`; (2) when the value starts with `=`, `+`, `-`, `@`, `\t`, or `\r`, prefix `'` (OWASP CSV-injection mitigation) before the quoting logic. Unit test with hostile agent id (see §6 M3).
 

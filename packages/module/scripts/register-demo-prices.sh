@@ -4,7 +4,7 @@
 # direct inserts — invariant 9). Immutable: re-running reports duplicates
 # and changes nothing.
 #
-#   ./packages/api/scripts/register-demo-prices.sh [cliente...]   # default: hapvida claro vivo
+#   ./packages/module/scripts/register-demo-prices.sh [cliente...]   # default: hapvida claro vivo
 #
 # Values must match PRICES in generate-demo-fixtures.mjs.
 set -uo pipefail

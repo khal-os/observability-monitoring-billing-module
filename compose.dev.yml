@@ -9,7 +9,7 @@
 # - the generated demo fixtures mounted over the image's fixture directory,
 #   so the fixture-backed fake sync (empty LANGWATCH_API_KEY) serves THIS
 #   client's demo traffic. Regenerate with
-#   packages/api/scripts/generate-demo-fixtures.mjs.
+#   packages/module/scripts/generate-demo-fixtures.mjs.
 
 services:
   api:
@@ -17,7 +17,7 @@ services:
       context: .
       dockerfile: docker/api.Dockerfile
     volumes:
-      - ./demo-data/${CLIENT_NAME}:/app/packages/api/src/infrastructure/traceSource/fixtures:ro
+      - ./demo-data/${CLIENT_NAME}:/app/packages/module/src/infrastructure/traceSource/fixtures:ro
 
   ui:
     build:

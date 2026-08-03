@@ -50,7 +50,7 @@ LANGWATCH_PORT="$(host_port LANGWATCH_PORT)"
 # antes de qualquer coisa. Determinístico e idempotente (PRNG semeado por
 # cliente): re-rodar reescreve os mesmos traces.
 step "demo: gerando tráfego determinístico para '${NAME}'"
-live node packages/api/scripts/generate-demo-fixtures.mjs --client "${NAME}" \
+live node packages/module/scripts/generate-demo-fixtures.mjs --client "${NAME}" \
   || die "geração de fixtures falhou"
 
 # ---------- prices ----------
@@ -59,7 +59,7 @@ if [[ "$DO_PRICES" -eq 1 ]]; then
   live make seed-prices "CLIENT=${NAME}" || die "seed de preços PoC falhou"
 
   step "demo: registrando preços do modelo premium no banco"
-  live ./packages/api/scripts/register-demo-prices.sh "${NAME}" || die "registro de preços falhou"
+  live ./packages/module/scripts/register-demo-prices.sh "${NAME}" || die "registro de preços falhou"
 fi
 
 # ---------- traces ----------
@@ -70,7 +70,7 @@ if [[ "$DO_TRACES" -eq 1 ]]; then
   step "demo: enviando o tráfego para o LangWatch do cliente"
   # tr '\r' '\n': o push reporta progresso com \r; via gutter cada tick
   # vira uma linha visível em vez de um carriage return perdido.
-  live bash -c "set -o pipefail; node packages/api/scripts/push-demo-to-langwatch.mjs '${NAME}' | tr '\r' '\n' | grep --line-buffered ." \
+  live bash -c "set -o pipefail; node packages/module/scripts/push-demo-to-langwatch.mjs '${NAME}' | tr '\r' '\n' | grep --line-buffered ." \
     || die "push para o LangWatch falhou"
 
   EXPECTED=$(python3 -c "import json,glob; print(sum(len(json.load(open(f))) for f in glob.glob('demo-data/${NAME}/*.json')))")
