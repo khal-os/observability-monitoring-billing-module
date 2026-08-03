@@ -8,13 +8,14 @@
 #   make migrate CLIENT=hapvida
 #   make seed-prices CLIENT=hapvida             # DEV ONLY: PoC demo price table
 #   make sync CLIENT=claro FROM=2026-07-01 TO=2026-07-22
-#   make price CLIENT=vivo ARGS='--model ... --token-type ... --price-brl ... --effective-from ...'
+#   make price CLIENT=vivo ARGS='--model ... --token-type ... --price-brl ... --effective-from 2026-07-01'
 #   make billing-close CLIENT=vivo YEAR=2026 MONTH=6   # T6: fecha o mês (snapshot)
 #   make billing-reopen CLIENT=vivo YEAR=2026 MONTH=6 REASON='...'
 #   make logs CLIENT=vivo
 #   make backup CLIENT=vivo                     # mongodump of the permanent archive -> backups/
 #   make down CLIENT=claro                      # stop one client (volumes preserved)
 #   make ps                                     # all compose projects on this host
+#   make deploy-smoke                           # regressão dos scripts de deploy (sem docker)
 #
 # Continuous ingestion: once LANGWATCH_API_KEY is set in the client env,
 # the trace-ingestion-worker sidecar (part of the stack) syncs
@@ -68,10 +69,18 @@ JOB = $(COMPOSE_PROD) run --rm --no-deps api node
 # form exactly when generated fixtures exist, the prod form otherwise.
 SYNC_COMPOSE = $(if $(wildcard demo-data/$(CLIENT)/*.json),$(COMPOSE_DEV),$(COMPOSE_PROD))
 
-.PHONY: help build up up-prod down logs ps backup migrate seed-prices sync price reprocess rebuild-filter-counters rebuild-session-summaries billing-close billing-reopen require-client
+.PHONY: help build up up-prod down logs ps backup migrate seed-prices sync price reprocess rebuild-filter-counters rebuild-session-summaries billing-close billing-reopen deploy-smoke require-client
 
 help:
 	@grep -E '^#( |$$)' Makefile | sed 's/^# \?//'
+
+# Docker-free regression test of the deploy scripts (no CLIENT — it mints
+# and cleans up its own throwaway one). Covers what only a FRESH client
+# exercises: step 4 completing with an empty demo-data/ (the dev
+# discriminator of decision 74) and every URL staying well-formed when the
+# port vars are omitted from the env file, as the contract invites.
+deploy-smoke:
+	@./scripts/deploy-smoke-test.sh
 
 require-client:
 	@test "$(origin CLIENT)" = "command line" || { echo "pass CLIENT=<name> explicitly on the make command line (env file: clients/<name>.env)"; exit 1; }
@@ -142,8 +151,13 @@ sync: require-client
 	@test -n "$(FROM)" -a -n "$(TO)" || { echo "usage: make sync CLIENT=<name> FROM=YYYY-MM-DD TO=YYYY-MM-DD"; exit 1; }
 	$(SYNC_COMPOSE) run --rm --no-deps api node dist/main/jobs/run-sync.js --from $(FROM) --to $(TO)
 
+# --effective-from is spelled the SAME way POST /prices spells it (C-2 —
+# the two doors cannot diverge): YYYY-MM-DD reads as UTC midnight, and a
+# datetime MUST carry Z or an offset. Anything else is refused instead of
+# guessed: "01/07/2026" used to parse as 7 January and stamp six months of
+# pending traces with a price nobody contracted (invariant 1 — immutable).
 price: require-client
-	@test -n "$(ARGS)" || { echo "usage: make price CLIENT=<name> ARGS='--model ... --token-type ... --price-brl ... --effective-from ...'"; exit 1; }
+	@test -n "$(ARGS)" || { echo "usage: make price CLIENT=<name> ARGS='--model <provider/id> --token-type <input|output|cache_read|cache_write> --price-brl <e.g. 2.75> --effective-from <YYYY-MM-DD | 2026-07-01T00:00:00Z>'"; exit 1; }
 	$(JOB) dist/main/jobs/insert-price-version.js $(ARGS)
 
 reprocess: require-client

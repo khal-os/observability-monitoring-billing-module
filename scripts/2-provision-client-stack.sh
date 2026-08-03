@@ -17,7 +17,7 @@ require_name "${1:-}"
 require_envfile
 banner 2 "provisão — imagens · stack · migrações"
 
-API_PORT="$(get API_PORT)"; LANGWATCH_PORT="$(get LANGWATCH_PORT)"
+API_PORT="$(host_port API_PORT)"; LANGWATCH_PORT="$(host_port LANGWATCH_PORT)"
 
 # ---------- images ----------
 docker image inspect "$(get API_IMAGE)" > /dev/null 2>&1 \

@@ -490,13 +490,34 @@ const renderDetail = (trace) => {
 
 let panelSeq = 0;
 
-const openPanel = async (traceId) => {
+/* Opening the dialog is a state change, not a render: it must own focus
+   from the first frame, NOT from whenever the fetch resolves. The loading
+   state therefore carries the same topbar the loaded and error states carry
+   — one focusable control — so wirePanelClose() moves focus inside at open
+   time and trapPanelFocus() has something to cycle onto. Without it the
+   whole load window (a detail is one findOne over every span plus the full
+   unmasked content, invariant 6 — hundreds of ms is normal) left focus on
+   the row behind an aria-modal dialog, and Tab silently walked the page
+   under an opaque backdrop.
+   Returns the panel sequence this opener owns (stale-response guard). */
+const openPanelShell = (ariaLabel, eyebrow) => {
   const seq = ++panelSeq;
   rememberPanelReturn();
-  panel.setAttribute('aria-label', 'Detalhe do trace');
+  panel.setAttribute('aria-label', ariaLabel);
   panel.classList.remove('hidden');
   backdrop.classList.remove('hidden');
-  panelContent.innerHTML = '<p class="empty">Carregando…</p>';
+  panelContent.innerHTML = `
+    <div class="panel-topbar">
+      <span class="panel-eyebrow">${eyebrow}</span>
+      <button class="panel-close" id="panel-close" aria-label="Fechar">✕</button>
+    </div>
+    <p class="empty">Carregando…</p>`;
+  wirePanelClose();
+  return seq;
+};
+
+const openPanel = async (traceId) => {
+  const seq = openPanelShell('Detalhe do trace', 'Trace');
   try {
     const data = await fetchJson(`${API_BASE}/traces/${encodeURIComponent(traceId)}`);
     if (seq !== panelSeq) return;
@@ -532,7 +553,15 @@ const trapPanelFocus = (event) => {
   const focusables = [...panel.querySelectorAll(
     'button, a[href], select, input, textarea, summary, [tabindex]:not([tabindex="-1"])',
   )].filter((el) => el.offsetParent !== null);
-  if (!focusables.length) return;
+  /* Belt and braces: with no focusable descendant, returning would let the
+     browser's native Tab move focus to the page BEHIND the backdrop —
+     outside an aria-modal dialog, invisible to the user. Park focus on the
+     dialog itself instead (#panel carries tabindex="-1"). */
+  if (!focusables.length) {
+    event.preventDefault();
+    panel.focus();
+    return;
+  }
   const first = focusables[0];
   const last = focusables[focusables.length - 1];
   const active = document.activeElement;
@@ -754,12 +783,7 @@ const renderSessionDetail = (session) => {
 };
 
 const openSessionPanel = async (sessionId) => {
-  const seq = ++panelSeq;
-  rememberPanelReturn();
-  panel.setAttribute('aria-label', 'Detalhe da sessão');
-  panel.classList.remove('hidden');
-  backdrop.classList.remove('hidden');
-  panelContent.innerHTML = '<p class="empty">Carregando…</p>';
+  const seq = openPanelShell('Detalhe da sessão', 'Sessão');
   try {
     const data = await fetchJson(`${API_BASE}/sessions/${encodeURIComponent(sessionId)}`);
     if (seq !== panelSeq) return;
@@ -1057,12 +1081,7 @@ const renderBillPanel = (data) => {
 };
 
 const openBillPanel = async (year, month) => {
-  const seq = ++panelSeq;
-  rememberPanelReturn();
-  panel.setAttribute('aria-label', 'Detalhe da fatura');
-  panel.classList.remove('hidden');
-  backdrop.classList.remove('hidden');
-  panelContent.innerHTML = '<p class="empty">Carregando…</p>';
+  const seq = openPanelShell('Detalhe da fatura', 'Fatura');
   try {
     const data = await fetchJson(
       `${API_BASE}/billing/summary?year=${Number(year)}&month=${Number(month)}`,

@@ -52,14 +52,22 @@ row()  { printf '   %s%-12s%s %s\n' "$B" "$1" "$RST" "$2"; }
 # OPERAÇÃO · onboarding → CREDENCIAIS · seed → DADOS.
 
 summary_access() {
-  local ui_port; ui_port="$(get UI_PORT)"; ui_port="${ui_port:-8080}"
+  local api_port ui_port mongo_port
+  api_port="$(host_port API_PORT)"; ui_port="$(host_port UI_PORT)"
+  mongo_port="$(get MONGO_HOST_PORT)"
   echo
   printf '  %s\n' "${CYN}ACESSOS${RST}"
   row "UI"        "http://localhost:${ui_port}"
-  row "API"       "http://localhost:$(get API_PORT)/api/v1"
-  row "API docs"  "http://localhost:$(get API_PORT)/api/v1/docs/"
-  row "LangWatch" "http://localhost:$(get LANGWATCH_PORT)"
-  row "Mongo dev" "mongodb://localhost:$(get MONGO_HOST_PORT)/?directConnection=true   ${DIM}(db: ${NAME})${RST}"
+  row "API"       "http://localhost:${api_port}/api/v1"
+  row "API docs"  "http://localhost:${api_port}/api/v1/docs/"
+  row "LangWatch" "http://localhost:$(host_port LANGWATCH_PORT)"
+  # MONGO_HOST_PORT tem default 0 no compose (porta efêmera) — não há URL
+  # estável a imprimir quando ele está ausente, então diga isso.
+  if [[ -n "$mongo_port" ]]; then
+    row "Mongo dev" "mongodb://localhost:${mongo_port}/?directConnection=true   ${DIM}(db: ${NAME})${RST}"
+  else
+    row "Mongo dev" "${DIM}sem porta fixa — defina MONGO_HOST_PORT em ${ENVFILE} (compose publica em porta efêmera)${RST}"
+  fi
 }
 
 summary_credentials() {
@@ -76,9 +84,12 @@ summary_credentials() {
 }
 
 summary_data() {
+  # total_display, não total: passado o teto de contagem (decisão 77/79) a
+  # API responde `total: 10000, total_display: "10.000+"` — imprimir o
+  # número cru diria "10000 ingeridos" para um arquivo de 50 mil.
   local total
-  total=$(curl -s -m 8 "http://localhost:$(get API_PORT)/api/v1/traces?page=1&page_size=1" \
-    | python3 -c 'import json,sys; print(json.load(sys.stdin)["total"])' 2>/dev/null || echo '?')
+  total=$(curl -s -m 8 "http://localhost:$(host_port API_PORT)/api/v1/traces?page=1&page_size=1" \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["total_display"])' 2>/dev/null || echo '?')
   echo
   printf '  %s\n' "${CYN}DADOS${RST}"
   row "traces" "${total} ingeridos na plataforma"
@@ -117,6 +128,25 @@ require_envfile() {
 # pipefail/set -e and kills the caller with no message, turning every
 # `${VAR:-default}` fallback after a get() into dead code.
 get() { grep -oP "(?<=^$1=).*" "$ENVFILE" | head -1 || true; }
+
+# Published host port of a service, WITH the compose default applied.
+# NEVER build a URL from a bare `get API_PORT`: the env contract explicitly
+# invites omitting these vars on a dedicated host, get() answers empty for
+# an absent var, and "http://localhost:/api/v1" is normalized by curl to
+# port 80 — which is how the auth fail-closed smoke check came to read 000
+# forever and blame auth forwarding for a URL-construction bug.
+# The defaults MUST track compose.module.yml / compose.connector.yml.
+host_port() {
+  local default value
+  case "$1" in
+    API_PORT)       default=3000 ;;
+    LANGWATCH_PORT) default=5560 ;;
+    UI_PORT)        default=8080 ;;
+    *) printf '%s\n' "host_port: sem default conhecido para '$1'" >&2; return 1 ;;
+  esac
+  value="$(get "$1")"
+  printf '%s' "${value:-$default}"
+}
 
 # Escape a value for the REPLACEMENT side of a sed s|…|…| on the env file:
 # `&` (whole-match), `\` (escape) and `|` (our delimiter) are metacharacters

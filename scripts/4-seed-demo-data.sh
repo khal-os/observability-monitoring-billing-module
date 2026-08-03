@@ -7,8 +7,13 @@
 #
 #   --prices   register the premium demo model's price versions (make
 #              price runbook, insert-only, idempotent)
-#   --traces   generate deterministic fixtures for this client and push
-#              them into its LangWatch (requires onboarding)
+#   --traces   push this client's deterministic fixtures into its LangWatch
+#              (requires onboarding)
+#
+# The fixtures themselves are generated on EVERY run, before either block:
+# they are the dev discriminator `make seed-prices`/`make sync` gate on
+# (decision 74), so generating them as a side effect of --traces made
+# --prices unrunnable on a brand-new client.
 #
 # No flag = both. Ingestion into the platform store is the trace-ingestion-worker's
 # job: pushed traces are indexed by LangWatch and picked up by the worker
@@ -34,7 +39,19 @@ if [[ "$DO_PRICES" -eq 0 && "$DO_TRACES" -eq 0 ]]; then
   DO_PRICES=1; DO_TRACES=1
 fi
 
-LANGWATCH_PORT="$(get LANGWATCH_PORT)"
+LANGWATCH_PORT="$(host_port LANGWATCH_PORT)"
+
+# ---------- fixtures (ALWAYS, and FIRST) ----------
+# demo-data/<cliente>/*.json é o discriminador DEV da decisão 74: `make
+# seed-prices` e `make sync` se recusam a rodar sem ele. Gerar as fixtures
+# aqui — antes do bloco de preços, e não como efeito colateral do bloco de
+# traces — é o que faz um `./deploy-demo-client.sh <cliente-novo>` completar:
+# `make up` só cria o diretório VAZIO, então a guarda derrubava o passo 4
+# antes de qualquer coisa. Determinístico e idempotente (PRNG semeado por
+# cliente): re-rodar reescreve os mesmos traces.
+step "demo: gerando tráfego determinístico para '${NAME}'"
+live node packages/api/scripts/generate-demo-fixtures.mjs --client "${NAME}" \
+  || die "geração de fixtures falhou"
 
 # ---------- prices ----------
 if [[ "$DO_PRICES" -eq 1 ]]; then
@@ -49,10 +66,6 @@ fi
 if [[ "$DO_TRACES" -eq 1 ]]; then
   KEY_NOW="$(get LANGWATCH_API_KEY)"
   [[ -n "$KEY_NOW" ]] || die "LangWatch sem API key — rode ./scripts/3-onboard-langwatch.sh ${NAME} antes"
-
-  step "demo: gerando tráfego determinístico para '${NAME}'"
-  live node packages/api/scripts/generate-demo-fixtures.mjs --client "${NAME}" \
-    || die "geração de fixtures falhou"
 
   step "demo: enviando o tráfego para o LangWatch do cliente"
   # tr '\r' '\n': o push reporta progresso com \r; via gutter cada tick
@@ -83,7 +96,7 @@ if [[ "$DO_TRACES" -eq 1 ]]; then
     DEADLINE=$(( SECONDS + QUIET_S + INTERVAL_S * 3 + 30 ))
     printf '%s' "${CYN}▸${RST} ${B}demo: aguardando o trace-ingestion-worker ingerir (quarentena ${QUIET_S}s)${RST}"
     while (( SECONDS < DEADLINE )); do
-      TOT=$(curl -s -m 5 "http://localhost:$(get API_PORT)/api/v1/traces?page=1&page_size=1" \
+      TOT=$(curl -s -m 5 "http://localhost:$(host_port API_PORT)/api/v1/traces?page=1&page_size=1" \
         | python3 -c 'import json,sys; print(json.load(sys.stdin)["total"])' 2>/dev/null || echo 0)
       [[ "${TOT:-0}" -ge "$EXPECTED" ]] && break
       echo -n "."; sleep 3

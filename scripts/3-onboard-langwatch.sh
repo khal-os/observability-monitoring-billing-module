@@ -22,7 +22,7 @@ require_name "${1:-}"
 require_envfile
 banner 3 "onboarding LangWatch — admin · org · projeto · API key"
 
-LANGWATCH_PORT="$(get LANGWATCH_PORT)"
+LANGWATCH_PORT="$(host_port LANGWATCH_PORT)"
 
 if [[ -n "$(get LANGWATCH_API_KEY)" ]]; then
   # Backfill the project id if this env predates its stamping.
