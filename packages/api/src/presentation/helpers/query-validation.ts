@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { HttpResponse } from '../interfaces/index.js';
-import { InvalidParamError } from '../errors/index.js';
+import { InvalidParamError, MissingParamError } from '../errors/index.js';
 import { buildBadRequest } from './http-helper.js';
 import { MAX_PAGINATION_SKIP } from '../../domain/models/pagination.js';
 
@@ -10,16 +10,30 @@ export const paginationSchema = {
 };
 
 /**
- * Date query params accept ONLY ISO shapes — 'YYYY-MM-DD' or a full ISO
- * datetime (offset/local allowed). z.coerce.date() takes anything
- * new Date() takes ("5" → 2001-05-01) and would silently filter by a
- * bogus instant. The NaN refine catches ISO-shaped impossible dates
- * (e.g. 2026-02-30) that survive the format check.
+ * Date query params accept ONLY ISO shapes — 'YYYY-MM-DD' or an ISO
+ * datetime CARRYING ITS OFFSET (Z or ±hh:mm). Timezone-less local
+ * datetimes are rejected (B-8): new Date() would read them in the
+ * SERVER's timezone, so "2026-06-01T00:00:00" filters by a different
+ * instant per host. z.coerce.date() takes anything new Date() takes
+ * ("5" → 2001-05-01) and would silently filter by a bogus instant. The
+ * NaN refine catches ISO-shaped impossible dates (e.g. 2026-02-30) that
+ * survive the format check.
  */
 export const isoDateParam = z
-  .union([z.iso.date(), z.iso.datetime({ offset: true, local: true })])
+  .union([z.iso.date(), z.iso.datetime({ offset: true })])
   .transform((value) => new Date(value))
   .refine((date) => !Number.isNaN(date.getTime()));
+
+/**
+ * Calendar-month address shared by the billing endpoints (C-3): both
+ * required, coerced from the query strings, bounded like the OpenAPI doc
+ * says. Spread into a z.strictObject so an unknown param is a 400, never
+ * silently ignored — the same policy the traces/sessions layer states.
+ */
+export const yearMonthQueryShape = {
+  year: z.coerce.number().int().min(1970).max(9999),
+  month: z.coerce.number().int().min(1).max(12),
+};
 
 /**
  * Cross-field rule (checked after parse, like the pagination depth): an
@@ -51,7 +65,9 @@ export const paginationDepthExceededResponse = (): HttpResponse =>
  * Express delivers query params as strings — schemas must coerce. On
  * failure the controller answers 400 with the offending param name
  * (NOT the throwing safeParse helper: request validation is a client
- * error, never a 500).
+ * error, never a 500). House rule (same as the POST /prices body):
+ * absent required param → MissingParamError; wrong shape →
+ * InvalidParamError on that param.
  */
 export const parseQuery = <Schema extends z.ZodTypeAny>(
   schema: Schema,
@@ -72,9 +88,18 @@ export const parseQuery = <Schema extends z.ZodTypeAny>(
         ? (issue.keys[0] ?? 'query')
         : String(issue?.path[0] ?? '') || 'query';
 
+    const missing =
+      issue?.code !== 'unrecognized_keys' &&
+      (query as Record<string, unknown> | null | undefined)?.[paramName] ===
+        undefined;
+
     return {
       ok: false,
-      response: buildBadRequest(new InvalidParamError(paramName)),
+      response: buildBadRequest(
+        missing
+          ? new MissingParamError(paramName)
+          : new InvalidParamError(paramName),
+      ),
     };
   }
 

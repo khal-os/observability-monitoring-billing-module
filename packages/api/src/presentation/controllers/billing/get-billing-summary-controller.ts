@@ -1,12 +1,19 @@
+import { z } from 'zod';
 import {
   Controller,
   GetBillingSummaryUseCase,
   HttpRequest,
   HttpResponse,
 } from './billing-protocols.js';
-import { buildBadRequest, buildSuccess } from '../../helpers/http-helper.js';
-import { InvalidParamError, MissingParamError } from '../../errors/index.js';
+import { buildSuccess } from '../../helpers/http-helper.js';
+import {
+  parseQuery,
+  yearMonthQueryShape,
+} from '../../helpers/query-validation.js';
 import { toBillingSummaryView } from './billing-view-model.js';
+
+/** Strict (C-3): an unknown param is a 400, never silently ignored. */
+const summaryQuerySchema = z.strictObject(yearMonthQueryShape);
 
 export class GetBillingSummaryController implements Controller {
   private readonly getBillingSummary: GetBillingSummaryUseCase;
@@ -16,29 +23,14 @@ export class GetBillingSummaryController implements Controller {
   }
 
   async handle(httpRequest: HttpRequest): Promise<HttpResponse> {
-    const query = (httpRequest.query ?? {}) as {
-      year?: string;
-      month?: string;
-    };
+    const parsed = parseQuery(summaryQuerySchema, httpRequest.query);
 
-    for (const field of ['year', 'month'] as const) {
-      if (!query[field]) {
-        return buildBadRequest(new MissingParamError(field));
-      }
-    }
+    if (!parsed.ok) return parsed.response;
 
-    const year = Number(query.year);
-    const month = Number(query.month);
-
-    if (!Number.isInteger(year) || year < 1970 || year > 9999) {
-      return buildBadRequest(new InvalidParamError('year'));
-    }
-
-    if (!Number.isInteger(month) || month < 1 || month > 12) {
-      return buildBadRequest(new InvalidParamError('month'));
-    }
-
-    const summary = await this.getBillingSummary.get(year, month);
+    const summary = await this.getBillingSummary.get(
+      parsed.value.year,
+      parsed.value.month,
+    );
 
     return buildSuccess(toBillingSummaryView(summary));
   }

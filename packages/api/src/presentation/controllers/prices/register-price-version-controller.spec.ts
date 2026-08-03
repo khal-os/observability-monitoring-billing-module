@@ -97,6 +97,50 @@ describe('RegisterPriceVersionController', () => {
     }
   });
 
+  it('MUST return 400 for a zero price — never a silent R$ 0,00 stamp (C-2, invariant 2)', async () => {
+    const { sut } = makeSut();
+
+    for (const zero of ['0', '0.0', '0.00000000']) {
+      const httpResponse = await sut.handle({
+        body: { ...validBody(), price_brl_per_million: zero },
+      });
+
+      expect(httpResponse.statusCode).toBe(400);
+      expect(httpResponse.body).toEqual(
+        new InvalidParamError('price_brl_per_million'),
+      );
+    }
+  });
+
+  it('MUST return 400 for an overflowing price string (C-2 — bounded, never a 500)', async () => {
+    const { sut } = makeSut();
+
+    // Too many digits for the format; format-valid but beyond the safe µ¢
+    // range — both are the CLIENT's problem, answered as 400.
+    for (const price of ['999999999999', '99999999.99999999']) {
+      const httpResponse = await sut.handle({
+        body: { ...validBody(), price_brl_per_million: price },
+      });
+
+      expect(httpResponse.statusCode).toBe(400);
+      expect(httpResponse.body).toEqual(
+        new InvalidParamError('price_brl_per_million'),
+      );
+    }
+  });
+
+  it('MUST accept the valid extremes of the bounded price format', async () => {
+    const { sut } = makeSut();
+
+    for (const price of ['89999999.99999999', '0.00000001', '1']) {
+      const httpResponse = await sut.handle({
+        body: { ...validBody(), price_brl_per_million: price },
+      });
+
+      expect(httpResponse.statusCode).toBe(201);
+    }
+  });
+
   it('MUST return 400 for unknown fields (strict contract — a typo never registers a wrong price)', async () => {
     const { sut } = makeSut();
 

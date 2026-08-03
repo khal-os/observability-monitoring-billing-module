@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import {
   Controller,
   GetBillingSeriesUseCase,
@@ -6,6 +7,7 @@ import {
 } from './billing-protocols.js';
 import { buildBadRequest, buildSuccess } from '../../helpers/http-helper.js';
 import { InvalidParamError } from '../../errors/index.js';
+import { parseQuery } from '../../helpers/query-validation.js';
 import {
   toBillingDailySeriesView,
   toBillingSeriesView,
@@ -18,6 +20,13 @@ const MAX_MONTHS = 24;
 const DEFAULT_DAYS = 30;
 const MAX_DAYS = 90;
 
+/** Strict (C-3): an unknown param is a 400, never silently ignored. */
+const seriesQuerySchema = z.strictObject({
+  granularity: z.enum(['month', 'day']).default('month'),
+  months: z.coerce.number().int().min(1).max(MAX_MONTHS).optional(),
+  days: z.coerce.number().int().min(1).max(MAX_DAYS).optional(),
+});
+
 export class GetBillingSeriesController implements Controller {
   private readonly getBillingSeries: GetBillingSeriesUseCase;
 
@@ -26,45 +35,33 @@ export class GetBillingSeriesController implements Controller {
   }
 
   async handle(httpRequest: HttpRequest): Promise<HttpResponse> {
-    const query = (httpRequest.query ?? {}) as {
-      granularity?: string;
-      months?: string;
-      days?: string;
-    };
+    const parsed = parseQuery(seriesQuerySchema, httpRequest.query);
 
-    const granularity = query.granularity ?? 'month';
+    if (!parsed.ok) return parsed.response;
 
-    if (granularity !== 'month' && granularity !== 'day') {
-      return buildBadRequest(new InvalidParamError('granularity'));
-    }
+    const { granularity, months, days } = parsed.value;
 
+    // Cross-field rule (documented behavior, now enforced): each window
+    // param belongs to ITS granularity — `days` only with granularity=day,
+    // `months` only with granularity=month. Silently ignoring the stray
+    // param would answer a different window than the client asked for.
     if (granularity === 'day') {
-      let days = DEFAULT_DAYS;
-
-      if (query.days !== undefined) {
-        days = Number(query.days);
-
-        if (!Number.isInteger(days) || days < 1 || days > MAX_DAYS) {
-          return buildBadRequest(new InvalidParamError('days'));
-        }
+      if (months !== undefined) {
+        return buildBadRequest(new InvalidParamError('months'));
       }
 
       return buildSuccess(
-        toBillingDailySeriesView(await this.getBillingSeries.listDaily(days)),
+        toBillingDailySeriesView(
+          await this.getBillingSeries.listDaily(days ?? DEFAULT_DAYS),
+        ),
       );
     }
 
-    let months = DEFAULT_MONTHS;
-
-    if (query.months !== undefined) {
-      months = Number(query.months);
-
-      if (!Number.isInteger(months) || months < 1 || months > MAX_MONTHS) {
-        return buildBadRequest(new InvalidParamError('months'));
-      }
+    if (days !== undefined) {
+      return buildBadRequest(new InvalidParamError('days'));
     }
 
-    const series = await this.getBillingSeries.list(months);
+    const series = await this.getBillingSeries.list(months ?? DEFAULT_MONTHS);
 
     return buildSuccess(toBillingSeriesView(series));
   }

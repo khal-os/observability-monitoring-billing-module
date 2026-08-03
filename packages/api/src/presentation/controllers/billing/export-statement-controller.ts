@@ -1,11 +1,14 @@
+import { z } from 'zod';
 import {
   Controller,
   GetBillingSummaryUseCase,
   HttpRequest,
   HttpResponse,
 } from './billing-protocols.js';
-import { buildBadRequest } from '../../helpers/http-helper.js';
-import { InvalidParamError, MissingParamError } from '../../errors/index.js';
+import {
+  parseQuery,
+  yearMonthQueryShape,
+} from '../../helpers/query-validation.js';
 import { toBillingSummaryView } from './billing-view-model.js';
 import { BillingSummaryView } from './billing-view-schemas.js';
 
@@ -20,8 +23,21 @@ import { BillingSummaryView } from './billing-view-schemas.js';
  * - html → standalone printable page; the browser's print-to-PDF is the
  *          PDF path in v1 (no binary PDF dependency).
  */
-const csvEscape = (value: string): string =>
-  /[";\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+
+/**
+ * Cell hardening (A-4): agent/model names originate from source trace
+ * metadata — agent-controlled. A cell starting with `=` `+` `-` `@` `\t`
+ * `\r` is prefixed with `'` (OWASP CSV-injection mitigation) so Excel
+ * reads it as text, never a formula; then any `"` `;` `\n` `\r` triggers
+ * quoting (a literal \r would otherwise break the \r\n row structure).
+ */
+const csvEscape = (value: string): string => {
+  const guarded = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+
+  return /[";\n\r]/.test(guarded)
+    ? `"${guarded.replace(/"/g, '""')}"`
+    : guarded;
+};
 
 const csvLine = (cells: string[]): string => cells.map(csvEscape).join(';');
 
@@ -105,6 +121,7 @@ export const statementPrintHtml = (view: BillingSummaryView): string => {
         <td>${escapeHtml(line.token_type_label)}</td>
         <td class="num">${escapeHtml(line.tokens_display)}</td>
         <td class="num">${escapeHtml(line.unit_price_brl_per_million_display)}</td>
+        <td>${escapeHtml(line.unit_price_effective_from_display)}</td>
         <td class="num">${escapeHtml(line.cost_brl_display_brl)}</td>
       </tr>`,
     )
@@ -173,7 +190,7 @@ ${reopenHtml}
 
 <h2>Linhas do extrato — quantidade × preço contratado = custo</h2>
 <table>
-  <thead><tr><th>Agente</th><th>Modelo</th><th>Tipo de token</th><th class="num">Tokens</th><th class="num">Preço (R$/M)</th><th class="num">Custo</th></tr></thead>
+  <thead><tr><th>Agente</th><th>Modelo</th><th>Tipo de token</th><th class="num">Tokens</th><th class="num">Preço (R$/M)</th><th>Vigente desde</th><th class="num">Custo</th></tr></thead>
   <tbody>${linesHtml}</tbody>
 </table>
 
@@ -182,9 +199,11 @@ ${reopenHtml}
 </html>`;
 };
 
-const FORMATS = ['csv', 'html'] as const;
-
-type ExportFormat = (typeof FORMATS)[number];
+/** Strict (C-3): an unknown param is a 400, never silently ignored. */
+const statementQuerySchema = z.strictObject({
+  ...yearMonthQueryShape,
+  format: z.enum(['csv', 'html']).default('csv'),
+});
 
 export class ExportStatementController implements Controller {
   private readonly getBillingSummary: GetBillingSummaryUseCase;
@@ -194,34 +213,11 @@ export class ExportStatementController implements Controller {
   }
 
   async handle(httpRequest: HttpRequest): Promise<HttpResponse> {
-    const query = (httpRequest.query ?? {}) as {
-      year?: string;
-      month?: string;
-      format?: string;
-    };
+    const parsed = parseQuery(statementQuerySchema, httpRequest.query);
 
-    for (const field of ['year', 'month'] as const) {
-      if (!query[field]) {
-        return buildBadRequest(new MissingParamError(field));
-      }
-    }
+    if (!parsed.ok) return parsed.response;
 
-    const year = Number(query.year);
-    const month = Number(query.month);
-
-    if (!Number.isInteger(year) || year < 1970 || year > 9999) {
-      return buildBadRequest(new InvalidParamError('year'));
-    }
-
-    if (!Number.isInteger(month) || month < 1 || month > 12) {
-      return buildBadRequest(new InvalidParamError('month'));
-    }
-
-    const format = (query.format ?? 'csv') as ExportFormat;
-
-    if (!FORMATS.includes(format)) {
-      return buildBadRequest(new InvalidParamError('format'));
-    }
+    const { year, month, format } = parsed.value;
 
     const view = toBillingSummaryView(
       await this.getBillingSummary.get(year, month),

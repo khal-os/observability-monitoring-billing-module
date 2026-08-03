@@ -1,5 +1,15 @@
 import { z } from 'zod';
 import { tokenTypeSchema } from '../../helpers/docs-schemas.js';
+import { brlToMicrocents } from '../../../common/helpers/money/money.js';
+
+const convertsToMicrocents = (value: string): boolean => {
+  try {
+    brlToMicrocents(value);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 /**
  * Request contract of POST /prices (T4 write). STRICT on purpose: a typoed
@@ -11,17 +21,35 @@ import { tokenTypeSchema } from '../../helpers/docs-schemas.js';
  * inputs, never as extra optional fields here.
  *
  * Money arrives as a DECIMAL STRING (never a JSON float — the same "never
- * float" rule as storage): up to 8 decimal places, converted to integer µ¢
- * at this border.
+ * float" rule as storage): up to 8 integer digits (≤ R$ 99.999.999/M — far
+ * above any real price; beyond that brlToMicrocents would overflow into a
+ * 500) and up to 8 decimal places, converted to integer µ¢ at this border.
+ * Zero is REJECTED (C-2): an accidental "0" would stamp every pending
+ * trace at R$ 0,00 immutably — invariant 2's exact nightmare. If free-tier
+ * models ever become real, that is a new decision-log entry, not a silent
+ * default.
+ *
+ * effective_from accepts date-only or OFFSET-CARRYING datetimes — never a
+ * timezone-less local datetime (B-8): "2026-07-01T00:00:00" would read in
+ * the SERVER's timezone and shift the immutable stamp boundary.
  */
 export const registerPriceVersionRequestSchema = z.strictObject({
   model: z.string().min(1),
   token_type: tokenTypeSchema,
   price_brl_per_million: z
     .string()
-    .regex(/^\d+(\.\d{1,8})?$/, 'decimal string, e.g. "2.75"'),
+    .regex(/^\d{1,8}(\.\d{1,8})?$/, 'decimal string, e.g. "2.75"')
+    .refine((value) => Number(value) > 0, {
+      message: 'price_brl_per_million must be greater than zero',
+    })
+    // The regex bounds the FORMAT; this bounds the VALUE: an amount the
+    // µ¢ conversion cannot represent as a safe integer answers 400 at the
+    // border, never a 500 in the controller.
+    .refine(convertsToMicrocents, {
+      message: 'price_brl_per_million exceeds the representable range',
+    }),
   effective_from: z
-    .union([z.iso.date(), z.iso.datetime({ offset: true, local: true })])
+    .union([z.iso.date(), z.iso.datetime({ offset: true })])
     .transform((value) => new Date(value))
     .refine((date) => !Number.isNaN(date.getTime())),
 });
