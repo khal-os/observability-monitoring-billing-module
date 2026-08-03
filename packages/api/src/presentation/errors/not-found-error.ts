@@ -1,10 +1,7 @@
-export class NotFoundError extends Error {
-  msg: string;
+import { ApiError } from './api-error.js';
 
+export class NotFoundError extends ApiError {
   constructor(resource: string) {
-    super(`Not found: ${resource}`);
-
-    this.name = 'NotFoundError';
-    this.msg = `Not found: ${resource}`;
+    super('NotFoundError', `Not found: ${resource}`);
   }
 }

@@ -1,10 +1,7 @@
-export class MethodNotAllowedError extends Error {
-  msg: string;
+import { ApiError } from './api-error.js';
 
+export class MethodNotAllowedError extends ApiError {
   constructor(description: string) {
-    super(`Method not allowed: ${description}`);
-
-    this.name = 'MethodNotAllowedError';
-    this.msg = `Method not allowed: ${description}`;
+    super('MethodNotAllowedError', `Method not allowed: ${description}`);
   }
 }

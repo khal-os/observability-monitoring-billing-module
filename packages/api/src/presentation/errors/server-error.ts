@@ -1,10 +1,7 @@
-export class ServerError extends Error {
-  msg: string;
+import { ApiError } from './api-error.js';
 
+export class ServerError extends ApiError {
   constructor() {
-    super('Internal server error');
-
-    this.name = 'ServerError';
-    this.msg = 'Internal server error';
+    super('ServerError', 'Internal server error');
   }
 }

@@ -1,10 +1,7 @@
-export class UnauthorizedError extends Error {
-  msg: string;
+import { ApiError } from './api-error.js';
 
+export class UnauthorizedError extends ApiError {
   constructor() {
-    super('Unauthorized');
-
-    this.name = 'UnauthorizedError';
-    this.msg = 'Unauthorized';
+    super('UnauthorizedError', 'Unauthorized');
   }
 }

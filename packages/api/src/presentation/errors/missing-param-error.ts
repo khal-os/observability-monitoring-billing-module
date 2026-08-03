@@ -1,10 +1,7 @@
-export class MissingParamError extends Error {
-  msg: string;
+import { ApiError } from './api-error.js';
 
+export class MissingParamError extends ApiError {
   constructor(paramName: string) {
-    super(`Missing parameter: ${paramName}`);
-
-    this.name = 'MissingParamError';
-    this.msg = `Missing parameter: ${paramName}`;
+    super('MissingParamError', `Missing parameter: ${paramName}`);
   }
 }

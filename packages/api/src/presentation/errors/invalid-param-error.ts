@@ -1,10 +1,7 @@
-export class InvalidParamError extends Error {
-  msg: string;
+import { ApiError } from './api-error.js';
 
+export class InvalidParamError extends ApiError {
   constructor(paramName: string) {
-    super(`Invalid parameter: ${paramName}`);
-
-    this.name = 'InvalidParamError';
-    this.msg = `Invalid parameter: ${paramName}`;
+    super('InvalidParamError', `Invalid parameter: ${paramName}`);
   }
 }
