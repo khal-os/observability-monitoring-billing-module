@@ -7,6 +7,7 @@ import {
 import {
   InMemoryBillingPeriodRepository,
   InMemoryBillingSnapshotRepository,
+  QuarantineReconcilerStub,
   StubBillingQueryRepository,
   usageRecord,
 } from '../billingStatement/billing-test-fakes.js';
@@ -20,12 +21,16 @@ const NOW = new Date('2026-07-15T10:00:00.000Z');
 const makeSut = () => {
   const billingQueryRepository = new StubBillingQueryRepository();
   const billingPeriodRepository = new InMemoryBillingPeriodRepository();
-  const billingSnapshotRepository = new InMemoryBillingSnapshotRepository();
+  const billingSnapshotRepository = new InMemoryBillingSnapshotRepository(
+    billingPeriodRepository,
+  );
+  const traceRepository = new QuarantineReconcilerStub();
 
   const sut = new CloseBillingPeriodDbUseCase({
     billingQueryRepository,
     billingPeriodRepository,
     billingSnapshotRepository,
+    traceRepository,
     now: () => NOW,
   });
 
@@ -40,6 +45,7 @@ const makeSut = () => {
     billingQueryRepository,
     billingPeriodRepository,
     billingSnapshotRepository,
+    traceRepository,
   };
 };
 
@@ -205,5 +211,122 @@ describe('CloseBillingPeriodDbUseCase (T6)', () => {
     expect(
       (await billingSnapshotRepository.findCurrent(2026, 5))?.statement.lines,
     ).toEqual([]);
+  });
+
+  describe('audit B-1 (decision 100): the snapshot adjudicates', () => {
+    it('MUST reconcile quarantine AFTER the close, with the snapshot ids and version', async () => {
+      const { sut, billingQueryRepository, traceRepository } = makeSut();
+      billingQueryRepository.usageByMonth.set('2026-6', JUNE);
+      traceRepository.result = { flaggedStragglers: 2, absorbed: 1 };
+
+      const result = await sut.close(2026, 6);
+
+      expect(traceRepository.calls).toEqual([
+        {
+          monthStart: new Date('2026-06-01T00:00:00.000Z'),
+          monthEnd: new Date('2026-07-01T00:00:00.000Z'),
+          snapshotTraceIds: ['t1', 't2'],
+          snapshotVersion: 1,
+        },
+      ]);
+      expect(result.quarantine).toEqual({ flaggedStragglers: 2, absorbed: 1 });
+    });
+
+    it('MUST NOT reconcile when the close is blocked or loses — no snapshot, no adjudication', async () => {
+      const { sut, billingQueryRepository, traceRepository } = makeSut();
+      billingQueryRepository.pendingByMonth.set('2026-6', {
+        traceCount: 1,
+        tokens: { input: 10 },
+        models: ['m'],
+      });
+
+      await expect(sut.close(2026, 6)).rejects.toThrow(BillingCloseBlockedError);
+      expect(traceRepository.calls).toEqual([]);
+    });
+  });
+
+  describe('audit B-2 (M8): the close is one atomic write', () => {
+    it('CRASH between snapshot writes and the period flip: NOTHING lands, the retry closes cleanly and reproduces', async () => {
+      const {
+        sut,
+        billingQueryRepository,
+        billingPeriodRepository,
+        billingSnapshotRepository,
+      } = makeSut();
+      billingQueryRepository.usageByMonth.set('2026-6', JUNE);
+
+      jest
+        .spyOn(billingPeriodRepository, 'markClosed')
+        .mockRejectedValueOnce(new Error('crash before the flip'));
+
+      await expect(sut.close(2026, 6)).rejects.toThrow('crash before the flip');
+
+      // The one-transaction contract: no orphan snapshot, period untouched.
+      expect(await billingSnapshotRepository.findCurrent(2026, 6)).toBeNull();
+      expect(await billingPeriodRepository.find(2026, 6)).toBeNull();
+
+      // The retry is NOT wedged (the old protocol recomputed the same
+      // version over an orphan header and failed forever).
+      const retried = await sut.close(2026, 6);
+
+      expect(retried.snapshotVersion).toBe(1);
+
+      const storedInputs = await billingSnapshotRepository.findUsageRecords(
+        2026,
+        6,
+        1,
+      );
+      const stored = await billingSnapshotRepository.findCurrent(2026, 6);
+
+      expect(JSON.parse(JSON.stringify(buildStatement(storedInputs)))).toEqual(
+        JSON.parse(JSON.stringify(stored?.statement)),
+      );
+    });
+
+    it('MUST derive a collision-proof version from the HIGHEST stored header too (orphan tolerated)', async () => {
+      const { sut, billingQueryRepository, billingSnapshotRepository } =
+        makeSut();
+      billingQueryRepository.usageByMonth.set('2026-6', JUNE);
+
+      // An orphan v1 header exists (pre-fix crash legacy): the period doc
+      // never advanced, so the OLD derivation would recompute v1 and wedge
+      // on the unique index forever.
+      await billingSnapshotRepository.insert(
+        {
+          year: 2026,
+          month: 6,
+          version: 1,
+          createdAt: NOW,
+          trigger: 'runbook',
+          ingestionWatermark: null,
+          logicVersion: STATEMENT_LOGIC_VERSION,
+          roundingRule: 'half-up 2 casas',
+          statement: buildStatement([]),
+          exceptions: [],
+          priceVersionsApplied: [],
+          usageRecordCount: 0,
+        },
+        [],
+      );
+
+      const result = await sut.close(2026, 6);
+
+      expect(result.snapshotVersion).toBe(2);
+      expect(
+        (await billingSnapshotRepository.findCurrent(2026, 6))?.version,
+      ).toBe(2);
+    });
+
+    it('a concurrent close losing the period flip surfaces as a clean state error, nothing overwritten', async () => {
+      const { sut, billingQueryRepository, billingPeriodRepository } = makeSut();
+      billingQueryRepository.usageByMonth.set('2026-6', JUNE);
+
+      // The other runner wins between our guard read and our write.
+      jest
+        .spyOn(billingPeriodRepository, 'markClosed')
+        .mockResolvedValueOnce('conflict');
+
+      await expect(sut.close(2026, 6)).rejects.toThrow(BillingPeriodStateError);
+    });
   });
 });

@@ -14,16 +14,47 @@ import { MongoDb } from '../mongo-db.js';
 import { TRACES_COLLECTION } from '../trace/mongodb-trace-repository.js';
 
 /**
+ * Unresolved quarantine (decision 100): flagged and not absorbed by any
+ * snapshot — the only quarantine state readers treat as "outside the
+ * bill". A normal trace stores `billingQuarantine: null`, so the nested
+ * path simply does not exist on it.
+ */
+const UNRESOLVED_QUARANTINE_EXPR = {
+  $and: [
+    { $ne: [{ $type: '$billingQuarantine.reason' }, 'missing'] },
+    {
+      $eq: [
+        { $type: '$billingQuarantine.absorbedInSnapshotVersion' },
+        'missing',
+      ],
+    },
+  ],
+};
+
+/** Match-stage form: docs where the quarantine is NOT unresolved. */
+const NOT_UNRESOLVED_QUARANTINE_MATCH = {
+  $or: [
+    { 'billingQuarantine.reason': { $exists: false } },
+    { 'billingQuarantine.absorbedInSnapshotVersion': { $exists: true } },
+  ],
+};
+
+/**
  * Billing reads the SAME traces collection the tabs read and sums the SAME
  * ingestion-time stamps (invariants 1 and 3). µ¢ sums stay exact: integers
  * below 2^53 are exact under Mongo's $sum.
  */
 export class MongoDbBillingQueryRepository implements BillingQueryRepository {
-  async listBills(): Promise<BillRow[]> {
+  async listBills(sinceInclusive?: Date | null): Promise<BillRow[]> {
     const traces = MongoDb.getCollection(TRACES_COLLECTION);
 
     const documents = (await traces
       .aggregate([
+        // audit C-7.1: the scan is bounded to open months — closed history
+        // is served from snapshots by the caller, never re-scanned here.
+        ...(sinceInclusive
+          ? [{ $match: { startedAt: { $gte: sinceInclusive } } }]
+          : []),
         {
           $project: {
             // $year/$month operate in UTC by default — same calendar-month
@@ -32,7 +63,24 @@ export class MongoDbBillingQueryRepository implements BillingQueryRepository {
             month: { $month: '$startedAt' },
             pricingStatus: 1,
             totalCostMicrocents: 1,
-            tokens: 1,
+            docTokens: {
+              $add: [
+                { $ifNull: ['$tokens.input', 0] },
+                { $ifNull: ['$tokens.output', 0] },
+                { $ifNull: ['$tokens.cache_read', 0] },
+                { $ifNull: ['$tokens.cache_write', 0] },
+              ],
+            },
+            // Decision 100: a pending trace with UNRESOLVED quarantine is
+            // outside the bill's scope — it counts in the quarantine
+            // number, not in the pending panel (same rule as
+            // pendingPriceSummary, so the endpoints agree).
+            pendingInScope: {
+              $and: [
+                { $eq: ['$pricingStatus', 'pending_price'] },
+                { $not: UNRESOLVED_QUARANTINE_EXPR },
+              ],
+            },
           },
         },
         {
@@ -42,9 +90,7 @@ export class MongoDbBillingQueryRepository implements BillingQueryRepository {
               $sum: { $cond: [{ $eq: ['$pricingStatus', 'stamped'] }, 1, 0] },
             },
             pendingTraceCount: {
-              $sum: {
-                $cond: [{ $eq: ['$pricingStatus', 'pending_price'] }, 1, 0],
-              },
+              $sum: { $cond: ['$pendingInScope', 1, 0] },
             },
             totalCostMicrocents: {
               $sum: {
@@ -55,13 +101,28 @@ export class MongoDbBillingQueryRepository implements BillingQueryRepository {
                 ],
               },
             },
+            // audit B-10.4 — tokens: stamped + in-scope pending (the live
+            // "month volume so far"); stampedTokens: billed volume only.
             tokens: {
               $sum: {
-                $add: [
-                  { $ifNull: ['$tokens.input', 0] },
-                  { $ifNull: ['$tokens.output', 0] },
-                  { $ifNull: ['$tokens.cache_read', 0] },
-                  { $ifNull: ['$tokens.cache_write', 0] },
+                $cond: [
+                  {
+                    $or: [
+                      { $eq: ['$pricingStatus', 'stamped'] },
+                      '$pendingInScope',
+                    ],
+                  },
+                  '$docTokens',
+                  0,
+                ],
+              },
+            },
+            stampedTokens: {
+              $sum: {
+                $cond: [
+                  { $eq: ['$pricingStatus', 'stamped'] },
+                  '$docTokens',
+                  0,
                 ],
               },
             },
@@ -75,6 +136,7 @@ export class MongoDbBillingQueryRepository implements BillingQueryRepository {
       pendingTraceCount: number;
       totalCostMicrocents: number;
       tokens: number;
+      stampedTokens: number;
     }[];
 
     return documents.map((document) => ({
@@ -84,6 +146,7 @@ export class MongoDbBillingQueryRepository implements BillingQueryRepository {
       stampedTraceCount: document.stampedTraceCount,
       pendingTraceCount: document.pendingTraceCount,
       tokens: document.tokens,
+      stampedTokens: document.stampedTokens,
     }));
   }
 
@@ -91,6 +154,13 @@ export class MongoDbBillingQueryRepository implements BillingQueryRepository {
    * The statement engine's diet (decision 88): one record per stamped
    * trace, stamps verbatim, never the payloads/spans (decision 47).
    * Deterministic order by traceId — snapshots must reproduce exactly.
+   *
+   * audit C-7.2: the sort happens IN PROCESS, after materialization. A
+   * DB-side sort had no serving index; past the 100MB in-memory sort
+   * ceiling the query aborted — taking down GET /billing/summary AND
+   * `make billing-close` for the month. Determinism is the only contract
+   * requirement, and the array is fully materialized for buildStatement
+   * anyway.
    */
   async fetchUsageRecords(
     monthStart: Date,
@@ -111,20 +181,23 @@ export class MongoDbBillingQueryRepository implements BillingQueryRepository {
             stampedCosts: 1,
             totalCostMicrocents: 1,
           },
-          sort: { traceId: 1 },
         },
       )
       .toArray();
 
-    return documents.map((document) => ({
-      traceId: document.traceId as string,
-      startedAt: document.startedAt as Date,
-      agentId: (document.agent?.id as string | undefined) ?? null,
-      agentVersion: (document.agent?.version as string | undefined) ?? null,
-      model: document.model ? modelKey(document.model as ModelRef) : null,
-      stampedCosts: (document.stampedCosts ?? []) as BillingUsageRecord['stampedCosts'],
-      totalCostMicrocents: (document.totalCostMicrocents as number) ?? 0,
-    }));
+    return documents
+      .map((document) => ({
+        traceId: document.traceId as string,
+        startedAt: document.startedAt as Date,
+        agentId: (document.agent?.id as string | undefined) ?? null,
+        agentVersion: (document.agent?.version as string | undefined) ?? null,
+        model: document.model ? modelKey(document.model as ModelRef) : null,
+        stampedCosts: (document.stampedCosts ?? []) as BillingUsageRecord['stampedCosts'],
+        totalCostMicrocents: (document.totalCostMicrocents as number) ?? 0,
+      }))
+      .sort((a, b) =>
+        a.traceId < b.traceId ? -1 : a.traceId > b.traceId ? 1 : 0,
+      );
   }
 
   async pendingPriceSummary(
@@ -137,6 +210,11 @@ export class MongoDbBillingQueryRepository implements BillingQueryRepository {
           $match: {
             startedAt: { $gte: monthStart, $lt: monthEnd },
             pricingStatus: 'pending_price',
+            // Decision 100: a pending trace with UNRESOLVED quarantine is
+            // outside the close's scope — it must not block the close's
+            // pending guard (countQuarantined carries its visibility; the
+            // audited reopen flow brings it back into play).
+            ...NOT_UNRESOLVED_QUARANTINE_MATCH,
           },
         },
         {
@@ -168,7 +246,7 @@ export class MongoDbBillingQueryRepository implements BillingQueryRepository {
     };
   }
 
-  async monthlyRollup(): Promise<MonthlyRollupRow[]> {
+  async monthlyRollup(sinceInclusive?: Date | null): Promise<MonthlyRollupRow[]> {
     const traces = MongoDb.getCollection(TRACES_COLLECTION);
 
     const monthOf = {
@@ -179,8 +257,15 @@ export class MongoDbBillingQueryRepository implements BillingQueryRepository {
     // Two pipelines over the UNWOUND stamps — (month × agent × type) and
     // (month × model × type); every coarser sum (agent totals, month
     // totals, month type split) is assembled from them in JS.
+    // audit C-7.1: bounded to open months when the caller passes the
+    // bound — closed months chart from their snapshots, not from here.
     const stampStages = [
-      { $match: { pricingStatus: 'stamped' } },
+      {
+        $match: {
+          pricingStatus: 'stamped',
+          ...(sinceInclusive ? { startedAt: { $gte: sinceInclusive } } : {}),
+        },
+      },
       { $project: { startedAt: 1, agent: 1, model: 1, stampedCosts: 1 } },
       { $unwind: '$stampedCosts' },
     ];
@@ -314,10 +399,11 @@ export class MongoDbBillingQueryRepository implements BillingQueryRepository {
           $match: {
             startedAt: { $gte: from, $lt: toExclusive },
             pricingStatus: 'stamped',
-            // Quarantined traces are outside every bill (T6) — excluding
-            // them keeps a closed month's days summing to its frozen
-            // total (decision 97).
-            'billingQuarantine.reason': { $exists: false },
+            // UNRESOLVED quarantine is outside every bill (decision 100) —
+            // excluding it keeps a closed month's days summing to its
+            // frozen total (decision 97). A trace ABSORBED by a re-close
+            // is billed by snapshot v+1 (decision 89), so it charts.
+            ...NOT_UNRESOLVED_QUARANTINE_MATCH,
           },
         },
         { $project: { startedAt: 1, stampedCosts: 1 } },
@@ -375,9 +461,12 @@ export class MongoDbBillingQueryRepository implements BillingQueryRepository {
   }
 
   async countQuarantined(monthStart: Date, monthEnd: Date): Promise<number> {
+    // UNRESOLVED only (decision 100): a trace absorbed by a re-close is
+    // billed — counting it "outside the bill" forever was audit B-1(a).
     return MongoDb.getCollection(TRACES_COLLECTION).countDocuments({
       startedAt: { $gte: monthStart, $lt: monthEnd },
       'billingQuarantine.reason': { $exists: true },
+      'billingQuarantine.absorbedInSnapshotVersion': { $exists: false },
     });
   }
 

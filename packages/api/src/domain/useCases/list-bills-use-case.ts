@@ -17,13 +17,31 @@ export interface BillListItem {
    */
   totalCostMicrocents: number;
   stampedTraceCount: number;
+  /**
+   * Open months: live count, EXCLUDING pending traces with unresolved
+   * quarantine (decision 100 — those show in quarantinedTraceCount).
+   * Closed months served purely from the snapshot report 0 here: a
+   * pending trace can only reach a closed month as a post-close arrival,
+   * which the quarantine count carries.
+   */
   pendingTraceCount: number;
-  /** All token types summed, stamped and pending traces alike. */
+  /**
+   * audit B-10.4 — the "month volume so far" number: all token types
+   * summed over stamped AND pending traces (open-month live meaning;
+   * pending traces with unresolved quarantine excluded, decision 100).
+   * Closed months fill this from the snapshot, so there tokens ===
+   * stampedTokens (the frozen bill knows only billed volume).
+   */
   tokens: number;
+  /**
+   * audit B-10.4 — the BILLED volume: token sum of stamped traces only.
+   * Closed months: the snapshot's stampedTokensTotal, verbatim.
+   */
+  stampedTokens: number;
   /** Present iff periodStatus === 'closed'. */
   closedAt?: Date;
   snapshotVersion?: number;
-  /** Traces that arrived after the close (T6 quarantine) — admin visibility (US5). */
+  /** Traces with UNRESOLVED quarantine (decision 100) — admin visibility (US5). */
   quarantinedTraceCount: number;
 }
 

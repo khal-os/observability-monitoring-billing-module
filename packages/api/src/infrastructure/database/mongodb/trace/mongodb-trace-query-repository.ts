@@ -113,8 +113,12 @@ export class MongoDbTraceQueryRepository implements TraceQueryRepository {
         .skip((pagination.page - 1) * pagination.pageSize)
         .limit(pagination.pageSize)
         .toArray(),
-      // Unfiltered: collection metadata (exact here — single writer, no
-      // orphans). Filtered: count up to the cap and stop (decision 77).
+      // Unfiltered: collection metadata — O(1), but APPROXIMATE: the
+      // metadata count can drift after an unclean mongod shutdown (and
+      // counts orphans on sharded topologies) until validate/repair
+      // corrects it. Acceptable for an unfiltered list total; anything
+      // money-bearing counts real documents. Filtered: count up to the
+      // cap and stop (decision 77).
       unfiltered
         ? traces.estimatedDocumentCount()
         : traces.countDocuments(filter, { limit: TOTAL_CAP + 1 }),

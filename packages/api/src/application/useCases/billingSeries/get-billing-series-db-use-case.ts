@@ -9,6 +9,11 @@ import {
 } from './billing-series-protocols.js';
 import { TokenType } from '../../../domain/models/price-version-model.js';
 import { StatementLine } from '../../../domain/models/billing-snapshot-model.js';
+import { firstOpenMonthStart } from '../billingSummary/get-billing-summary-db-use-case.js';
+
+/** Months on a single integer axis so a continuous range is a simple loop. */
+const monthOrdinal = (year: number, month: number): number =>
+  year * 12 + (month - 1);
 
 const addTokenCost = (
   split: CostByTokenType,
@@ -61,52 +66,76 @@ export class GetBillingSeriesDbUseCase implements GetBillingSeriesUseCase {
   }
 
   async list(maxMonths: number): Promise<BillingSeriesMonth[]> {
-    const [rollup, periods] = await Promise.all([
-      this.billingQueryRepository.monthlyRollup(),
-      this.billingPeriodRepository.listAll(),
-    ]);
+    // Periods first: closed months are served from snapshots below, so the
+    // rollup only needs to scan open months (C-7.1 bound — same rule as
+    // list-bills).
+    const periods = await this.billingPeriodRepository.listAll();
+    const rollup = await this.billingQueryRepository.monthlyRollup(
+      firstOpenMonthStart(periods),
+    );
     const now = this.now();
+    const currentOrdinal = monthOrdinal(
+      now.getUTCFullYear(),
+      now.getUTCMonth() + 1,
+    );
 
     const closedMonths = new Set(
       periods
         .filter((period) => period.status === 'closed')
-        .map((period) => `${period.year}-${period.month}`),
+        .map((period) => monthOrdinal(period.year, period.month)),
     );
+    const rollupByMonth = new Map(
+      rollup.map((row) => [monthOrdinal(row.year, row.month), row]),
+    );
+
+    // Continuous range from the oldest data/period month through the
+    // current month: a month with zero traffic materializes as a zero bar
+    // — a gap in traffic must LOOK like a gap (the daily lens's rule,
+    // applied to the monthly axis). An empty store charts nothing.
+    const knownOrdinals = [
+      ...rollupByMonth.keys(),
+      ...periods.map((period) => monthOrdinal(period.year, period.month)),
+    ];
+
+    if (knownOrdinals.length === 0) return [];
+
+    const firstOrdinal = Math.min(...knownOrdinals);
+    const lastOrdinal = Math.max(...knownOrdinals, currentOrdinal);
+
+    const ordinals: number[] = [];
+    for (let ordinal = firstOrdinal; ordinal <= lastOrdinal; ordinal += 1) {
+      ordinals.push(ordinal);
+    }
+
+    // The cap applies BEFORE any snapshot lookup — months outside the
+    // window must never cost a per-month snapshot query.
+    const window = ordinals.slice(-maxMonths);
 
     const months: BillingSeriesMonth[] = [];
 
-    for (const row of rollup) {
-      const key = `${row.year}-${row.month}`;
+    for (const ordinal of window) {
+      const year = Math.floor(ordinal / 12);
+      const month = (ordinal % 12) + 1;
 
-      if (closedMonths.has(key)) {
-        closedMonths.delete(key);
-        months.push(await this.fromSnapshot(row.year, row.month));
+      if (closedMonths.has(ordinal)) {
+        months.push(await this.fromSnapshot(year, month));
         continue;
       }
 
-      const isCurrent =
-        row.year === now.getUTCFullYear() && row.month === now.getUTCMonth() + 1;
+      const row = rollupByMonth.get(ordinal);
 
       months.push({
-        year: row.year,
-        month: row.month,
-        periodStatus: isCurrent ? 'in_progress' : 'open',
-        totalCostMicrocents: row.totalCostMicrocents,
-        byTokenType: row.byTokenType,
-        byAgent: row.byAgent,
-        byModel: row.byModel,
+        year,
+        month,
+        periodStatus: ordinal === currentOrdinal ? 'in_progress' : 'open',
+        totalCostMicrocents: row?.totalCostMicrocents ?? 0,
+        byTokenType: row?.byTokenType ?? [],
+        byAgent: row?.byAgent ?? [],
+        byModel: row?.byModel ?? [],
       });
     }
 
-    // Closed months with no traces left in the store still chart.
-    for (const key of closedMonths) {
-      const [year, month] = key.split('-').map(Number);
-      months.push(await this.fromSnapshot(year as number, month as number));
-    }
-
-    return months
-      .sort((a, b) => a.year - b.year || a.month - b.month)
-      .slice(-maxMonths);
+    return months;
   }
 
   private async fromSnapshot(

@@ -6,6 +6,7 @@ import {
   BillingSnapshotRepository,
   CloseBillingPeriodResult,
   CloseBillingPeriodUseCase,
+  TraceRepository,
 } from './billing-lifecycle-protocols.js';
 import { BillingSnapshotModel } from '../../../domain/models/billing-snapshot-model.js';
 import { monthWindowUtc } from '../billingSummary/get-billing-summary-db-use-case.js';
@@ -33,17 +34,23 @@ export class CloseBillingPeriodDbUseCase implements CloseBillingPeriodUseCase {
   private readonly billingQueryRepository: BillingQueryRepository;
   private readonly billingPeriodRepository: BillingPeriodRepository;
   private readonly billingSnapshotRepository: BillingSnapshotRepository;
+  private readonly traceRepository: Pick<
+    TraceRepository,
+    'reconcileQuarantineAfterClose'
+  >;
   private readonly now: () => Date;
 
   constructor(args: {
     billingQueryRepository: BillingQueryRepository;
     billingPeriodRepository: BillingPeriodRepository;
     billingSnapshotRepository: BillingSnapshotRepository;
+    traceRepository: Pick<TraceRepository, 'reconcileQuarantineAfterClose'>;
     now?: () => Date;
   }) {
     this.billingQueryRepository = args.billingQueryRepository;
     this.billingPeriodRepository = args.billingPeriodRepository;
     this.billingSnapshotRepository = args.billingSnapshotRepository;
+    this.traceRepository = args.traceRepository;
     this.now = args.now ?? (() => new Date());
   }
 
@@ -87,7 +94,15 @@ export class CloseBillingPeriodDbUseCase implements CloseBillingPeriodUseCase {
     const ingestionWatermark =
       await this.billingQueryRepository.ingestionWatermark(start, end);
 
-    const version = (period?.snapshotVersion ?? 0) + 1;
+    // audit B-2: collision-proof version — the period doc's counter AND
+    // the highest header actually stored (a crash-orphaned header, however
+    // it came to exist, must never wedge every retry on the unique index).
+    const currentSnapshot = await this.billingSnapshotRepository.findCurrent(
+      year,
+      month,
+    );
+    const version =
+      Math.max(period?.snapshotVersion ?? 0, currentSnapshot?.version ?? 0) + 1;
     const closedAt = this.now();
 
     const snapshot: BillingSnapshotModel = {
@@ -107,30 +122,41 @@ export class CloseBillingPeriodDbUseCase implements CloseBillingPeriodUseCase {
       usageRecordCount: records.length,
     };
 
-    // Snapshot first, period flip second: a crash in between leaves an
-    // orphan snapshot version and an OPEN period — harmless (the next
-    // close writes version + 1), while the reverse order would leave a
-    // closed period with no snapshot (corrupt state the readers refuse).
-    await this.billingSnapshotRepository.insert(snapshot, records);
-
-    const outcome = await this.billingPeriodRepository.markClosed({
-      year,
-      month,
-      closedAt,
-      snapshotVersion: version,
-      audit: {
-        at: closedAt,
-        action: 'close',
-        trigger: 'runbook',
-        snapshotVersion: version,
+    // audit B-2: snapshot inputs + header + period flip land ATOMICALLY
+    // (one transaction inside the adapter, decision 81). A crash leaves
+    // NOTHING — the retry recomputes and closes cleanly; a concurrent
+    // close loses whole, its half-written records rolled back, never left
+    // under the winner's header.
+    const outcome = await this.billingSnapshotRepository.insertWithPeriodClose(
+      snapshot,
+      records,
+      {
+        closedAt,
+        audit: {
+          at: closedAt,
+          action: 'close',
+          trigger: 'runbook',
+          snapshotVersion: version,
+        },
       },
-    });
+    );
 
     if (outcome === 'conflict') {
       throw new BillingPeriodStateError(
         `Fechamento concorrente detectado para ${year}-${month} — nada foi sobrescrito.`,
       );
     }
+
+    // audit B-1 (decision 100): the snapshot adjudicates. With the ids the
+    // snapshot billed already in memory, flag every straggler the
+    // ingest-vs-close race let through and absorb every flagged trace this
+    // version DID bill (reopen→re-close correction, decision 89).
+    const quarantine = await this.traceRepository.reconcileQuarantineAfterClose(
+      start,
+      end,
+      records.map((record) => record.traceId),
+      version,
+    );
 
     return {
       year,
@@ -140,6 +166,7 @@ export class CloseBillingPeriodDbUseCase implements CloseBillingPeriodUseCase {
       totalDisplayCents: statement.totalDisplayCents,
       stampedTraceCount: statement.stampedTraceCount,
       ingestionWatermark,
+      quarantine,
     };
   }
 }

@@ -46,6 +46,17 @@ export interface PendingStamp {
 }
 
 /**
+ * Post-close reconciliation outcome (audit B-1, decision 100) — counts of
+ * the two idempotent passes, surfaced in the close job's report.
+ */
+export interface QuarantineReconciliation {
+  /** Traces of the month NOT billed by the snapshot, newly flagged. */
+  flaggedStragglers: number;
+  /** Previously flagged traces the snapshot DID bill, now marked absorbed. */
+  absorbed: number;
+}
+
+/**
  * audit B-4 residual: the skipped branch MAY carry the stored trace's
  * consolidated token total, so the ingest path can detect source/store
  * token divergence with no second read. Adapters that already hold the
@@ -82,12 +93,47 @@ export interface TraceRepository {
   /**
    * Stamps a pending_price trace. Guarded: writes ONLY while the trace is
    * still pending — a stamped trace is immutable (invariant 1).
+   *
+   * audit B-5: the CAS also pins the MODEL the prices were resolved for
+   * (`pinnedModel`, null when the pending trace had none). A concurrent
+   * attribution correction changing the model between the sweep's read and
+   * this write makes the filter miss → 'skipped' → the next sweep re-reads
+   * fresh and resolves prices for the corrected model. Without the pin,
+   * model A's prices could be stamped — immutably — onto a trace whose
+   * stored model is B.
    */
   stampPendingTrace(
     traceId: string,
     stamp: PendingStamp,
+    pinnedModel: ModelRef | null,
   ): Promise<'stamped' | 'skipped'>;
 
   /** Slim projection, oldest first — never the embedded payloads. */
   findPendingPrice(): Promise<PendingPriceTrace[]>;
+
+  /**
+   * audit B-1 (decision 100 — "the snapshot adjudicates"): called by the
+   * close AFTER the snapshot + period flip land, with the exact trace ids
+   * the snapshot billed. Two idempotent passes over [monthStart, monthEnd):
+   *
+   * 1. FLAG STRAGGLERS — traces of the month NOT in `snapshotTraceIds`
+   *    and not already flagged get `billingQuarantine: {reason:
+   *    'period_closed', quarantinedAt}`. This mechanically closes the
+   *    ingest-vs-close race: whatever interleaving let a trace slip in
+   *    unflagged, the reconciliation flags it.
+   * 2. ABSORB THE ADJUDICATED — flagged traces that ARE in
+   *    `snapshotTraceIds` get `billingQuarantine.absorbedInSnapshotVersion
+   *    = snapshotVersion`: the historical mark stays, but it no longer
+   *    means "outside the bill" (the reopen→re-close correction flow,
+   *    decision 89). Readers consider only UNRESOLVED quarantine (reason
+   *    present, absorbed version absent).
+   *
+   * Safe to re-run (crash-retry): both updates are pure state convergence.
+   */
+  reconcileQuarantineAfterClose(
+    monthStart: Date,
+    monthEnd: Date,
+    snapshotTraceIds: string[],
+    snapshotVersion: number,
+  ): Promise<QuarantineReconciliation>;
 }

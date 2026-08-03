@@ -1,3 +1,4 @@
+import { ClientSession } from 'mongodb';
 import { MongoDb } from '../mongo-db.js';
 import {
   BILLING_PERIODS_COLLECTION,
@@ -14,7 +15,12 @@ import {
   TRACES_COLLECTION,
 } from '../trace/mongodb-trace-repository.js';
 import { TraceModel } from '../../../../domain/models/trace-model.js';
-import { BillingSnapshotModel } from '../../../../domain/models/billing-snapshot-model.js';
+import {
+  BillingSnapshotModel,
+  BillingUsageRecord,
+} from '../../../../domain/models/billing-snapshot-model.js';
+import { BillingPeriodAuditEntry } from '../../../../domain/models/billing-period-model.js';
+import { BillingPeriodStateError } from '../../../../domain/useCases/close-billing-period-use-case.js';
 import { buildStatement } from '../../../../application/useCases/billingStatement/statement-engine.js';
 import { usageRecord } from '../../../../application/useCases/billingStatement/billing-test-fakes.js';
 import { billingPeriodIndexes } from '../migrations/017-billing-period-indexes.js';
@@ -206,6 +212,201 @@ describe('Billing lifecycle repositories (integration)', () => {
         JSON.parse(JSON.stringify(stored?.statement)),
       );
     });
+
+    it('listVersions: every version of the month, ascending, from one read (audit C-7.3)', async () => {
+      const sut = new MongoDbBillingSnapshotRepository();
+
+      await sut.insert(makeSnapshot(2, []), []);
+      await sut.insert(makeSnapshot(1, []), []);
+      // Another month must not leak in.
+      await sut.insert({ ...makeSnapshot(1, []), month: 5 }, []);
+
+      const versions = await sut.listVersions(2026, 6);
+
+      expect(versions.map((entry) => entry.version)).toEqual([1, 2]);
+      expect(versions[0]?.createdAt).toBeInstanceOf(Date);
+      expect(await sut.listVersions(2026, 4)).toEqual([]);
+    });
+  });
+
+  describe('insertWithPeriodClose — the atomic close write (audit B-2, M8)', () => {
+    const CLOSED_AT = new Date('2026-07-01T03:00:00.000Z');
+
+    const closeArgs = (version: number) => ({
+      closedAt: CLOSED_AT,
+      audit: {
+        at: CLOSED_AT,
+        action: 'close',
+        trigger: 'runbook',
+        snapshotVersion: version,
+      } as BillingPeriodAuditEntry,
+    });
+
+    it('lands inputs + header + period flip together, and the period reads closed', async () => {
+      const sut = new MongoDbBillingSnapshotRepository();
+      const periods = new MongoDbBillingPeriodRepository();
+      const records = [usageRecord({ traceId: 'a1' })];
+
+      const outcome = await sut.insertWithPeriodClose(
+        makeSnapshot(1, records),
+        records,
+        closeArgs(1),
+      );
+
+      expect(outcome).toBe('closed');
+
+      const period = await periods.find(2026, 6);
+      expect(period?.status).toBe('closed');
+      expect(period?.snapshotVersion).toBe(1);
+      expect(period?.audit.map((entry) => entry.action)).toEqual(['close']);
+      expect((await sut.findCurrent(2026, 6))?.version).toBe(1);
+      expect(
+        (await sut.findUsageRecords(2026, 6, 1)).map((r) => r.traceId),
+      ).toEqual(['a1']);
+    });
+
+    it('CRASH between the snapshot writes and the flip aborts EVERYTHING — the retry closes cleanly and reproduces', async () => {
+      class CrashingSnapshotRepository extends MongoDbBillingSnapshotRepository {
+        crashes = 1;
+
+        protected override async flipPeriodClosed(
+          session: ClientSession,
+          args: {
+            year: number;
+            month: number;
+            closedAt: Date;
+            snapshotVersion: number;
+            audit: BillingPeriodAuditEntry;
+          },
+        ): Promise<'closed' | 'conflict'> {
+          if (this.crashes > 0) {
+            this.crashes -= 1;
+            throw new Error('simulated crash before the flip');
+          }
+
+          return super.flipPeriodClosed(session, args);
+        }
+      }
+
+      const sut = new CrashingSnapshotRepository();
+      const periods = new MongoDbBillingPeriodRepository();
+      const records = [usageRecord({ traceId: 'c1' })];
+
+      await expect(
+        sut.insertWithPeriodClose(makeSnapshot(1, records), records, closeArgs(1)),
+      ).rejects.toThrow('simulated crash before the flip');
+
+      // The transaction rolled back: no orphan header, no orphan inputs,
+      // period untouched — the exact opposite of the pre-fix wedge.
+      expect(
+        await MongoDb.getCollection(BILLING_SNAPSHOTS_COLLECTION).countDocuments({}),
+      ).toBe(0);
+      expect(
+        await MongoDb.getCollection(
+          BILLING_SNAPSHOT_USAGE_COLLECTION,
+        ).countDocuments({}),
+      ).toBe(0);
+      expect(await periods.find(2026, 6)).toBeNull();
+
+      // The retry (same version — nothing advanced) succeeds and the
+      // stored inputs reproduce the stored statement.
+      const retried = await sut.insertWithPeriodClose(
+        makeSnapshot(1, records),
+        records,
+        closeArgs(1),
+      );
+
+      expect(retried).toBe('closed');
+
+      const storedInputs = await sut.findUsageRecords(2026, 6, 1);
+      const stored = await sut.findCurrent(2026, 6);
+
+      expect(JSON.parse(JSON.stringify(buildStatement(storedInputs)))).toEqual(
+        JSON.parse(JSON.stringify(stored?.statement)),
+      );
+    });
+
+    it('an already-closed period answers conflict and writes NOTHING', async () => {
+      const sut = new MongoDbBillingSnapshotRepository();
+      const records = [usageRecord({ traceId: 'w1' })];
+
+      await sut.insertWithPeriodClose(makeSnapshot(1, records), records, closeArgs(1));
+
+      const late = [usageRecord({ traceId: 'l1' })];
+      const outcome = await sut.insertWithPeriodClose(
+        makeSnapshot(2, late),
+        late,
+        closeArgs(2),
+      );
+
+      expect(outcome).toBe('conflict');
+      expect(await sut.findCurrent(2026, 6)).toMatchObject({ version: 1 });
+      expect(await sut.findUsageRecords(2026, 6, 2)).toEqual([]);
+    });
+
+    it('a duplicate (year, month, version) header surfaces as a TYPED state error', async () => {
+      const sut = new MongoDbBillingSnapshotRepository();
+      const periods = new MongoDbBillingPeriodRepository();
+      const records = [usageRecord({ traceId: 'd1' })];
+
+      // An orphan v1 header exists while the period is still open — the
+      // (rare) legacy crash shape. The typed error replaces a raw E11000.
+      await sut.insert(makeSnapshot(1, records), records);
+
+      await expect(
+        sut.insertWithPeriodClose(makeSnapshot(1, records), records, closeArgs(1)),
+      ).rejects.toThrow(BillingPeriodStateError);
+      expect(await periods.find(2026, 6)).toBeNull();
+    });
+
+    it('CONCURRENT double close: exactly one wins; the usage rows belong to the winning header (M8)', async () => {
+      const sut = new MongoDbBillingSnapshotRepository();
+      const periods = new MongoDbBillingPeriodRepository();
+      const recordsA = [
+        usageRecord({ traceId: 'a-1' }),
+        usageRecord({ traceId: 'a-2' }),
+      ];
+      const recordsB = [usageRecord({ traceId: 'b-1' })];
+
+      const [resultA, resultB] = await Promise.allSettled([
+        sut.insertWithPeriodClose(makeSnapshot(1, recordsA), recordsA, closeArgs(1)),
+        sut.insertWithPeriodClose(makeSnapshot(1, recordsB), recordsB, closeArgs(1)),
+      ]);
+
+      const closedFlags = [resultA, resultB].map(
+        (result) => result.status === 'fulfilled' && result.value === 'closed',
+      );
+
+      // Exactly one winner; the loser answers 'conflict' or the typed
+      // duplicate-header error — never a raw driver error.
+      expect(closedFlags.filter(Boolean)).toHaveLength(1);
+      for (const result of [resultA, resultB]) {
+        if (result.status === 'rejected') {
+          expect(result.reason).toBeInstanceOf(BillingPeriodStateError);
+        }
+      }
+
+      const winnerRecords = closedFlags[0] ? recordsA : recordsB;
+      const storedInputs = await sut.findUsageRecords(2026, 6, 1);
+
+      // The invariant B-2 exists for: the stored inputs are EXACTLY the
+      // winner's — no cross-contamination from the loser's rolled-back
+      // writes — and they reproduce the winning statement.
+      expect(storedInputs.map((record) => record.traceId).sort()).toEqual(
+        winnerRecords.map((record: BillingUsageRecord) => record.traceId).sort(),
+      );
+      expect(
+        await MongoDb.getCollection(BILLING_SNAPSHOTS_COLLECTION).countDocuments(
+          { year: 2026, month: 6 },
+        ),
+      ).toBe(1);
+      expect((await periods.find(2026, 6))?.snapshotVersion).toBe(1);
+
+      const stored = await sut.findCurrent(2026, 6);
+      expect(JSON.parse(JSON.stringify(buildStatement(storedInputs)))).toEqual(
+        JSON.parse(JSON.stringify(stored?.statement)),
+      );
+    });
   });
 
   describe('MongoDbBillingQueryRepository (new reads)', () => {
@@ -314,6 +515,141 @@ describe('Billing lifecycle repositories (integration)', () => {
       ]);
     });
 
+    it('countQuarantined: only UNRESOLVED quarantine counts — an absorbed trace is billed (decision 100)', async () => {
+      const traces = new MongoDbTraceRepository();
+      await traces.insertIfAbsent(
+        makeTrace({
+          traceId: 'unresolved',
+          billingQuarantine: {
+            reason: 'period_closed',
+            quarantinedAt: new Date(),
+          },
+        }),
+      );
+      await traces.insertIfAbsent(
+        makeTrace({
+          traceId: 'absorbed',
+          startedAt: new Date('2026-06-10T00:00:00.000Z'),
+          billingQuarantine: {
+            reason: 'period_closed',
+            quarantinedAt: new Date(),
+            absorbedInSnapshotVersion: 2,
+          },
+        }),
+      );
+
+      const sut = new MongoDbBillingQueryRepository();
+
+      expect(await sut.countQuarantined(JUNE_START, JULY_START)).toBe(1);
+    });
+
+    it('pendingPriceSummary counts pending APART — and unresolved-quarantined pending is OUTSIDE the close guard (M6, decision 100)', async () => {
+      const traces = new MongoDbTraceRepository();
+      const pending = (overrides: Partial<TraceModel>) =>
+        makeTrace({
+          pricingStatus: 'pending_price',
+          stampedCosts: undefined,
+          totalCostMicrocents: undefined,
+          stampedAt: undefined,
+          model: { id: 'llama-4-scout', provider: 'meta' },
+          tokens: { input: 500, output: 100 },
+          ...overrides,
+        });
+
+      await traces.insertIfAbsent(makeTrace({ traceId: 'stamped-1' }));
+      await traces.insertIfAbsent(pending({ traceId: 'pending-normal' }));
+      // Post-close straggler, still pending: the close of the REOPENED
+      // month must not be blocked by it — it is outside the close's scope
+      // (surfaced by countQuarantined; recovered only via the reopen flow).
+      await traces.insertIfAbsent(
+        pending({
+          traceId: 'pending-quarantined',
+          model: { id: 'nova-2', provider: 'amazon' },
+          billingQuarantine: {
+            reason: 'period_closed',
+            quarantinedAt: new Date(),
+          },
+        }),
+      );
+
+      const sut = new MongoDbBillingQueryRepository();
+      const summary = await sut.pendingPriceSummary(JUNE_START, JULY_START);
+
+      expect(summary.traceCount).toBe(1);
+      expect(summary.tokens).toEqual({
+        input: 500,
+        output: 100,
+        cache_read: 0,
+        cache_write: 0,
+      });
+      // Only the in-scope pending trace's model blocks the close.
+      expect(summary.models).toEqual(['meta/llama-4-scout']);
+    });
+
+    it('listBills (M6): per-month counts, the B-10.4 token pair, and decision-100 pending semantics', async () => {
+      const traces = new MongoDbTraceRepository();
+
+      await traces.insertIfAbsent(makeTrace({ traceId: 'jun-stamped' }));
+      await traces.insertIfAbsent(
+        makeTrace({
+          traceId: 'jun-pending',
+          pricingStatus: 'pending_price',
+          stampedCosts: undefined,
+          totalCostMicrocents: undefined,
+          stampedAt: undefined,
+          tokens: { input: 300 },
+          tokensTotal: 300,
+        }),
+      );
+      // Unresolved-quarantined pending: outside the bill — not in the
+      // pending count, its tokens not in the live volume.
+      await traces.insertIfAbsent(
+        makeTrace({
+          traceId: 'jun-pending-quarantined',
+          pricingStatus: 'pending_price',
+          stampedCosts: undefined,
+          totalCostMicrocents: undefined,
+          stampedAt: undefined,
+          tokens: { input: 7 },
+          tokensTotal: 7,
+          billingQuarantine: {
+            reason: 'period_closed',
+            quarantinedAt: new Date(),
+          },
+        }),
+      );
+      await traces.insertIfAbsent(
+        makeTrace({
+          traceId: 'jul-stamped',
+          startedAt: new Date('2026-07-02T00:00:00.000Z'),
+          tokens: { input: 2_000, output: 500 },
+        }),
+      );
+
+      const sut = new MongoDbBillingQueryRepository();
+      const rows = await sut.listBills();
+
+      expect(rows.map((row) => [row.year, row.month])).toEqual([
+        [2026, 7],
+        [2026, 6],
+      ]);
+      expect(rows[1]).toEqual({
+        year: 2026,
+        month: 6,
+        totalCostMicrocents: 2_500_000_000,
+        stampedTraceCount: 1,
+        pendingTraceCount: 1, // the quarantined pending one is NOT here
+        tokens: 1_000_000 + 300, // stamped + in-scope pending volume
+        stampedTokens: 1_000_000, // billed volume only (B-10.4)
+      });
+      expect(rows[0]).toMatchObject({ tokens: 2_500, stampedTokens: 2_500 });
+
+      // audit C-7.1: the bound cuts closed history out of the scan.
+      const bounded = await sut.listBills(JULY_START);
+
+      expect(bounded.map((row) => row.month)).toEqual([7]);
+    });
+
     it('dailyRollup buckets by UTC day, splits by type, EXCLUDES quarantined (decision 97)', async () => {
       const traces = new MongoDbTraceRepository();
       await traces.insertIfAbsent(
@@ -369,6 +705,38 @@ describe('Billing lifecycle repositories (integration)', () => {
           { tokenType: 'output', costMicrocents: 100 },
         ]),
       );
+    });
+
+    it('dailyRollup INCLUDES absorbed quarantined traces — billed by v+1, so they chart (decision 100)', async () => {
+      const traces = new MongoDbTraceRepository();
+      await traces.insertIfAbsent(makeTrace({ traceId: 'norm-1' }));
+      // Absorbed by a re-close: in the bill → in the days (decision 89).
+      await traces.insertIfAbsent(
+        makeTrace({
+          traceId: 'absorbed-1',
+          billingQuarantine: {
+            reason: 'period_closed',
+            quarantinedAt: new Date(),
+            absorbedInSnapshotVersion: 2,
+          },
+        }),
+      );
+      // Unresolved: outside the bill → outside the days.
+      await traces.insertIfAbsent(
+        makeTrace({
+          traceId: 'unresolved-1',
+          billingQuarantine: {
+            reason: 'period_closed',
+            quarantinedAt: new Date(),
+          },
+        }),
+      );
+
+      const sut = new MongoDbBillingQueryRepository();
+      const days = await sut.dailyRollup(JUNE_START, JULY_START);
+
+      expect(days).toHaveLength(1);
+      expect(days[0]?.totalCostMicrocents).toBe(5_000_000_000);
     });
   });
 });

@@ -47,6 +47,17 @@ try {
     'O extrato congelado é a base da fatura: GET /api/v1/billing/summary' +
       `?year=${year}&month=${month} (export: /billing/statement?format=csv|html).`,
   );
+
+  // Decision 100 — the snapshot adjudicates: report what the post-close
+  // reconciliation did (stragglers flagged / quarentenados absorvidos).
+  if (result.quarantine.flaggedStragglers > 0 || result.quarantine.absorbed > 0) {
+    console.log(
+      `Quarentena reconciliada: ${result.quarantine.flaggedStragglers} ` +
+        'trace(s) retardatário(s) sinalizado(s) fora da fatura; ' +
+        `${result.quarantine.absorbed} quarentenado(s) absorvido(s) pelo ` +
+        `snapshot v${result.snapshotVersion} (agora faturados).`,
+    );
+  }
 } catch (error) {
   if (
     error instanceof BillingCloseBlockedError ||

@@ -6,6 +6,7 @@ import {
   BillingSnapshotModel,
   BillingUsageRecord,
 } from '../../../domain/models/billing-snapshot-model.js';
+import { BillingPeriodStateError } from '../../../domain/useCases/close-billing-period-use-case.js';
 import {
   PendingPriceSummary,
 } from '../../../domain/useCases/get-billing-summary-use-case.js';
@@ -87,6 +88,12 @@ export class InMemoryBillingPeriodRepository implements BillingPeriodRepository 
 export class InMemoryBillingSnapshotRepository implements BillingSnapshotRepository {
   readonly snapshots: BillingSnapshotModel[] = [];
   readonly usage = new Map<string, BillingUsageRecord[]>();
+  /** Needed only by insertWithPeriodClose — pass the suite's period fake. */
+  private readonly periodRepository?: BillingPeriodRepository;
+
+  constructor(periodRepository?: BillingPeriodRepository) {
+    this.periodRepository = periodRepository;
+  }
 
   private key(year: number, month: number, version: number): string {
     return `${year}-${month}-v${version}`;
@@ -106,6 +113,60 @@ export class InMemoryBillingSnapshotRepository implements BillingSnapshotReposit
     // afterwards must not reach into the "stored" state.
     this.snapshots.push(JSON.parse(JSON.stringify(snapshot)));
     this.usage.set(key, JSON.parse(JSON.stringify(usageRecords)));
+  }
+
+  /**
+   * Honest emulation of the adapter's ONE-transaction close (audit B-2):
+   * nothing persists unless the period flip wins — a thrown flip (crash
+   * injection) or a lost race leaves the fake byte-identical, exactly like
+   * the aborted transaction leaves the store.
+   */
+  async insertWithPeriodClose(
+    snapshot: BillingSnapshotModel,
+    usageRecords: BillingUsageRecord[],
+    close: { closedAt: Date; audit: BillingPeriodAuditEntry },
+  ): Promise<'closed' | 'conflict'> {
+    if (!this.periodRepository) {
+      throw new Error(
+        'InMemoryBillingSnapshotRepository: construct with the period repository to use insertWithPeriodClose',
+      );
+    }
+
+    const key = this.key(snapshot.year, snapshot.month, snapshot.version);
+
+    if (this.usage.has(key)) {
+      // The (year, month, version) unique index, typed (audit B-2).
+      throw new BillingPeriodStateError(
+        `Snapshot ${key} já existe — fechamento concorrente detectado; nada foi sobrescrito.`,
+      );
+    }
+
+    const outcome = await this.periodRepository.markClosed({
+      year: snapshot.year,
+      month: snapshot.month,
+      closedAt: close.closedAt,
+      snapshotVersion: snapshot.version,
+      audit: close.audit,
+    });
+
+    if (outcome === 'conflict') return 'conflict';
+
+    await this.insert(snapshot, usageRecords);
+
+    return 'closed';
+  }
+
+  async listVersions(
+    year: number,
+    month: number,
+  ): Promise<{ version: number; createdAt: Date }[]> {
+    return this.snapshots
+      .filter((snapshot) => snapshot.year === year && snapshot.month === month)
+      .sort((a, b) => a.version - b.version)
+      .map((snapshot) => ({
+        version: snapshot.version,
+        createdAt: new Date(snapshot.createdAt),
+      }));
   }
 
   private revive(snapshot: BillingSnapshotModel): BillingSnapshotModel {
@@ -180,8 +241,15 @@ export class StubBillingQueryRepository implements BillingQueryRepository {
     return this.pendingByMonth.get(this.monthKey(monthStart)) ?? EMPTY_PENDING;
   }
 
-  async listBills(): Promise<BillRow[]> {
-    return this.billRows;
+  async listBills(sinceInclusive?: Date | null): Promise<BillRow[]> {
+    // Honest bound (audit C-7.1): rows before the open-month bound are
+    // closed history — the real scan never sees them.
+    if (!sinceInclusive) return this.billRows;
+
+    return this.billRows.filter(
+      (row) =>
+        Date.UTC(row.year, row.month - 1, 1) >= sinceInclusive.getTime(),
+    );
   }
 
   async fetchUsageRecords(monthStart: Date): Promise<BillingUsageRecord[]> {
@@ -210,6 +278,44 @@ export class StubBillingQueryRepository implements BillingQueryRepository {
     return this.accrued;
   }
 }
+
+/**
+ * Recording stub for the close's post-snapshot reconciliation dep (audit
+ * B-1, decision 100) — satisfies Pick<TraceRepository,
+ * 'reconcileQuarantineAfterClose'>.
+ */
+export class QuarantineReconcilerStub {
+  readonly calls: {
+    monthStart: Date;
+    monthEnd: Date;
+    snapshotTraceIds: string[];
+    snapshotVersion: number;
+  }[] = [];
+  result = { flaggedStragglers: 0, absorbed: 0 };
+
+  async reconcileQuarantineAfterClose(
+    monthStart: Date,
+    monthEnd: Date,
+    snapshotTraceIds: string[],
+    snapshotVersion: number,
+  ): Promise<{ flaggedStragglers: number; absorbed: number }> {
+    this.calls.push({ monthStart, monthEnd, snapshotTraceIds, snapshotVersion });
+
+    return this.result;
+  }
+}
+
+/** A BillRow with the B-10.4 token pair defaulted consistently. */
+export const billRow = (
+  overrides: Partial<BillRow> & { year: number; month: number },
+): BillRow => ({
+  totalCostMicrocents: 0,
+  stampedTraceCount: 0,
+  pendingTraceCount: 0,
+  tokens: 0,
+  stampedTokens: 0,
+  ...overrides,
+});
 
 export const usageRecord = (
   overrides: Partial<BillingUsageRecord> & { traceId: string },

@@ -1,8 +1,16 @@
-import { TraceRepository } from './trace-repository.js';
+import { InsertIfAbsentResult, TraceRepository } from './trace-repository.js';
 import {
   StampedTokenCost,
   TraceModel,
 } from '../../domain/models/trace-model.js';
+
+/**
+ * The skipped branch is one outcome in two spellings (audit B-4 residual):
+ * bare 'skipped', or the object form carrying the stored token total for
+ * divergence visibility. The contract accepts both.
+ */
+const outcomeOf = (result: InsertIfAbsentResult): 'inserted' | 'skipped' =>
+  typeof result === 'string' ? result : result.outcome;
 
 /**
  * ADAPTER-AGNOSTIC contract suite for TraceRepository — the executable
@@ -131,7 +139,13 @@ export const runTraceRepositoryContract = (
         const tampered = makeContractTrace({ totalCostMicrocents: 999_999 });
         const result = await harness.repository.insertIfAbsent(tampered);
 
-        expect(result).toBe('skipped');
+        expect(outcomeOf(result)).toBe('skipped');
+
+        // Object-form skips MUST report the STORED total (audit B-4
+        // residual: divergence visibility) — never the incoming payload's.
+        if (typeof result === 'object') {
+          expect(result.storedTokensTotal).toBe(1200);
+        }
 
         const stored = await harness.readTrace('trace-001');
 
@@ -285,6 +299,8 @@ export const runTraceRepositoryContract = (
     });
 
     describe('stampPendingTrace()', () => {
+      const GPT = { id: 'gpt-5-mini', provider: 'openai' };
+
       it('MUST stamp a pending trace exactly once — a stamped trace is immutable (invariant 1)', async () => {
         await harness.repository.insertIfAbsent(
           makePending({
@@ -300,6 +316,7 @@ export const runTraceRepositoryContract = (
             totalCostMicrocents: 330_000,
             stampedAt: new Date('2026-07-02T00:00:00.000Z'),
           },
+          GPT,
         );
 
         expect(first).toBe('stamped');
@@ -311,6 +328,7 @@ export const runTraceRepositoryContract = (
             totalCostMicrocents: 999_999,
             stampedAt: new Date('2026-07-03T00:00:00.000Z'),
           },
+          GPT,
         );
 
         expect(second).toBe('skipped');
@@ -319,6 +337,86 @@ export const runTraceRepositoryContract = (
 
         expect(stored?.['totalCostMicrocents']).toBe(330_000);
         expect(stored?.['pendingPrice'] ?? null).toBeNull();
+      });
+
+      it('audit B-5: a CONCURRENT model correction makes the pinned CAS miss — the next sweep stamps with the fresh model', async () => {
+        await harness.repository.insertIfAbsent(
+          makePending({ traceId: 'trace-pinned' }),
+        );
+
+        // The sweep read the trace with model GPT and resolved GPT prices;
+        // BETWEEN that read and its write, an attribution correction lands
+        // (legal: trace pending, month open — invariant 7).
+        await harness.repository.updateAttribution('trace-pinned', {
+          model: { id: 'claude-haiku-4-5', provider: 'anthropic' },
+        });
+
+        const stale = await harness.repository.stampPendingTrace(
+          'trace-pinned',
+          {
+            stampedCosts: makeContractStampedCosts(),
+            totalCostMicrocents: 330_000,
+            stampedAt: new Date('2026-07-02T00:00:00.000Z'),
+          },
+          GPT, // the model the (now stale) prices were resolved for
+        );
+
+        // Without the pin this would stamp GPT prices — immutably — onto a
+        // claude trace whose per-line math would "check out" forever.
+        expect(stale).toBe('skipped');
+
+        const stored = await harness.readTrace('trace-pinned');
+        expect(stored?.['pricingStatus']).toBe('pending_price');
+        expect(stored?.['totalCostMicrocents'] ?? null).toBeNull();
+
+        // The NEXT sweep re-reads fresh and stamps against the corrected
+        // model.
+        const fresh = await harness.repository.stampPendingTrace(
+          'trace-pinned',
+          {
+            stampedCosts: makeContractStampedCosts(),
+            totalCostMicrocents: 440_000,
+            stampedAt: new Date('2026-07-02T01:00:00.000Z'),
+          },
+          { id: 'claude-haiku-4-5', provider: 'anthropic' },
+        );
+
+        expect(fresh).toBe('stamped');
+        expect(
+          (await harness.readTrace('trace-pinned'))?.['totalCostMicrocents'],
+        ).toBe(440_000);
+      });
+
+      it('audit B-5: a model-less pending trace pins the stored null model', async () => {
+        await harness.repository.insertIfAbsent(
+          makePending({ traceId: 'trace-no-model', model: undefined }),
+        );
+
+        // Pinning a MODEL against a model-less trace must miss...
+        expect(
+          await harness.repository.stampPendingTrace(
+            'trace-no-model',
+            {
+              stampedCosts: makeContractStampedCosts(),
+              totalCostMicrocents: 330_000,
+              stampedAt: new Date('2026-07-02T00:00:00.000Z'),
+            },
+            GPT,
+          ),
+        ).toBe('skipped');
+
+        // ...while the null pin matches the stored absence exactly.
+        expect(
+          await harness.repository.stampPendingTrace(
+            'trace-no-model',
+            {
+              stampedCosts: makeContractStampedCosts(),
+              totalCostMicrocents: 330_000,
+              stampedAt: new Date('2026-07-02T00:00:00.000Z'),
+            },
+            null,
+          ),
+        ).toBe('stamped');
       });
     });
 

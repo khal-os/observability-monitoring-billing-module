@@ -1,6 +1,8 @@
 import {
+  InsertIfAbsentResult,
   PendingPriceTrace,
   PendingStamp,
+  QuarantineReconciliation,
   TraceAttribution,
   TraceRepository,
 } from '../../../../application/interfaces/trace-repository.js';
@@ -46,34 +48,39 @@ const isDuplicateKey = (error: unknown): boolean =>
  * `totalCostMicrocents: null` — cost OPEN, still never R$ 0 (invariant 2).
  */
 export class MongoDbTraceRepository implements TraceRepository {
-  async insertIfAbsent(trace: TraceModel): Promise<'inserted' | 'skipped'> {
+  async insertIfAbsent(trace: TraceModel): Promise<InsertIfAbsentResult> {
     const traces = MongoDb.getCollection(TRACES_COLLECTION);
-
-    const existing = await traces.findOne({ traceId: trace.traceId });
-
-    if (existing) {
-      return 'skipped';
-    }
 
     // One trace = one document (decision 47) and trace + counter commit
     // or abort TOGETHER (decision 81): the facet cube's exactly-once
     // counting rides the same durability as the insert — a crash can no
     // longer land the trace without its count (which a retried batch,
     // seeing 'skipped', would never repair).
+    //
+    // audit C-7.3: insert directly — no pre-insert findOne. The unique
+    // traceId index IS the existence check; the common path (new trace)
+    // pays one round trip instead of two.
     try {
       await MongoDb.withTransaction(async (session) => {
         await traces.insertOne({ ...trace }, { session });
         await filterCounters().increment(toFilterCounterDims(trace), session);
       });
     } catch (error) {
-      // findOne→insertOne is check-then-act: a concurrent ingestor (the
-      // worker and a manual `make sync` are a legal combination) can win
-      // the race between the two calls. The unique traceId index turns
-      // that into E11000 aborting the transaction — which is just
-      // "skipped" arriving late, same as the price repo treats it.
-      // Anything else propagates.
+      // A duplicate (re-sync, or a concurrent ingestor winning the race —
+      // the worker and a manual `make sync` are a legal combination) turns
+      // into E11000 aborting the transaction: that is just 'skipped'.
+      // audit B-4 residual: the skipped branch carries the STORED token
+      // total (tiny projected read) so the ingest path can surface
+      // source/store token divergence without a second full read.
       if (isDuplicateKey(error)) {
-        return 'skipped';
+        const stored = await traces.findOne(
+          { traceId: trace.traceId },
+          { projection: { _id: 0, tokensTotal: 1 } },
+        );
+
+        return typeof stored?.['tokensTotal'] === 'number'
+          ? { outcome: 'skipped', storedTokensTotal: stored['tokensTotal'] }
+          : 'skipped';
       }
 
       throw error;
@@ -185,11 +192,27 @@ export class MongoDbTraceRepository implements TraceRepository {
   async stampPendingTrace(
     traceId: string,
     stamp: PendingStamp,
+    pinnedModel: ModelRef | null,
   ): Promise<'stamped' | 'skipped'> {
     // The pricingStatus guard makes stamped traces immutable here by
     // construction (invariant 1): only a still-pending trace can match.
+    //
+    // audit B-5: the CAS also pins the model the prices were resolved
+    // for — exact-match on the two nested fields ('model.id',
+    // 'model.provider'), never whole-doc equality (key order pitfalls).
+    // A concurrent attribution correction changing the model makes the
+    // filter miss → 'skipped' → the next sweep re-reads fresh. A pending
+    // trace without a model pins the stored null (storage convention:
+    // optional fields are explicit null).
+    const modelFilter = pinnedModel
+      ? {
+          'model.id': pinnedModel.id,
+          'model.provider': pinnedModel.provider ?? null,
+        }
+      : { model: null };
+
     const result = await MongoDb.getCollection(TRACES_COLLECTION).updateOne(
-      { traceId, pricingStatus: 'pending_price' },
+      { traceId, pricingStatus: 'pending_price', ...modelFilter },
       {
         $set: {
           pricingStatus: 'stamped',
@@ -231,5 +254,59 @@ export class MongoDbTraceRepository implements TraceRepository {
       .toArray();
 
     return documents as unknown as PendingPriceTrace[];
+  }
+
+  async reconcileQuarantineAfterClose(
+    monthStart: Date,
+    monthEnd: Date,
+    snapshotTraceIds: string[],
+    snapshotVersion: number,
+  ): Promise<QuarantineReconciliation> {
+    const traces = MongoDb.getCollection(TRACES_COLLECTION);
+    const window = { startedAt: { $gte: monthStart, $lt: monthEnd } };
+
+    // Decision 100, pass 1 — FLAG STRAGGLERS: whatever the ingest-vs-close
+    // interleaving let through unflagged, if the snapshot did not bill it,
+    // it is quarantined now. Matching on the absent reason keeps the pass
+    // idempotent (a retry re-matches nothing) and preserves the original
+    // quarantinedAt of traces the ingestor already flagged.
+    const flagged = await traces.updateMany(
+      {
+        ...window,
+        traceId: { $nin: snapshotTraceIds },
+        'billingQuarantine.reason': { $exists: false },
+      },
+      {
+        $set: {
+          billingQuarantine: {
+            reason: 'period_closed',
+            quarantinedAt: new Date(),
+          },
+        },
+      },
+    );
+
+    // Pass 2 — ABSORB THE ADJUDICATED: flagged traces this snapshot DID
+    // bill (the reopen→re-close correction flow, decision 89). The
+    // historical mark stays; the absorbed version resolves it, so readers
+    // (dailyRollup, countQuarantined) stop treating it as outside the
+    // bill. Idempotent: re-setting the same version modifies nothing.
+    const absorbed = await traces.updateMany(
+      {
+        ...window,
+        traceId: { $in: snapshotTraceIds },
+        'billingQuarantine.reason': { $exists: true },
+      },
+      {
+        $set: {
+          'billingQuarantine.absorbedInSnapshotVersion': snapshotVersion,
+        },
+      },
+    );
+
+    return {
+      flaggedStragglers: flagged.modifiedCount,
+      absorbed: absorbed.modifiedCount,
+    };
   }
 }

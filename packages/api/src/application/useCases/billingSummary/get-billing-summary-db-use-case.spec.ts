@@ -1,12 +1,16 @@
 import {
   GetBillingSummaryDbUseCase,
+  firstOpenMonthStart,
   monthWindowUtc,
   previousMonthOf,
 } from './get-billing-summary-db-use-case.js';
 import { CloseBillingPeriodDbUseCase } from '../billingLifecycle/close-billing-period-db-use-case.js';
+import { BillingPeriodStateError } from '../../../domain/useCases/close-billing-period-use-case.js';
+import { BillingPeriodModel } from '../../../domain/models/billing-period-model.js';
 import {
   InMemoryBillingPeriodRepository,
   InMemoryBillingSnapshotRepository,
+  QuarantineReconcilerStub,
   StubBillingQueryRepository,
   usageRecord,
 } from '../billingStatement/billing-test-fakes.js';
@@ -16,7 +20,9 @@ const NOW = new Date('2026-07-19T12:00:00.000Z');
 const makeSut = (now = NOW) => {
   const billingQueryRepository = new StubBillingQueryRepository();
   const billingPeriodRepository = new InMemoryBillingPeriodRepository();
-  const billingSnapshotRepository = new InMemoryBillingSnapshotRepository();
+  const billingSnapshotRepository = new InMemoryBillingSnapshotRepository(
+    billingPeriodRepository,
+  );
 
   const sut = new GetBillingSummaryDbUseCase({
     billingQueryRepository,
@@ -29,12 +35,27 @@ const makeSut = (now = NOW) => {
     billingQueryRepository,
     billingPeriodRepository,
     billingSnapshotRepository,
+    traceRepository: new QuarantineReconcilerStub(),
     now: () => now,
   });
+
+  const reopenPeriod = (year: number, month: number) =>
+    billingPeriodRepository.markReopened({
+      year,
+      month,
+      audit: {
+        at: now,
+        action: 'reopen',
+        trigger: 'runbook',
+        reason: 'correção',
+        snapshotVersion: 1,
+      },
+    });
 
   return {
     sut,
     close,
+    reopenPeriod,
     billingQueryRepository,
     billingPeriodRepository,
     billingSnapshotRepository,
@@ -64,6 +85,41 @@ describe('monthWindowUtc()', () => {
   });
 });
 
+describe('firstOpenMonthStart() (audit C-7.1)', () => {
+  const period = (
+    year: number,
+    month: number,
+    status: 'open' | 'closed',
+  ): BillingPeriodModel => ({ year, month, status, audit: [] });
+
+  it('is null while no month ever closed (unbounded scan — PoC behavior)', () => {
+    expect(firstOpenMonthStart([])).toBeNull();
+    expect(firstOpenMonthStart([period(2026, 6, 'open')])).toBeNull();
+  });
+
+  it('is the month after a contiguous closed run', () => {
+    expect(
+      firstOpenMonthStart([period(2026, 5, 'closed'), period(2026, 6, 'closed')]),
+    ).toEqual(new Date('2026-07-01T00:00:00.000Z'));
+  });
+
+  it('crosses the year boundary', () => {
+    expect(firstOpenMonthStart([period(2026, 12, 'closed')])).toEqual(
+      new Date('2027-01-01T00:00:00.000Z'),
+    );
+  });
+
+  it('a REOPENED (or skipped) month inside the run pulls the bound back — its live data must be scanned', () => {
+    expect(
+      firstOpenMonthStart([
+        period(2026, 4, 'closed'),
+        period(2026, 5, 'open'), // reopened
+        period(2026, 6, 'closed'),
+      ]),
+    ).toEqual(new Date('2026-05-01T00:00:00.000Z'));
+  });
+});
+
 describe('GetBillingSummaryDbUseCase (T7)', () => {
   it('OPEN month: computes live via the engine — total ≡ sum of stamps (invariant 3)', async () => {
     const { sut, billingQueryRepository } = makeSut();
@@ -83,6 +139,32 @@ describe('GetBillingSummaryDbUseCase (T7)', () => {
     const { sut } = makeSut();
 
     expect((await sut.get(2026, 7)).periodStatus).toBe('in_progress');
+  });
+
+  it('audit B-10.3: a FUTURE month is a 400-class state error — never a legit-looking zero bill', async () => {
+    const { sut } = makeSut();
+
+    await expect(sut.get(2026, 8)).rejects.toThrow(BillingPeriodStateError);
+    await expect(sut.get(2027, 1)).rejects.toThrow(BillingPeriodStateError);
+    await expect(sut.get(2027, 1)).rejects.toThrow(/futuro/);
+  });
+
+  it('audit C-7.3: closed months list ALL snapshot versions from one repository read', async () => {
+    const { sut, close, reopenPeriod, billingQueryRepository } = makeSut();
+    billingQueryRepository.usageByMonth.set('2026-6', [
+      usageRecord({ traceId: 't1' }),
+    ]);
+
+    await close.close(2026, 6);
+    await reopenPeriod(2026, 6);
+    await close.close(2026, 6);
+
+    const summary = await sut.get(2026, 6);
+
+    expect(summary.snapshotVersion).toBe(2);
+    expect(summary.snapshotVersions?.map((entry) => entry.version)).toEqual([
+      1, 2,
+    ]);
   });
 
   it('CLOSED month: served VERBATIM from the snapshot — later stamp changes never leak (US6)', async () => {

@@ -46,7 +46,11 @@ export interface BillingSeriesDay {
 }
 
 export interface GetBillingSeriesUseCase {
-  /** Chronological (oldest first), capped at `maxMonths` most recent months. */
+  /**
+   * Chronological (oldest first), capped at `maxMonths` most recent months.
+   * Continuous through the current month: a month with zero traffic
+   * materializes as a zero total — a gap must LOOK like a gap.
+   */
   list(maxMonths: number): Promise<BillingSeriesMonth[]>;
 
   /** The last `days` UTC days ending TODAY (inclusive, today partial), chronological. */

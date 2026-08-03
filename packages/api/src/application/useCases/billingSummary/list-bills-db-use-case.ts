@@ -8,14 +8,18 @@ import {
 } from '../../../domain/useCases/list-bills-use-case.js';
 import { BillingPeriodRepository } from '../../interfaces/billing-period-repository.js';
 import { BillingSnapshotRepository } from '../../interfaces/billing-snapshot-repository.js';
-import { monthWindowUtc } from './get-billing-summary-db-use-case.js';
+import { firstOpenMonthStart, monthWindowUtc } from './get-billing-summary-db-use-case.js';
 
 /**
- * The months list (T7 feed for US6/US7's selector): every month with any
- * trace, PLUS every closed month whose lifecycle document exists without
- * traces in the store. Closed months report the SNAPSHOT numbers verbatim
- * (US6: the list shows exactly what the frozen statement shows, forever);
- * open months report the live stamp sums.
+ * The months list (T7 feed for US6/US7's selector): every OPEN month with
+ * any trace in the live scan, PLUS every closed month's lifecycle
+ * document. Closed months report the SNAPSHOT numbers verbatim (US6: the
+ * list shows exactly what the frozen statement shows, forever); open
+ * months report the live stamp sums.
+ *
+ * audit C-7.1: the live scan is bounded to open months
+ * (firstOpenMonthStart) — closed history is served from period docs +
+ * snapshots, never re-scanned.
  */
 export class ListBillsDbUseCase implements ListBillsUseCase {
   private readonly billingQueryRepository: BillingQueryRepository;
@@ -36,103 +40,130 @@ export class ListBillsDbUseCase implements ListBillsUseCase {
   }
 
   async list(): Promise<BillListItem[]> {
-    const [rows, periods] = await Promise.all([
-      this.billingQueryRepository.listBills(),
-      this.billingPeriodRepository.listAll(),
-    ]);
+    const periods = await this.billingPeriodRepository.listAll();
+    const rows = await this.billingQueryRepository.listBills(
+      firstOpenMonthStart(periods),
+    );
     const now = this.now();
 
     const periodByMonth = new Map(
       periods.map((period) => [`${period.year}-${period.month}`, period]),
     );
 
-    const items: BillListItem[] = [];
+    // audit C-7.3: per-month reads (snapshot + quarantine count) fan out
+    // in parallel — the sequential per-month await was an N+1.
+    const items = await Promise.all(
+      rows.map((row) => {
+        const period = periodByMonth.get(`${row.year}-${row.month}`);
+        periodByMonth.delete(`${row.year}-${row.month}`);
 
-    for (const row of rows) {
-      const period = periodByMonth.get(`${row.year}-${row.month}`);
-      periodByMonth.delete(`${row.year}-${row.month}`);
-
-      let periodStatus: BillingPeriodStatus;
-      if (period?.status === 'closed') {
-        periodStatus = 'closed';
-      } else if (
-        row.year === now.getUTCFullYear() &&
-        row.month === now.getUTCMonth() + 1
-      ) {
-        periodStatus = 'in_progress';
-      } else {
-        periodStatus = 'open';
-      }
-
-      if (periodStatus === 'closed') {
-        const snapshot = await this.billingSnapshotRepository.findCurrent(
-          row.year,
-          row.month,
-        );
-
-        if (!snapshot) {
-          throw new Error(
-            `Billing period ${row.year}-${row.month} is closed but has no snapshot`,
-          );
+        let periodStatus: BillingPeriodStatus;
+        if (period?.status === 'closed') {
+          periodStatus = 'closed';
+        } else if (
+          row.year === now.getUTCFullYear() &&
+          row.month === now.getUTCMonth() + 1
+        ) {
+          periodStatus = 'in_progress';
+        } else {
+          periodStatus = 'open';
         }
 
-        const { start, end } = monthWindowUtc(row.year, row.month);
+        return periodStatus === 'closed'
+          ? this.closedItem(row.year, row.month, {
+              closedAt: period?.closedAt,
+              // Live count on purpose: a pending trace can only exist on a
+              // closed month if it arrived AFTER the close (quarantined) —
+              // the admin must see it, not a frozen zero.
+              pendingTraceCount: row.pendingTraceCount,
+            })
+          : this.openItem(row, periodStatus);
+      }),
+    );
 
-        items.push({
-          year: row.year,
-          month: row.month,
-          periodStatus,
-          totalCostMicrocents: snapshot.statement.totalCostMicrocents,
-          stampedTraceCount: snapshot.statement.stampedTraceCount,
-          // Live count on purpose: a pending trace can only exist on a
-          // closed month if it arrived AFTER the close (quarantined) —
-          // the admin must see it, not a frozen zero.
-          pendingTraceCount: row.pendingTraceCount,
-          tokens: snapshot.statement.stampedTokensTotal,
-          closedAt: period?.closedAt,
-          snapshotVersion: snapshot.version,
-          quarantinedTraceCount:
-            await this.billingQueryRepository.countQuarantined(start, end),
-        });
-      } else {
-        items.push({
-          year: row.year,
-          month: row.month,
-          periodStatus,
-          totalCostMicrocents: row.totalCostMicrocents,
-          stampedTraceCount: row.stampedTraceCount,
-          pendingTraceCount: row.pendingTraceCount,
-          tokens: row.tokens,
-          quarantinedTraceCount: 0,
-        });
-      }
-    }
+    // Closed months outside the live scan bound (the normal case for all
+    // closed history) or with no traces left in the store at all.
+    const closedLeftovers = await Promise.all(
+      [...periodByMonth.values()]
+        .filter((period) => period.status === 'closed')
+        .map((period) =>
+          this.closedItem(period.year, period.month, {
+            closedAt: period.closedAt,
+            pendingTraceCount: 0,
+          }),
+        ),
+    );
 
-    // Closed months whose traces are absent from the store entirely.
-    for (const period of periodByMonth.values()) {
-      if (period.status !== 'closed') continue;
+    return [...items, ...closedLeftovers].sort(
+      (a, b) => b.year - a.year || b.month - a.month,
+    );
+  }
 
-      const snapshot = await this.billingSnapshotRepository.findCurrent(
-        period.year,
-        period.month,
+  private openItem(
+    row: {
+      year: number;
+      month: number;
+      totalCostMicrocents: number;
+      stampedTraceCount: number;
+      pendingTraceCount: number;
+      tokens: number;
+      stampedTokens: number;
+    },
+    periodStatus: BillingPeriodStatus,
+  ): Promise<BillListItem> {
+    const { start, end } = monthWindowUtc(row.year, row.month);
+
+    // audit B-1: no hardcoded zero — a REOPENED month can carry unresolved
+    // quarantined traces the admin must see (US5, decision 100).
+    return this.billingQueryRepository
+      .countQuarantined(start, end)
+      .then((quarantinedTraceCount) => ({
+        year: row.year,
+        month: row.month,
+        periodStatus,
+        totalCostMicrocents: row.totalCostMicrocents,
+        stampedTraceCount: row.stampedTraceCount,
+        pendingTraceCount: row.pendingTraceCount,
+        tokens: row.tokens,
+        stampedTokens: row.stampedTokens,
+        quarantinedTraceCount,
+      }));
+  }
+
+  private async closedItem(
+    year: number,
+    month: number,
+    args: { closedAt?: Date; pendingTraceCount: number },
+  ): Promise<BillListItem> {
+    const { start, end } = monthWindowUtc(year, month);
+    const [snapshot, quarantinedTraceCount] = await Promise.all([
+      this.billingSnapshotRepository.findCurrent(year, month),
+      this.billingQueryRepository.countQuarantined(start, end),
+    ]);
+
+    if (!snapshot) {
+      // audit B-10.2: corrupt state answers loudly in EVERY branch — a
+      // closed month must never silently vanish from the list.
+      throw new Error(
+        `Billing period ${year}-${month} is closed but has no snapshot`,
       );
-
-      if (!snapshot) continue;
-
-      items.push({
-        year: period.year,
-        month: period.month,
-        periodStatus: 'closed',
-        totalCostMicrocents: snapshot.statement.totalCostMicrocents,
-        stampedTraceCount: snapshot.statement.stampedTraceCount,
-        pendingTraceCount: 0,
-        tokens: snapshot.statement.stampedTokensTotal,
-        closedAt: period.closedAt,
-        snapshotVersion: snapshot.version,
-        quarantinedTraceCount: 0,
-      });
     }
 
-    return items.sort((a, b) => b.year - a.year || b.month - a.month);
+    return {
+      year,
+      month,
+      periodStatus: 'closed',
+      totalCostMicrocents: snapshot.statement.totalCostMicrocents,
+      stampedTraceCount: snapshot.statement.stampedTraceCount,
+      pendingTraceCount: args.pendingTraceCount,
+      // audit B-10.4: a frozen bill knows only billed volume — both token
+      // figures come verbatim from the snapshot and are equal by
+      // construction.
+      tokens: snapshot.statement.stampedTokensTotal,
+      stampedTokens: snapshot.statement.stampedTokensTotal,
+      closedAt: args.closedAt,
+      snapshotVersion: snapshot.version,
+      quarantinedTraceCount,
+    };
   }
 }

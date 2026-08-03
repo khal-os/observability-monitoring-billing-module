@@ -9,8 +9,10 @@ import {
   parseQuery,
   yearMonthQueryShape,
 } from '../../helpers/query-validation.js';
+import { buildBadRequest } from '../../helpers/http-helper.js';
 import { toBillingSummaryView } from './billing-view-model.js';
 import { BillingSummaryView } from './billing-view-schemas.js';
+import { BillingPeriodStateError } from '../../../domain/useCases/close-billing-period-use-case.js';
 
 /**
  * US17: ONE statement-export resource — the representation is a query
@@ -219,9 +221,18 @@ export class ExportStatementController implements Controller {
 
     const { year, month, format } = parsed.value;
 
-    const view = toBillingSummaryView(
-      await this.getBillingSummary.get(year, month),
-    );
+    let view: BillingSummaryView;
+    try {
+      view = toBillingSummaryView(await this.getBillingSummary.get(year, month));
+    } catch (error) {
+      // audit B-10.3: same 400 mapping as the summary — a future month
+      // must not export a legit-looking zero statement (nor 500).
+      if (error instanceof BillingPeriodStateError) {
+        return buildBadRequest(error);
+      }
+
+      throw error;
+    }
 
     if (format === 'html') {
       return {

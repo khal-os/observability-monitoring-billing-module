@@ -76,14 +76,21 @@ export class ReprocessPendingToDbUseCase implements ReprocessPendingUseCase {
           continue;
         }
 
-        // A 'skipped' result means a concurrent reprocess stamped it
-        // between our read and our write — the trace IS stamped either
-        // way; reporting it as still-pending would be false.
-        await this.traceRepository.stampPendingTrace(trace.traceId, {
-          stampedCosts: stamp.stampedCosts,
-          totalCostMicrocents: stamp.totalCostMicrocents,
-          stampedAt: new Date(),
-        });
+        // A 'skipped' result means the trace moved between our read and
+        // our write: either a concurrent reprocess stamped it (it IS
+        // stamped — reporting still-pending would be false) or a
+        // concurrent attribution correction changed the model (audit B-5:
+        // the CAS is pinned to the model these prices were resolved for),
+        // in which case the NEXT sweep re-reads fresh and settles it.
+        await this.traceRepository.stampPendingTrace(
+          trace.traceId,
+          {
+            stampedCosts: stamp.stampedCosts,
+            totalCostMicrocents: stamp.totalCostMicrocents,
+            stampedAt: new Date(),
+          },
+          trace.model ?? null,
+        );
 
         report.stamped += 1;
       } catch (error) {

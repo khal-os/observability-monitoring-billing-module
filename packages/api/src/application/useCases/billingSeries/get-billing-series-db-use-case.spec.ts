@@ -4,6 +4,7 @@ import { CloseBillingPeriodDbUseCase } from '../billingLifecycle/close-billing-p
 import {
   InMemoryBillingPeriodRepository,
   InMemoryBillingSnapshotRepository,
+  QuarantineReconcilerStub,
   StubBillingQueryRepository,
   usageRecord,
 } from '../billingStatement/billing-test-fakes.js';
@@ -13,7 +14,9 @@ const NOW = new Date('2026-07-19T12:00:00.000Z');
 const makeSut = (now = NOW) => {
   const billingQueryRepository = new StubBillingQueryRepository();
   const billingPeriodRepository = new InMemoryBillingPeriodRepository();
-  const billingSnapshotRepository = new InMemoryBillingSnapshotRepository();
+  const billingSnapshotRepository = new InMemoryBillingSnapshotRepository(
+    billingPeriodRepository,
+  );
 
   const sut = new GetBillingSeriesDbUseCase({
     billingQueryRepository,
@@ -26,10 +29,11 @@ const makeSut = (now = NOW) => {
     billingQueryRepository,
     billingPeriodRepository,
     billingSnapshotRepository,
+    traceRepository: new QuarantineReconcilerStub(),
     now: () => now,
   });
 
-  return { sut, close, billingQueryRepository };
+  return { sut, close, billingQueryRepository, billingSnapshotRepository };
 };
 
 describe('GetBillingSeriesDbUseCase (T8)', () => {
@@ -129,7 +133,38 @@ describe('GetBillingSeriesDbUseCase (T8)', () => {
     ]);
   });
 
-  it('caps at maxMonths, keeping the most recent', async () => {
+  it('a month with zero traffic materializes as a zero bar — a gap must LOOK like a gap', async () => {
+    const { sut, billingQueryRepository } = makeSut();
+    // Data in May and July (current) — June has zero traces and no
+    // lifecycle doc. It must still chart, as zero, instead of vanishing.
+    billingQueryRepository.rollupRows = [5, 7].map((month) => ({
+      year: 2026,
+      month,
+      totalCostMicrocents: month * 100,
+      byTokenType: [],
+      byAgent: [],
+      byModel: [],
+    }));
+
+    const months = await sut.list(12);
+
+    expect(
+      months.map((month) => [
+        month.month,
+        month.totalCostMicrocents,
+        month.periodStatus,
+      ]),
+    ).toEqual([
+      [5, 500, 'open'],
+      [6, 0, 'open'], // empty middle month: zero bar, never a hole
+      [7, 700, 'in_progress'],
+    ]);
+    expect(months[1]?.byTokenType).toEqual([]);
+    expect(months[1]?.byAgent).toEqual([]);
+    expect(months[1]?.byModel).toEqual([]);
+  });
+
+  it('caps at maxMonths, keeping the most recent (current month always present, zero-filled if quiet)', async () => {
     const { sut, billingQueryRepository } = makeSut();
     billingQueryRepository.rollupRows = [3, 4, 5, 6].map((month) => ({
       year: 2026,
@@ -142,7 +177,43 @@ describe('GetBillingSeriesDbUseCase (T8)', () => {
 
     const months = await sut.list(2);
 
-    expect(months.map((month) => month.month)).toEqual([5, 6]);
+    expect(
+      months.map((month) => [month.month, month.totalCostMicrocents]),
+    ).toEqual([
+      [6, 6],
+      [7, 0], // current month (July) zero-fills into the window
+    ]);
+  });
+
+  it('applies the maxMonths cap BEFORE snapshot lookups — months outside the window cost zero queries', async () => {
+    const { sut, close, billingQueryRepository, billingSnapshotRepository } =
+      makeSut();
+
+    // Four closed months (March–June); only June fits the 2-month window
+    // (July is the current month) — exactly ONE snapshot lookup allowed.
+    for (const month of [3, 4, 5, 6]) {
+      billingQueryRepository.usageByMonth.set(`2026-${month}`, [
+        usageRecord({ traceId: `t${month}` }),
+      ]);
+      await close.close(2026, month);
+    }
+
+    const findCurrent = jest.spyOn(billingSnapshotRepository, 'findCurrent');
+
+    const months = await sut.list(2);
+
+    expect(months.map((month) => [month.month, month.periodStatus])).toEqual([
+      [6, 'closed'],
+      [7, 'in_progress'],
+    ]);
+    expect(findCurrent).toHaveBeenCalledTimes(1);
+    expect(findCurrent).toHaveBeenCalledWith(2026, 6);
+  });
+
+  it('an empty store charts nothing', async () => {
+    const { sut } = makeSut();
+
+    expect(await sut.list(12)).toEqual([]);
   });
 });
 

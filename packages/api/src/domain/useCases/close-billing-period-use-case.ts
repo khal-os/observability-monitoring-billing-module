@@ -13,6 +13,12 @@ export interface CloseBillingPeriodResult {
   totalDisplayCents: number;
   stampedTraceCount: number;
   ingestionWatermark: Date | null;
+  /**
+   * Post-close quarantine reconciliation (decision 100): stragglers the
+   * snapshot did NOT bill got flagged; previously flagged traces the
+   * snapshot DID bill got marked absorbed.
+   */
+  quarantine: { flaggedStragglers: number; absorbed: number };
 }
 
 export interface CloseBillingPeriodUseCase {

@@ -109,11 +109,15 @@ describe('MongoDbSessionSummaryRepository (materialized read-model, decision 80)
       stampedCostMicrocents: 0,
     });
 
-    await traceRepository.stampPendingTrace('trace-pending', {
-      stampedCosts: [],
-      totalCostMicrocents: 777_000,
-      stampedAt: new Date('2026-06-06T00:00:00.000Z'),
-    });
+    await traceRepository.stampPendingTrace(
+      'trace-pending',
+      {
+        stampedCosts: [],
+        totalCostMicrocents: 777_000,
+        stampedAt: new Date('2026-06-06T00:00:00.000Z'),
+      },
+      { id: 'gpt-5-mini', provider: 'openai' },
+    );
 
     expect(await readSessionSummary('sess-001')).toMatchObject({
       pendingPriceCount: 0,

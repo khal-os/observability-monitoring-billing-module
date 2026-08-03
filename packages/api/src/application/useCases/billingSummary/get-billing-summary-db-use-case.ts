@@ -10,6 +10,7 @@ import { BillingPeriodRepository } from '../../interfaces/billing-period-reposit
 import { BillingSnapshotRepository } from '../../interfaces/billing-snapshot-repository.js';
 import { BillingPeriodModel } from '../../../domain/models/billing-period-model.js';
 import { StatementProjection } from '../../../domain/models/billing-snapshot-model.js';
+import { BillingPeriodStateError } from '../../../domain/useCases/close-billing-period-use-case.js';
 import { buildStatement } from '../billingStatement/statement-engine.js';
 
 export const monthWindowUtc = (
@@ -31,6 +32,47 @@ export const previousMonthOf = (
   month: number,
 ): { year: number; month: number } =>
   month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 };
+
+/**
+ * audit C-7.1: the live-scan bound — UTC start of the earliest month NOT
+ * closed. Live aggregations (bill list, monthly rollup) scan only from
+ * here; everything before is closed history, served from period docs +
+ * snapshots, so scanning its full-content trace documents on every read
+ * was pure waste at archive scale.
+ *
+ * Derivation: walk forward from the EARLIEST closed month; the first
+ * non-closed month (a gap, or a reopened month) is the bound. No closed
+ * month ⇒ null (unbounded — today's behavior). Assumes the runbook's
+ * oldest-first close discipline: a never-closed month OLDER than the
+ * earliest closed one would fall outside the scan.
+ */
+export const firstOpenMonthStart = (
+  periods: BillingPeriodModel[],
+): Date | null => {
+  const closed = periods.filter((period) => period.status === 'closed');
+
+  if (closed.length === 0) return null;
+
+  const closedKeys = new Set(
+    closed.map((period) => `${period.year}-${period.month}`),
+  );
+  const earliest = [...closed].sort(
+    (a, b) => a.year - b.year || a.month - b.month,
+  )[0] as BillingPeriodModel;
+
+  let { year, month } = earliest;
+
+  while (closedKeys.has(`${year}-${month}`)) {
+    month += 1;
+
+    if (month === 13) {
+      month = 1;
+      year += 1;
+    }
+  }
+
+  return new Date(Date.UTC(year, month - 1, 1));
+};
 
 /**
  * T7: the statement read layer. A CLOSED month is served exclusively from
@@ -59,6 +101,20 @@ export class GetBillingSummaryDbUseCase implements GetBillingSummaryUseCase {
 
   async get(year: number, month: number): Promise<BillingSummary> {
     const { start, end } = monthWindowUtc(year, month);
+
+    // audit B-10.3: nothing legitimate queries the future — a future month
+    // used to render (and export!) a legit-looking zero bill labeled
+    // "aguardando fechamento". The controllers map this error to a 400.
+    const now = this.now();
+    if (
+      year > now.getUTCFullYear() ||
+      (year === now.getUTCFullYear() && month > now.getUTCMonth() + 1)
+    ) {
+      throw new BillingPeriodStateError(
+        `O mês ${year}-${String(month).padStart(2, '0')} está no futuro — ` +
+          'não há nada a faturar.',
+      );
+    }
 
     const period = await this.billingPeriodRepository.find(year, month);
     const periodStatus = this.periodStatus(year, month, period);
@@ -138,7 +194,12 @@ export class GetBillingSummaryDbUseCase implements GetBillingSummaryUseCase {
       return {
         statement: snapshot.statement,
         ingestionWatermark: snapshot.ingestionWatermark,
-        snapshotVersions: await this.listVersions(year, month, snapshot.version),
+        // audit C-7.3: one indexed read for all versions — the previous
+        // findVersion(1..n) probe was n sequential round trips.
+        snapshotVersions: await this.billingSnapshotRepository.listVersions(
+          year,
+          month,
+        ),
       };
     }
 
@@ -155,28 +216,6 @@ export class GetBillingSummaryDbUseCase implements GetBillingSummaryUseCase {
         end,
       ),
     };
-  }
-
-  private async listVersions(
-    year: number,
-    month: number,
-    currentVersion: number,
-  ): Promise<{ version: number; createdAt: Date }[]> {
-    const versions: { version: number; createdAt: Date }[] = [];
-
-    for (let version = 1; version <= currentVersion; version += 1) {
-      const snapshot = await this.billingSnapshotRepository.findVersion(
-        year,
-        month,
-        version,
-      );
-
-      if (snapshot) {
-        versions.push({ version, createdAt: snapshot.createdAt });
-      }
-    }
-
-    return versions;
   }
 
   /**

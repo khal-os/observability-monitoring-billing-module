@@ -12,6 +12,7 @@ import { ReopenBillingPeriodDbUseCase } from '../../application/useCases/billing
 import { MongoDbBillingQueryRepository } from '../../infrastructure/database/mongodb/billing/mongodb-billing-query-repository.js';
 import { MongoDbBillingPeriodRepository } from '../../infrastructure/database/mongodb/billing/mongodb-billing-period-repository.js';
 import { MongoDbBillingSnapshotRepository } from '../../infrastructure/database/mongodb/billing/mongodb-billing-snapshot-repository.js';
+import { MongoDbTraceRepository } from '../../infrastructure/database/mongodb/trace/mongodb-trace-repository.js';
 
 const makeGetBillingSummaryUseCase = (): GetBillingSummaryDbUseCase =>
   new GetBillingSummaryDbUseCase({
@@ -61,6 +62,8 @@ export const makeCloseBillingPeriodUseCase = (): CloseBillingPeriodDbUseCase =>
     billingQueryRepository: new MongoDbBillingQueryRepository(),
     billingPeriodRepository: new MongoDbBillingPeriodRepository(),
     billingSnapshotRepository: new MongoDbBillingSnapshotRepository(),
+    // Post-close quarantine reconciliation (audit B-1, decision 100).
+    traceRepository: new MongoDbTraceRepository(),
   });
 
 export const makeReopenBillingPeriodUseCase = (): ReopenBillingPeriodDbUseCase =>

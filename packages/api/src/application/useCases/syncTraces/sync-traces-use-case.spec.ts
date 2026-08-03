@@ -105,6 +105,14 @@ class TraceRepositoryStub implements TraceRepository {
   async findPendingPrice(): Promise<TraceModel[]> {
     return [];
   }
+
+  // Port member (audit B-1) — the sync never reconciles; no-op stub.
+  async reconcileQuarantineAfterClose(): Promise<{
+    flaggedStragglers: number;
+    absorbed: number;
+  }> {
+    return { flaggedStragglers: 0, absorbed: 0 };
+  }
 }
 
 class IngestFailureRepositoryStub implements IngestFailureRepository {

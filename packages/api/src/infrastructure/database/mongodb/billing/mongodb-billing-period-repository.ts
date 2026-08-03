@@ -1,4 +1,4 @@
-import { Document, UpdateFilter } from 'mongodb';
+import { ClientSession, Document, UpdateFilter } from 'mongodb';
 import {
   BillingPeriodAuditEntry,
   BillingPeriodModel,
@@ -7,6 +7,46 @@ import { BillingPeriodRepository } from '../../../../application/interfaces/bill
 import { MongoDb } from '../mongo-db.js';
 
 export const BILLING_PERIODS_COLLECTION = 'billing_periods';
+
+/**
+ * The guarded close flip, session-aware — shared between markClosed
+ * (standalone) and the snapshot repository's transactional close (audit
+ * B-2: the flip must ride the SAME transaction as the snapshot writes).
+ * Only a non-closed (or absent) period flips; two concurrent closes
+ * cannot both win. Inside a transaction the E11000 upsert race is NOT
+ * swallowed here — an errored operation poisons the transaction, so the
+ * caller maps it after the abort.
+ */
+export const applyMarkClosed = async (
+  args: {
+    year: number;
+    month: number;
+    closedAt: Date;
+    snapshotVersion: number;
+    audit: BillingPeriodAuditEntry;
+  },
+  session?: ClientSession,
+): Promise<'closed' | 'conflict'> => {
+  const result = await MongoDb.getCollection(
+    BILLING_PERIODS_COLLECTION,
+  ).updateOne(
+    { year: args.year, month: args.month, status: { $ne: 'closed' } },
+    {
+      $set: {
+        status: 'closed',
+        closedAt: args.closedAt,
+        snapshotVersion: args.snapshotVersion,
+      },
+      $push: { audit: { ...args.audit } },
+      $setOnInsert: { year: args.year, month: args.month },
+    } as unknown as UpdateFilter<Document>,
+    { upsert: true, session },
+  );
+
+  return result.modifiedCount === 1 || result.upsertedCount === 1
+    ? 'closed'
+    : 'conflict';
+};
 
 interface PeriodDocument {
   year: number;
@@ -50,28 +90,10 @@ export class MongoDbBillingPeriodRepository implements BillingPeriodRepository {
     snapshotVersion: number;
     audit: BillingPeriodAuditEntry;
   }): Promise<'closed' | 'conflict'> {
-    const collection = MongoDb.getCollection(BILLING_PERIODS_COLLECTION);
-
-    // Single guarded upsert: only a non-closed (or absent) period flips —
-    // two concurrent close jobs cannot both win (the loser sees conflict).
+    // Single guarded upsert (applyMarkClosed): only a non-closed (or
+    // absent) period flips — two concurrent close jobs cannot both win.
     try {
-      const result = await collection.updateOne(
-        { year: args.year, month: args.month, status: { $ne: 'closed' } },
-        {
-          $set: {
-            status: 'closed',
-            closedAt: args.closedAt,
-            snapshotVersion: args.snapshotVersion,
-          },
-          $push: { audit: { ...args.audit } },
-          $setOnInsert: { year: args.year, month: args.month },
-        } as unknown as UpdateFilter<Document>,
-        { upsert: true },
-      );
-
-      return result.modifiedCount === 1 || result.upsertedCount === 1
-        ? 'closed'
-        : 'conflict';
+      return await applyMarkClosed(args);
     } catch (error) {
       // Upsert race on the (year, month) unique index: the other writer
       // created the document first — for THIS operation that means the

@@ -21,7 +21,19 @@ import {
 import { FakeTraceSourceClient } from '../../traceSource/fake-trace-source-client.js';
 import { SyncTracesToDbUseCase } from '../../../application/useCases/syncTraces/sync-traces-use-case.js';
 import { ReprocessPendingToDbUseCase } from '../../../application/useCases/reprocessPending/reprocess-pending-use-case.js';
-import { MongoDbBillingPeriodRepository } from './billing/mongodb-billing-period-repository.js';
+import { CloseBillingPeriodDbUseCase } from '../../../application/useCases/billingLifecycle/close-billing-period-db-use-case.js';
+import { ReopenBillingPeriodDbUseCase } from '../../../application/useCases/billingLifecycle/reopen-billing-period-db-use-case.js';
+import { GetBillingSummaryDbUseCase } from '../../../application/useCases/billingSummary/get-billing-summary-db-use-case.js';
+import {
+  BILLING_PERIODS_COLLECTION,
+  MongoDbBillingPeriodRepository,
+} from './billing/mongodb-billing-period-repository.js';
+import {
+  BILLING_SNAPSHOTS_COLLECTION,
+  BILLING_SNAPSHOT_USAGE_COLLECTION,
+  MongoDbBillingSnapshotRepository,
+} from './billing/mongodb-billing-snapshot-repository.js';
+import { MongoDbBillingQueryRepository } from './billing/mongodb-billing-query-repository.js';
 import { MongoDbIngestFailureRepository } from './ingestFailures/mongodb-ingest-failure-repository.js';
 import { estimateBsonBytes } from './ingestFailures/bson-size-estimator.js';
 import { GetTraceDetailDbUseCase } from '../../../application/useCases/queryTraces/get-trace-detail-db-use-case.js';
@@ -88,6 +100,9 @@ describe('Sync + price stamping (integration)', () => {
       TRACES_COLLECTION,
       PRICE_VERSIONS_COLLECTION,
       MIGRATIONS_COLLECTION,
+      BILLING_PERIODS_COLLECTION,
+      BILLING_SNAPSHOTS_COLLECTION,
+      BILLING_SNAPSHOT_USAGE_COLLECTION,
     ]) {
       await MongoDb.getCollection(collection).deleteMany({});
     }
@@ -424,5 +439,241 @@ describe('Sync + price stamping (integration)', () => {
           ?.appliedPriceEffectiveFrom,
       ).toEqual(JUNE_1);
     });
+  });
+
+  describe('Decision 100 acceptance (M1): close → straggler quarantined → reopen → re-close absorbs', () => {
+    const NOW = new Date('2026-07-15T10:00:00.000Z');
+    const JULY_1 = new Date('2026-07-01T00:00:00.000Z');
+
+    class MutableTraceSourceClient {
+      traces: SourceTrace[] = [];
+
+      async *fetchTracesPaged(): AsyncIterable<SourceTrace[]> {
+        if (this.traces.length > 0) {
+          yield this.traces;
+        }
+      }
+    }
+
+    const sourceTrace = (
+      overrides: Partial<SourceTrace> & { traceId: string },
+    ): SourceTrace => ({
+      sessionId: 'sess-late',
+      agent: { id: 'agent-atendimento' },
+      model: 'openai/gpt-5-mini',
+      type: 'chat',
+      channel: { type: 'web' },
+      startedAt: new Date('2026-06-07T09:00:00.000Z'),
+      finishedAt: new Date('2026-06-07T09:00:02.000Z'),
+      status: 'ok',
+      tokens: { input: 1000 },
+      input: 'entrada',
+      output: 'saída',
+      spans: [],
+      ...overrides,
+    });
+
+    const makeBillingSut = () => {
+      const billingQueryRepository = new MongoDbBillingQueryRepository();
+      const billingPeriodRepository = new MongoDbBillingPeriodRepository();
+      const billingSnapshotRepository = new MongoDbBillingSnapshotRepository();
+      const traceRepository = new MongoDbTraceRepository();
+
+      const close = new CloseBillingPeriodDbUseCase({
+        billingQueryRepository,
+        billingPeriodRepository,
+        billingSnapshotRepository,
+        traceRepository,
+        now: () => NOW,
+      });
+      const reopen = new ReopenBillingPeriodDbUseCase({
+        billingPeriodRepository,
+        now: () => NOW,
+      });
+      const summary = new GetBillingSummaryDbUseCase({
+        billingQueryRepository,
+        billingPeriodRepository,
+        billingSnapshotRepository,
+        now: () => NOW,
+      });
+      const lateSyncClient = new MutableTraceSourceClient();
+      const lateSync = new SyncTracesToDbUseCase({
+        traceSourceClient: lateSyncClient,
+        priceVersionRepository: new MongoDbPriceVersionRepository(),
+        traceRepository,
+        billingPeriodRepository,
+        ingestFailureRepository: new MongoDbIngestFailureRepository(),
+        estimateDocumentBytes: estimateBsonBytes,
+      });
+
+      return {
+        close,
+        reopen,
+        summary,
+        lateSync,
+        lateSyncClient,
+        billingQueryRepository,
+      };
+    };
+
+    const dailyRollupTotal = async (
+      billingQueryRepository: MongoDbBillingQueryRepository,
+    ): Promise<number> =>
+      (await billingQueryRepository.dailyRollup(JUNE_1, JULY_1)).reduce(
+        (sum, day) => sum + day.totalCostMicrocents,
+        0,
+      );
+
+    it('runs the WHOLE correction flow: frozen bill honest throughout, days ≡ bill in every state, quarantine resolved by absorption', async () => {
+      const { sut, reprocess, priceVersionRepository } = makeSut();
+      const billing = makeBillingSut();
+
+      // ARRANGE: June fully synced and fully stamped (the pending llama
+      // traces get their prices — a close is blocked while any pending
+      // trace exists).
+      await sut.sync(WINDOW_1);
+      await sut.sync(WINDOW_2);
+
+      for (const tokenType of ['input', 'output'] as const) {
+        await priceVersionRepository.insertVersion({
+          model: 'meta/llama-4-scout',
+          tokenType,
+          pricingType: 'fixed_brl',
+          priceMicrocentsPerMillion: brlToMicrocents('1.00'),
+          effectiveFrom: JUNE_1,
+        });
+      }
+      await reprocess.reprocess();
+
+      // ACT 1 — close June (v1).
+      const closed = await billing.close.close(2026, 6);
+
+      expect(closed.snapshotVersion).toBe(1);
+      // No straggler existed yet: nothing to flag, nothing to absorb.
+      expect(closed.quarantine).toEqual({ flaggedStragglers: 0, absorbed: 0 });
+
+      const v1Total = closed.totalCostMicrocents;
+
+      // Days ≡ frozen bill right after the close (decision 97).
+      expect(await dailyRollupTotal(billing.billingQueryRepository)).toBe(
+        v1Total,
+      );
+
+      // ACT 2 — a LATE June trace arrives (plus a July one in the same
+      // batch, which must stay untouched).
+      billing.lateSyncClient.traces = [
+        sourceTrace({ traceId: 'trace-late-june' }),
+        sourceTrace({
+          traceId: 'trace-july-ok',
+          startedAt: new Date('2026-07-02T09:00:00.000Z'),
+          finishedAt: new Date('2026-07-02T09:00:01.000Z'),
+        }),
+      ];
+
+      const lateReport = await billing.lateSync.sync({
+        from: JUNE_1,
+        to: new Date('2026-07-10T00:00:00.000Z'),
+      });
+
+      expect(lateReport.quarantined).toBe(1);
+
+      const lateStored = (await MongoDb.getCollection(
+        TRACES_COLLECTION,
+      ).findOne({ traceId: 'trace-late-june' })) as {
+        billingQuarantine?: { reason: string } | null;
+        pricingStatus?: string;
+      } | null;
+      const julyStored = (await MongoDb.getCollection(
+        TRACES_COLLECTION,
+      ).findOne({ traceId: 'trace-july-ok' })) as {
+        billingQuarantine?: unknown;
+      } | null;
+
+      expect(lateStored?.billingQuarantine).toMatchObject({
+        reason: 'period_closed',
+      });
+      expect(lateStored?.pricingStatus).toBe('stamped'); // priced, not billed
+      expect(julyStored?.billingQuarantine ?? null).toBeNull();
+
+      // A RE-SYNC of the quarantined trace must NOT refresh attribution —
+      // the month is frozen; corrections go through the audited reopen.
+      billing.lateSyncClient.traces = [
+        sourceTrace({
+          traceId: 'trace-late-june',
+          agent: { id: 'agent-drifted' },
+        }),
+      ];
+      await billing.lateSync.sync({
+        from: JUNE_1,
+        to: new Date('2026-07-10T00:00:00.000Z'),
+      });
+
+      const afterResync = (await MongoDb.getCollection(
+        TRACES_COLLECTION,
+      ).findOne({ traceId: 'trace-late-june' })) as {
+        agent?: { id?: string };
+      } | null;
+
+      expect(afterResync?.agent?.id).toBe('agent-atendimento');
+
+      // ASSERT 2 — the frozen bill is UNCHANGED; the straggler is visible
+      // as quarantined, not silently billed and not silently dropped.
+      const summaryAfterLate = await billing.summary.get(2026, 6);
+
+      expect(summaryAfterLate.periodStatus).toBe('closed');
+      expect(summaryAfterLate.statement.totalCostMicrocents).toBe(v1Total);
+      expect(summaryAfterLate.quarantinedTraceCount).toBe(1);
+      // Days still ≡ the frozen bill (the unresolved straggler is out).
+      expect(await dailyRollupTotal(billing.billingQueryRepository)).toBe(
+        v1Total,
+      );
+
+      // ACT 3 — the documented correction flow (decision 89): reopen,
+      // re-close. The re-close bills the straggler and ABSORBS its flag.
+      await billing.reopen.reopen(2026, 6, 'faturar retardatário de junho');
+
+      const reclosed = await billing.close.close(2026, 6);
+
+      expect(reclosed.snapshotVersion).toBe(2);
+      expect(reclosed.quarantine.absorbed).toBe(1);
+      expect(reclosed.totalCostMicrocents).toBe(v1Total + 1000 * 275);
+
+      // ASSERT 3 — decision 100 acceptance: Σ dailyRollup(June) ≡ v2
+      // statement total AND countQuarantined === 0.
+      const summaryV2 = await billing.summary.get(2026, 6);
+
+      expect(summaryV2.snapshotVersion).toBe(2);
+      expect(summaryV2.statement.totalCostMicrocents).toBe(
+        reclosed.totalCostMicrocents,
+      );
+      expect(await dailyRollupTotal(billing.billingQueryRepository)).toBe(
+        reclosed.totalCostMicrocents,
+      );
+      expect(
+        await billing.billingQueryRepository.countQuarantined(JUNE_1, JULY_1),
+      ).toBe(0);
+      expect(summaryV2.quarantinedTraceCount).toBe(0);
+
+      // The historical mark survives absorption (decision 100: the mark is
+      // never deleted — it just stops meaning "outside the bill").
+      const absorbed = (await MongoDb.getCollection(TRACES_COLLECTION).findOne({
+        traceId: 'trace-late-june',
+      })) as {
+        billingQuarantine?: {
+          reason: string;
+          absorbedInSnapshotVersion?: number;
+        } | null;
+      } | null;
+
+      expect(absorbed?.billingQuarantine).toMatchObject({
+        reason: 'period_closed',
+        absorbedInSnapshotVersion: 2,
+      });
+
+      // Both snapshot versions are preserved (T6 audit trail).
+      expect(summaryV2.snapshotVersions?.map((entry) => entry.version)).toEqual(
+        [1, 2],
+      );
+    }, 30_000);
   });
 });

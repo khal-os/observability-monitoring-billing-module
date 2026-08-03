@@ -8,9 +8,13 @@ import {
   BillingSeriesDay,
   BillingSeriesMonth,
 } from '../../../domain/useCases/get-billing-series-use-case.js';
-import { BillingProjection } from '../../../domain/useCases/get-billing-projection-use-case.js';
+import {
+  BillingProjection,
+  PROJECTION_MIN_COMPLETE_DAYS,
+} from '../../../domain/useCases/get-billing-projection-use-case.js';
 import {
   StatementAgentGroup,
+  StatementAgentModelMix,
   StatementLine,
   StatementModelShare,
   StatementProjection,
@@ -71,6 +75,7 @@ const MONTHS_PT_SHORT = [
   'dez',
 ];
 
+/** Chart GEOMETRY only (bar widths, donut angles) — never money: R$ values always go through the money helpers. */
 const round2 = (value: number): number => Math.round(value * 100) / 100;
 
 /** 4325 bp -> "43,25%" (trailing zeros trimmed to keep tables calm: "43,2%" never lies). */
@@ -206,18 +211,20 @@ const toAgentGroupViews = (
 const toAgentMixViews = (
   statement: StatementProjection,
 ): BillingSummaryView['agent_mix'] => {
+  // Merged on the agent ID (string | null) — the label exists only at
+  // render time, so a real agent literally named '(sem agente)' never
+  // merges with unattributed traffic.
   const merged = new Map<
-    string,
+    string | null,
     { displayCents: number; shareBp: number; costMicrocents: number }
   >();
 
   for (const group of statement.agents) {
-    const label = group.agentId ?? '(sem agente)';
-    let entry = merged.get(label);
+    let entry = merged.get(group.agentId);
 
     if (!entry) {
       entry = { displayCents: 0, shareBp: 0, costMicrocents: 0 };
-      merged.set(label, entry);
+      merged.set(group.agentId, entry);
     }
 
     entry.displayCents += group.displayCents;
@@ -229,12 +236,12 @@ const toAgentMixViews = (
 
   return [...merged.entries()]
     .sort((a, b) => b[1].costMicrocents - a[1].costMicrocents)
-    .map(([label, entry]) => {
+    .map(([agentId, entry]) => {
       const start = accumulatedBp;
       accumulatedBp += entry.shareBp;
 
       return {
-        agent_label: label,
+        agent_label: agentId ?? '(sem agente)',
         cost_brl_display: formatBrlDisplay(
           formatBrlFromCents(entry.displayCents),
         ),
@@ -245,17 +252,17 @@ const toAgentMixViews = (
     });
 };
 
-/** Donut slices: cumulative start/end percents — the UI paints, never sums. */
+/**
+ * Donut slices: cumulative start/end percents — the UI paints, never sums.
+ * `partsCents` are the displayed cents per share, decided by the CALLER:
+ * the totals donut reconciles against the statement total; the per-agent
+ * mixes sum the engine's already-reconciled line cents (B-9) — never an
+ * independent re-reconciliation that could contradict the agent card.
+ */
 const toModelShareViews = (
   shares: StatementModelShare[],
+  partsCents: number[],
 ): BillingSummaryView['model_mix']['total'] => {
-  // T5 everywhere: displayed parts are largest-remainder reconciled, so
-  // the model R$ values sum EXACTLY to the displayed total — independent
-  // per-model rounding once drifted a cent against the agent donut.
-  const { partsCents } = reconcileDisplayCents(
-    shares.map((share) => share.costMicrocents),
-  );
-
   let accumulatedBp = 0;
 
   return shares.map((share, index) => {
@@ -274,6 +281,45 @@ const toModelShareViews = (
       donut_end_percent: round2(accumulatedBp / 100),
     };
   });
+};
+
+/**
+ * The totals donut: its target IS the displayed statement total, so the
+ * model parts are largest-remainder reconciled against it (T5) —
+ * independent per-model rounding once drifted a cent against the agent
+ * donut.
+ */
+const toModelMixTotalViews = (
+  shares: StatementModelShare[],
+): BillingSummaryView['model_mix']['total'] =>
+  toModelShareViews(
+    shares,
+    reconcileDisplayCents(shares.map((share) => share.costMicrocents))
+      .partsCents,
+  );
+
+/**
+ * Per-agent model cents (B-9): SUMS of the engine's already-reconciled
+ * `line.displayCents` per agent × model — they close with the agent card
+ * and with the statement total by construction. Re-reconciling the
+ * agent's µ¢ independently once contradicted the agent's own card by one
+ * cent in the half-cent case.
+ */
+const agentModelDisplayCents = (
+  statement: StatementProjection,
+  mix: StatementAgentModelMix,
+): number[] => {
+  const byModel = new Map<string | null, number>();
+
+  for (const line of statement.lines) {
+    if (line.agentId !== mix.agentId || line.agentVersion !== mix.agentVersion) {
+      continue;
+    }
+
+    byModel.set(line.model, (byModel.get(line.model) ?? 0) + line.displayCents);
+  }
+
+  return mix.models.map((share) => byModel.get(share.model) ?? 0);
 };
 
 const toCacheSavingsView = (
@@ -407,7 +453,7 @@ export const toBillingSummaryView = (
     agents: toAgentGroupViews(statement),
     agent_mix: toAgentMixViews(statement),
     model_mix: {
-      total: toModelShareViews(statement.modelMixTotal),
+      total: toModelMixTotalViews(statement.modelMixTotal),
       by_agent: statement.modelMixByAgent.map((mix) => ({
         agent_label: mix.agentId ?? '(sem agente)',
         version_label: mix.agentVersion ? `v${mix.agentVersion}` : null,
@@ -415,7 +461,10 @@ export const toBillingSummaryView = (
           mix.blendedPricePerMillionMicrocents !== null
             ? unitPriceDisplay(mix.blendedPricePerMillionMicrocents)
             : null,
-        models: toModelShareViews(mix.models),
+        models: toModelShareViews(
+          mix.models,
+          agentModelDisplayCents(statement, mix),
+        ),
       })),
     },
     cache_savings: toCacheSavingsView(statement),
@@ -459,6 +508,8 @@ export const toBillListView = (bills: BillListItem[]): BillListView => ({
     pending_trace_count: bill.pendingTraceCount,
     tokens: bill.tokens,
     tokens_display: formatIntDisplay(bill.tokens),
+    stamped_tokens: bill.stampedTokens,
+    stamped_tokens_display: formatIntDisplay(bill.stampedTokens),
   })),
 });
 
@@ -669,7 +720,8 @@ export const toBillingProjectionView = (
   days_in_month: projection.daysInMonth,
   basis_text: projection.insufficientData
     ? `Dados insuficientes: só ${projection.completeDays} dia(s) completo(s) ` +
-      `no mês — a projeção aparece a partir de 3 dias completos.`
+      `no mês — a projeção aparece a partir de ` +
+      `${PROJECTION_MIN_COMPLETE_DAYS} dias completos.`
     : `Conta simples: os ${projection.completeDays} dias completos custaram ` +
       `${formatBrlDisplay(formatBrlFromMicrocents(projection.accruedCostMicrocents))}; ` +
       `dividido por ${projection.completeDays} e multiplicado pelos ` +

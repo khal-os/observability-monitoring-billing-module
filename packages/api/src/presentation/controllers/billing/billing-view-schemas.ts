@@ -191,8 +191,16 @@ export const billListItemSchema = z.strictObject({
   total_cost_brl_display: z.string(),
   stamped_trace_count: z.number().int(),
   pending_trace_count: z.number().int(),
+  /**
+   * audit B-10.4 — tokens: stamped + pending volume (open-month live
+   * meaning); stamped_tokens: billed volume only. On a closed month both
+   * come from the snapshot and are equal (the frozen bill knows only
+   * billed volume).
+   */
   tokens: z.number().int(),
   tokens_display: z.string(),
+  stamped_tokens: z.number().int(),
+  stamped_tokens_display: z.string(),
 });
 
 export const billListResponseSchema = z.strictObject({

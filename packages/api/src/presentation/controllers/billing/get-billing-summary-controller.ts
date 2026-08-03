@@ -5,12 +5,13 @@ import {
   HttpRequest,
   HttpResponse,
 } from './billing-protocols.js';
-import { buildSuccess } from '../../helpers/http-helper.js';
+import { buildBadRequest, buildSuccess } from '../../helpers/http-helper.js';
 import {
   parseQuery,
   yearMonthQueryShape,
 } from '../../helpers/query-validation.js';
 import { toBillingSummaryView } from './billing-view-model.js';
+import { BillingPeriodStateError } from '../../../domain/useCases/close-billing-period-use-case.js';
 
 /** Strict (C-3): an unknown param is a 400, never silently ignored. */
 const summaryQuerySchema = z.strictObject(yearMonthQueryShape);
@@ -27,11 +28,22 @@ export class GetBillingSummaryController implements Controller {
 
     if (!parsed.ok) return parsed.response;
 
-    const summary = await this.getBillingSummary.get(
-      parsed.value.year,
-      parsed.value.month,
-    );
+    try {
+      const summary = await this.getBillingSummary.get(
+        parsed.value.year,
+        parsed.value.month,
+      );
 
-    return buildSuccess(toBillingSummaryView(summary));
+      return buildSuccess(toBillingSummaryView(summary));
+    } catch (error) {
+      // audit B-10.3: a period-state rejection (e.g. a FUTURE month —
+      // nothing legitimate queries the future) is the caller's mistake:
+      // 400 with the domain message, never a 500.
+      if (error instanceof BillingPeriodStateError) {
+        return buildBadRequest(error);
+      }
+
+      throw error;
+    }
   }
 }
