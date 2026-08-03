@@ -41,6 +41,37 @@ describe('ModelRef (structured model, string only at the borders)', () => {
     });
   });
 
+  it('MUST lowercase BOTH parts — casing is part of canonicalization (decision 102)', () => {
+    expect(parseModelRef('Anthropic/Claude-Sonnet-5')).toEqual({
+      id: 'claude-sonnet-5',
+      provider: 'anthropic',
+    });
+    expect(parseModelRef('OpenRouter/Google/Gemini-2.5-Pro')).toEqual({
+      id: 'google/gemini-2.5-pro',
+      provider: 'openrouter',
+    });
+  });
+
+  it('MUST lowercase bare ids and still infer the provider from the canonical form', () => {
+    expect(parseModelRef('Claude-Haiku-4-5')).toEqual({
+      id: 'claude-haiku-4-5',
+      provider: 'anthropic',
+    });
+    expect(parseModelRef('Totally-Unknown-Model')).toEqual({
+      id: 'totally-unknown-model',
+      provider: null,
+    });
+  });
+
+  it('parse → key MUST canonicalize mixed-case source strings to ONE lowercase key', () => {
+    expect(modelKey(parseModelRef('Anthropic/Claude-Sonnet-5'))).toBe(
+      modelKey(parseModelRef('anthropic/claude-sonnet-5')),
+    );
+    expect(modelKey(parseModelRef('Anthropic/Claude-Sonnet-5'))).toBe(
+      'anthropic/claude-sonnet-5',
+    );
+  });
+
   it('MUST not treat edge slashes as a provider separator', () => {
     expect(parseModelRef('/gpt-5-mini')).toEqual({
       id: '/gpt-5-mini',

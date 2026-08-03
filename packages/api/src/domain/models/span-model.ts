@@ -15,8 +15,9 @@ export interface SpanModel {
   durationMs: number;
   /**
    * Consolidated at ingestion (decision 51): offset from the TRACE's
-   * startedAt, in ms. May be negative when the source's span clock starts
-   * before the trace clock — readers clip, never recompute.
+   * startedAt, in ms. Clamped to >= 0 at ingestion (audit C-6.5): a
+   * source span clock starting before the trace clock is clock skew, not
+   * information — readers never see a negative offset and never recompute.
    */
   offsetMs: number;
   status: ExecutionStatus;

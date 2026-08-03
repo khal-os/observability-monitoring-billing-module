@@ -30,6 +30,7 @@ const PROVIDER_BY_ID_PREFIX: [RegExp, string][] = [
   [/^(nova|titan)/, 'amazon'],
 ];
 
+/** Expects the id already canonical-lowercase (parseModelRef guarantees it). */
 const inferProvider = (modelId: string): string | null =>
   PROVIDER_BY_ID_PREFIX.find(([prefix]) => prefix.test(modelId))?.[1] ?? null;
 
@@ -37,18 +38,27 @@ const inferProvider = (modelId: string): string | null =>
  * Parses a source model string into the structured ref. Split on the
  * FIRST slash only (router-style ids keep their nested path as the id);
  * bare ids get a best-effort provider, or null — honesty over guessing.
+ *
+ * Both parts are LOWERCASED here — this is the single canonicalization
+ * point (decision 82), and casing is part of it (decision 102, audit
+ * B-7): source `gen_ai.*` attributes are free-form, so `Claude-Sonnet-5`
+ * and `claude-sonnet-5` must yield the SAME key, or the price lookup
+ * silently misses and the trace lands pending_price under a duplicate
+ * billing dimension. Migration 019 backfills previously stored ids.
  */
 export const parseModelRef = (model: string): ModelRef => {
   const slash = model.indexOf('/');
 
   if (slash > 0 && slash < model.length - 1) {
     return {
-      id: model.slice(slash + 1),
+      id: model.slice(slash + 1).toLowerCase(),
       provider: model.slice(0, slash).toLowerCase(),
     };
   }
 
-  return { id: model, provider: inferProvider(model.toLowerCase()) };
+  const id = model.toLowerCase();
+
+  return { id, provider: inferProvider(id) };
 };
 
 /**

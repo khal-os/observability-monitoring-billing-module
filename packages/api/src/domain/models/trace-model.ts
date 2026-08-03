@@ -121,9 +121,20 @@ export interface TraceModel {
    * everything) but flagged: excluded from the frozen bill (which reads
    * the snapshot), blocked from pending-price stamping, visible to the
    * admin. A reopen makes the month live again — the flag stays as a
-   * historical mark of the late arrival.
+   * historical mark of the late arrival, and the re-close's reconciliation
+   * marks it absorbed once a snapshot bills the trace (decision 100).
    */
-  billingQuarantine?: { reason: 'period_closed'; quarantinedAt: Date } | null;
+  billingQuarantine?: {
+    reason: 'period_closed';
+    quarantinedAt: Date;
+    /**
+     * Decision 100 ("the snapshot adjudicates"): set by the post-close
+     * reconciliation when a snapshot BILLED this flagged trace (the
+     * reopen→re-close correction flow). Present ⇒ the quarantine is
+     * resolved — the mark stays as history, but the trace is in the bill.
+     */
+    absorbedInSnapshotVersion?: number;
+  } | null;
   /**
    * audit B-3 (Q8, approved): the ONE sanctioned dent in invariant 6's
    * "store everything" — a trace whose full document would breach the
