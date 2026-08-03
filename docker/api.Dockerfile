@@ -3,8 +3,8 @@
 #   docker build -f docker/api.Dockerfile -t platform-api:local .
 #
 # Notes that shaped this file (from the pre-dockerization audit):
-# - Only the ROOT package-lock.json is authoritative; packages/api/package-lock.json
-#   is a stale lockfileVersion-1 relic and must never drive an install.
+# - Only the ROOT package-lock.json exists and is authoritative — installs
+#   always run from the workspace root (npm workspaces).
 # - Runtime deps hoist to the root node_modules, so the image preserves the
 #   root/packages nesting and Node resolves imports by walking up from
 #   packages/api/dist to /app/node_modules.
@@ -21,7 +21,7 @@ COPY package.json package-lock.json ./
 COPY packages/api/package.json packages/api/
 COPY packages/ui/package.json packages/ui/
 RUN npm ci --workspace=api
-COPY packages/api/tsconfig.json packages/api/
+COPY packages/api/tsconfig.json packages/api/tsconfig.build.json packages/api/
 COPY packages/api/src packages/api/src
 RUN npm run build --workspace=api \
   && find packages/api/dist \

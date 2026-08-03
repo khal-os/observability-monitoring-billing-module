@@ -4,7 +4,7 @@
   "description": "",
   "main": "main/index.js",
   "scripts": {
-    "build": "rm -rf dist && tsc",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "start": "ENVIRONMENT=development node dist/main/index.js",
     "deploy": "npm run build && npm run start",
     "start:dev": "ENVIRONMENT=development tsx watch src/main/index.ts",

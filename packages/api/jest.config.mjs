@@ -23,8 +23,10 @@ const config = {
   collectCoverageFrom: [
     '<rootDir>/src/**/*.ts',
     // Test-support code is not production source: contract suites belong to
-    // the ports' test surface, the route harness to the route suites.
+    // the ports' test surface, the shared billing fakes to the billing
+    // suites, the route harness to the route suites.
     '!<rootDir>/src/**/*.contract.ts',
+    '!<rootDir>/src/**/billing-test-fakes.ts',
     '!<rootDir>/src/main/server/routes/v1/helpers/route-db-harness.ts',
   ],
 
