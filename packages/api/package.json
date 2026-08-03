@@ -41,7 +41,7 @@
   "dependencies": {
     "@clickhouse/client": "^1.23.1",
     "dotenv": "^17.4.2",
-    "express": "^4.17.1",
+    "express": "^4.21.2",
     "fast-glob": "^3.3.3",
     "mongodb": "^7.2.0",
     "swagger-ui-express": "^5.0.1",
