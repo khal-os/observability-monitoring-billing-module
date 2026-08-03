@@ -3,6 +3,7 @@ import {
   PoisonRowRepository,
 } from '../../../../application/interfaces/poison-row-repository.js';
 import { MongoDb } from '../mongo-db.js';
+import { retryOnceOnDuplicateKey } from '../helpers/retry-once-on-duplicate-key.js';
 
 export const POISON_ROWS_COLLECTION = 'poison_rows';
 
@@ -18,22 +19,28 @@ const MAX_RAW_ROW_BYTES = 64 * 1024;
  * audit C-6.2 — durable poison trail. One document per (kind, id),
  * upserted: `seenCount` counts re-encounters, error/context reflect the
  * latest one, `firstSeenAt` stays pinned at discovery.
+ *
+ * re-audit 2026-08 (sync minors): the upsert retries once on E11000 (see
+ * retryOnceOnDuplicateKey) — a first-touch race between two readers of
+ * the same poison row must not escape as an error and kill the fetch.
  */
 export class MongoDbPoisonRowRepository implements PoisonRowRepository {
   async record(row: PoisonRowRecord): Promise<void> {
-    await MongoDb.getCollection(POISON_ROWS_COLLECTION).updateOne(
-      { kind: row.kind, id: row.id },
-      {
-        $setOnInsert: { firstSeenAt: row.seenAt },
-        $set: {
-          context: row.context,
-          error: row.error,
-          lastSeenAt: row.seenAt,
-          ...(hasSmallRawRow(row) ? { rawRow: row.rawRow } : {}),
+    await retryOnceOnDuplicateKey(() =>
+      MongoDb.getCollection(POISON_ROWS_COLLECTION).updateOne(
+        { kind: row.kind, id: row.id },
+        {
+          $setOnInsert: { firstSeenAt: row.seenAt },
+          $set: {
+            context: row.context,
+            error: row.error,
+            lastSeenAt: row.seenAt,
+            ...(hasSmallRawRow(row) ? { rawRow: row.rawRow } : {}),
+          },
+          $inc: { seenCount: 1 },
         },
-        $inc: { seenCount: 1 },
-      },
-      { upsert: true },
+        { upsert: true },
+      ),
     );
   }
 }

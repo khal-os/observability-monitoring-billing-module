@@ -7,6 +7,7 @@ import { BillingPeriodAuditEntry } from '../../../../domain/models/billing-perio
 import { BillingPeriodStateError } from '../../../../domain/useCases/close-billing-period-use-case.js';
 import { BillingSnapshotRepository } from '../../../../application/interfaces/billing-snapshot-repository.js';
 import { MongoDb } from '../mongo-db.js';
+import { isDuplicateKeyError } from '../helpers/is-duplicate-key-error.js';
 import { applyMarkClosed } from './mongodb-billing-period-repository.js';
 
 export const BILLING_SNAPSHOTS_COLLECTION = 'billing_snapshots';
@@ -21,9 +22,6 @@ const stripId = <T>(document: T & { _id?: unknown }): T => {
 
   return rest as T;
 };
-
-const isDuplicateKey = (error: unknown): boolean =>
-  (error as { code?: number }).code === 11000;
 
 /** Transaction-internal sentinel: aborts the close txn on a lost race. */
 class PeriodFlipConflict extends Error {
@@ -76,7 +74,7 @@ export class MongoDbBillingSnapshotRepository implements BillingSnapshotReposito
           // first. Same meaning markClosed maps standalone: conflict. The
           // op error already aborted the transaction server-side; the
           // sentinel makes the driver finish the abort cleanly.
-          if (isDuplicateKey(error)) {
+          if (isDuplicateKeyError(error)) {
             throw new PeriodFlipConflict();
           }
 
@@ -98,7 +96,7 @@ export class MongoDbBillingSnapshotRepository implements BillingSnapshotReposito
       // The (year, month, version) unique header index — or the period
       // upsert race — fired inside the transaction: a concurrent close
       // won. Typed, so the runbook prints a clean 409-class message.
-      if (isDuplicateKey(error)) {
+      if (isDuplicateKeyError(error)) {
         throw new BillingPeriodStateError(
           `Snapshot ${snapshotKey(snapshot.year, snapshot.month, snapshot.version)} ` +
             'já existe — fechamento concorrente detectado; nada foi sobrescrito.',
@@ -194,6 +192,25 @@ export class MongoDbBillingSnapshotRepository implements BillingSnapshotReposito
       version: document['version'] as number,
       createdAt: document['createdAt'] as Date,
     }));
+  }
+
+  async findUsageTraceIds(
+    year: number,
+    month: number,
+    version: number,
+  ): Promise<string[]> {
+    // Projected read of the durable inputs — the close's reconcile-repair
+    // diet (re-audit): ids only, never the full records.
+    const documents = await MongoDb.getCollection(
+      BILLING_SNAPSHOT_USAGE_COLLECTION,
+    )
+      .find(
+        { snapshotKey: snapshotKey(year, month, version) },
+        { projection: { _id: 0, traceId: 1 } },
+      )
+      .toArray();
+
+    return documents.map((document) => document['traceId'] as string);
   }
 
   async findUsageRecords(

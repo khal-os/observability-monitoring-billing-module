@@ -75,6 +75,16 @@ export const makeReprocessPendingUseCase = (): ReprocessPendingDbUseCase =>
     billingPeriodRepository: new MongoDbBillingPeriodRepository(),
   });
 
+/**
+ * The dead-letter trail, for the worker's per-cycle count (re-audit
+ * 2026-08, sync item 3). Exposed HERE because main may only reach storage
+ * through the composition root (architecture boundary) — the alternative
+ * was a pass-through `countDeadLetters()` on the batch-sync use case,
+ * which has nothing to do with syncing one batch.
+ */
+export const makeIngestFailureRepository = (): MongoDbIngestFailureRepository =>
+  new MongoDbIngestFailureRepository();
+
 export const traceIngestionWorkerSettings = {
   intervalMs:
     (config.traceIngestionIntervalSeconds ?? INGESTION_DEFAULTS.intervalSeconds) * 1000,

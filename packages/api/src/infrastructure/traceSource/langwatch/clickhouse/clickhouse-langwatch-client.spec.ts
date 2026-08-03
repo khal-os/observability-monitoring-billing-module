@@ -30,6 +30,34 @@ const summaryRow = (traceId: string, updatedAtMs: number) => ({
   rootSpanType: 'agent',
 });
 
+/**
+ * An llm span carrying the `gen_ai.usage.*` counts the salvage rule reads
+ * as the reconstruction of a corrupt summary count.
+ */
+const llmSpanRow = (
+  traceId: string,
+  usage: { input?: string; output?: string },
+) => ({
+  traceId,
+  spanId: `${traceId}-llm`,
+  parentSpanId: null,
+  name: 'Claude.ainvoke',
+  startedAtMs: T0,
+  endedAtMs: T0 + 1_000,
+  statusCode: 1,
+  statusMessage: null,
+  attributes: {
+    'langwatch.span.type': 'llm',
+    'gen_ai.response.model': 'claude-sonnet-5',
+    ...(usage.input === undefined
+      ? {}
+      : { 'gen_ai.usage.input_tokens': usage.input }),
+    ...(usage.output === undefined
+      ? {}
+      : { 'gen_ai.usage.output_tokens': usage.output }),
+  },
+});
+
 interface RecordedQuery {
   query: string;
   params: Record<string, unknown>;
@@ -302,7 +330,7 @@ describe('ClickHouseLangWatchClient', () => {
       warn.mockRestore();
     });
 
-    it('MUST salvage a summary row whose ONLY defect is a bad token count (audit C-6.2)', async () => {
+    it('MUST salvage a summary row whose bad token counts the SPAN usage rebuilds — and record the salvage durably (audit C-6.2)', async () => {
       const badTokens = {
         ...summaryRow('trace-salvage', T0),
         promptTokens: -5,
@@ -311,17 +339,128 @@ describe('ClickHouseLangWatchClient', () => {
       const { queryFn } = makeQueryStub([
         [{ nowMs: SOURCE_NOW_MS }],
         [badTokens],
-        [],
+        [llmSpanRow('trace-salvage', { input: '313', output: '9' })],
       ]);
       const sut = makeSut(queryFn, undefined, poisonRepo);
       const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
       const traces = await fetchAll(sut, WINDOW);
 
-      // Salvaged, not poison: content preserved, counts nulled.
+      // Salvaged, not poison: content preserved, the corrupt count
+      // replaced by the span-level usage sum (never nulled into a zero).
       expect(traces.map((trace) => trace.traceId)).toEqual(['trace-salvage']);
-      expect(poisonRepo.records).toEqual([]);
+      expect(traces[0]?.tokens).toMatchObject({ input: 313, output: 5 });
+      // A console.warn is not a trail (C-6.2): the salvage is durable, and
+      // distinguishable from a skip by its own kind.
+      expect(poisonRepo.records).toEqual([
+        expect.objectContaining({
+          kind: 'summary_salvaged',
+          id: 'trace-salvage',
+          context: `window=[${WINDOW.from.toISOString()}, ${WINDOW.to.toISOString()})`,
+          error: expect.stringContaining('promptTokens'),
+          rawRow: badTokens,
+        }),
+      ]);
       expect(warn).toHaveBeenCalledWith(expect.stringContaining('salvaged'));
+
+      warn.mockRestore();
+    });
+
+    it('MUST keep a bad-token row POISON when NO span usage rebuilds the count — an unknown cost is never stamped R$ 0,00 (invariant 2)', async () => {
+      const badTokens = {
+        ...summaryRow('trace-unrescuable', T0),
+        promptTokens: -5,
+        completionTokens: -2,
+      };
+      const poisonRepo = new PoisonRowRepositoryStub();
+      const { queryFn } = makeQueryStub([
+        [{ nowMs: SOURCE_NOW_MS }],
+        [badTokens],
+        [], // no spans at all — nothing to reconstruct the counts from
+      ]);
+      const sut = makeSut(queryFn, undefined, poisonRepo);
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const traces = await fetchAll(sut, WINDOW);
+
+      // Skipped: with zero used token types the stamper would find no
+      // missing price and freeze an immutable R$ 0,00 no reprocess can
+      // ever revisit. A durable poison record beats a wrong stamp.
+      expect(traces).toEqual([]);
+      expect(poisonRepo.records).toEqual([
+        expect.objectContaining({
+          kind: 'summary',
+          id: 'trace-unrescuable',
+          error: expect.stringContaining('R$ 0,00'),
+          rawRow: badTokens,
+        }),
+      ]);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('poison summary row skipped'),
+      );
+
+      warn.mockRestore();
+    });
+
+    it('MUST keep a PARTIALLY corrupt row poison when the spans rebuild only the other count — no type is silently priced at zero', async () => {
+      const badPrompt = {
+        ...summaryRow('trace-partial', T0),
+        promptTokens: -5, // corrupt: nulled at the boundary
+        completionTokens: 9, // healthy
+      };
+      const poisonRepo = new PoisonRowRepositoryStub();
+      const { queryFn } = makeQueryStub([
+        [{ nowMs: SOURCE_NOW_MS }],
+        [badPrompt],
+        // The span carries OUTPUT usage only — the nulled prompt count
+        // stays unknown.
+        [llmSpanRow('trace-partial', { output: '9' })],
+      ]);
+      const sut = makeSut(queryFn, undefined, poisonRepo);
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const traces = await fetchAll(sut, WINDOW);
+
+      expect(traces).toEqual([]);
+      expect(poisonRepo.records).toEqual([
+        expect.objectContaining({
+          kind: 'summary',
+          id: 'trace-partial',
+          error: expect.stringContaining('promptTokens'),
+        }),
+      ]);
+
+      warn.mockRestore();
+    });
+
+    it('MUST salvage a PARTIALLY corrupt row when the spans rebuild exactly the nulled count', async () => {
+      const badPrompt = {
+        ...summaryRow('trace-partial-ok', T0),
+        promptTokens: -5,
+        completionTokens: 9,
+      };
+      const poisonRepo = new PoisonRowRepositoryStub();
+      const { queryFn } = makeQueryStub([
+        [{ nowMs: SOURCE_NOW_MS }],
+        [badPrompt],
+        [llmSpanRow('trace-partial-ok', { input: '313' })],
+      ]);
+      const sut = makeSut(queryFn, undefined, poisonRepo);
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const traces = await fetchAll(sut, WINDOW);
+
+      expect(traces.map((trace) => trace.traceId)).toEqual([
+        'trace-partial-ok',
+      ]);
+      // Span-derived prompt tokens; the healthy summary count untouched.
+      expect(traces[0]?.tokens).toMatchObject({ input: 313, output: 9 });
+      expect(poisonRepo.records).toEqual([
+        expect.objectContaining({
+          kind: 'summary_salvaged',
+          id: 'trace-partial-ok',
+        }),
+      ]);
 
       warn.mockRestore();
     });

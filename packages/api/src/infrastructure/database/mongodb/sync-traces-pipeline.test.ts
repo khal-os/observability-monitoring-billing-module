@@ -32,12 +32,16 @@ import {
   MongoDbBillingSnapshotRepository,
 } from './billing/mongodb-billing-snapshot-repository.js';
 import { MongoDbBillingQueryRepository } from './billing/mongodb-billing-query-repository.js';
-import { MongoDbIngestFailureRepository } from './ingestFailures/mongodb-ingest-failure-repository.js';
+import {
+  INGEST_FAILURES_COLLECTION,
+  MongoDbIngestFailureRepository,
+} from './ingestFailures/mongodb-ingest-failure-repository.js';
 import { estimateBsonBytes } from './ingestFailures/bson-size-estimator.js';
 import { GetTraceDetailDbUseCase } from '../../../application/useCases/queryTraces/get-trace-detail-db-use-case.js';
 import { MongoDbTraceQueryRepository } from './trace/mongodb-trace-query-repository.js';
 import { brlToMicrocents } from '../../../common/helpers/money/money.js';
 import { StampedTokenCost } from '../../../domain/models/trace-model.js';
+import { closedMonthWindows } from '../../../domain/models/billing-period-model.js';
 import { SourceTrace } from '../../../application/interfaces/trace-source-client.js';
 
 const WINDOW_1 = {
@@ -511,16 +515,27 @@ describe('Sync + price stamping (integration)', () => {
         lateSync,
         lateSyncClient,
         billingQueryRepository,
+        billingPeriodRepository,
       };
     };
 
+    /**
+     * Σ of June's daily lens, with the exclusion scope derived EXACTLY as
+     * the series use case derives it — `closedMonthWindows` over the
+     * periods as they stand at this instant. So the same helper tells the
+     * truth in every lifecycle state: closed (straggler outside the frozen
+     * bill) and reopened (straggler back in the live total).
+     */
     const dailyRollupTotal = async (
-      billingQueryRepository: MongoDbBillingQueryRepository,
+      billing: ReturnType<typeof makeBillingSut>,
     ): Promise<number> =>
-      (await billingQueryRepository.dailyRollup(JUNE_1, JULY_1)).reduce(
-        (sum, day) => sum + day.totalCostMicrocents,
-        0,
-      );
+      (
+        await billing.billingQueryRepository.dailyRollup(
+          JUNE_1,
+          JULY_1,
+          closedMonthWindows(await billing.billingPeriodRepository.listAll()),
+        )
+      ).reduce((sum, day) => sum + day.totalCostMicrocents, 0);
 
     it('runs the WHOLE correction flow: frozen bill honest throughout, days ≡ bill in every state, quarantine resolved by absorption', async () => {
       const { sut, reprocess, priceVersionRepository } = makeSut();
@@ -553,9 +568,7 @@ describe('Sync + price stamping (integration)', () => {
       const v1Total = closed.totalCostMicrocents;
 
       // Days ≡ frozen bill right after the close (decision 97).
-      expect(await dailyRollupTotal(billing.billingQueryRepository)).toBe(
-        v1Total,
-      );
+      expect(await dailyRollupTotal(billing)).toBe(v1Total);
 
       // ACT 2 — a LATE June trace arrives (plus a July one in the same
       // batch, which must stay untouched).
@@ -622,13 +635,25 @@ describe('Sync + price stamping (integration)', () => {
       expect(summaryAfterLate.statement.totalCostMicrocents).toBe(v1Total);
       expect(summaryAfterLate.quarantinedTraceCount).toBe(1);
       // Days still ≡ the frozen bill (the unresolved straggler is out).
-      expect(await dailyRollupTotal(billing.billingQueryRepository)).toBe(
-        v1Total,
-      );
+      expect(await dailyRollupTotal(billing)).toBe(v1Total);
 
       // ACT 3 — the documented correction flow (decision 89): reopen,
       // re-close. The re-close bills the straggler and ABSORBS its flag.
       await billing.reopen.reopen(2026, 6, 'faturar retardatário de junho');
+
+      // Re-audit: BETWEEN the reopen and the re-close the month is served
+      // LIVE — the straggler is in the summary total, so it must chart.
+      // (With the exclusion applied unscoped, Σ daily stayed at v1Total
+      // and the two views disagreed for the whole correction window.)
+      const reopenedSummary = await billing.summary.get(2026, 6);
+
+      expect(reopenedSummary.periodStatus).not.toBe('closed');
+      expect(await dailyRollupTotal(billing)).toBe(
+        reopenedSummary.statement.totalCostMicrocents,
+      );
+      expect(reopenedSummary.statement.totalCostMicrocents).toBe(
+        v1Total + 1000 * 275,
+      );
 
       const reclosed = await billing.close.close(2026, 6);
 
@@ -644,9 +669,7 @@ describe('Sync + price stamping (integration)', () => {
       expect(summaryV2.statement.totalCostMicrocents).toBe(
         reclosed.totalCostMicrocents,
       );
-      expect(await dailyRollupTotal(billing.billingQueryRepository)).toBe(
-        reclosed.totalCostMicrocents,
-      );
+      expect(await dailyRollupTotal(billing)).toBe(reclosed.totalCostMicrocents);
       expect(
         await billing.billingQueryRepository.countQuarantined(JUNE_1, JULY_1),
       ).toBe(0);
@@ -672,6 +695,56 @@ describe('Sync + price stamping (integration)', () => {
       expect(summaryV2.snapshotVersions?.map((entry) => entry.version)).toEqual(
         [1, 2],
       );
+    }, 30_000);
+  });
+
+  // Wave review: the worker's per-cycle dead-letter warning now reads this
+  // count straight from the repository (the pass-through on the batch-sync
+  // use case is gone), so the kind FILTER is the whole contract — and it
+  // was the one part of it no test touched. "Unresolved" means the trace is
+  // NOT in the archive; a truncated trace IS stored and must never inflate
+  // an operator-facing backlog.
+  describe('Dead-letter backlog count (re-audit sync item 3)', () => {
+    it('MUST count both failure kinds and EXCLUDE truncation events', async () => {
+      await MongoDb.getCollection(INGEST_FAILURES_COLLECTION).deleteMany({});
+
+      const sut = new MongoDbIngestFailureRepository();
+      const seenAt = new Date('2026-06-10T00:00:00.000Z');
+
+      await sut.recordFailure({
+        traceId: 'trace-poison',
+        kind: 'ingest_failure',
+        context: 'cursor=start',
+        error: 'boom',
+        seenAt,
+      });
+      await sut.recordFailure({
+        traceId: 'trace-huge',
+        kind: 'oversized_unstorable',
+        context: 'cursor=start',
+        error: 'no storable form',
+        seenAt,
+      });
+      // Stored, merely clipped — an audit mark, not a loss.
+      await sut.recordTruncation({
+        traceId: 'trace-clipped',
+        originalBytes: 20_000_000,
+        seenAt,
+      });
+
+      expect(await sut.countUnresolved()).toBe(2);
+
+      // Re-encountering a parked trace bumps `attempts`, never the count:
+      // the upsert is keyed (traceId, kind).
+      await sut.recordFailure({
+        traceId: 'trace-poison',
+        kind: 'ingest_failure',
+        context: 'cursor=later',
+        error: 'boom again',
+        seenAt,
+      });
+
+      expect(await sut.countUnresolved()).toBe(2);
     }, 30_000);
   });
 });

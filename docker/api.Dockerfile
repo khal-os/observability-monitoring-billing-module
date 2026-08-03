@@ -42,8 +42,9 @@ COPY packages/api/src/infrastructure/traceSource/fixtures \
 # cwd matters: dotenv (.env.<ENVIRONMENT>) and the fixture glob resolve from here.
 WORKDIR /app/packages/api
 EXPOSE 3000
-# The app has no signal handlers; compose sets init: true so PID 1 forwards
-# SIGTERM to node. Required env: ENVIRONMENT, SERVER_PORT (+ MONGO_DB_* to be
-# useful). MONGO_DB_ATLAS takes the strings 'true'/'false' (mapped to boolean
-# by environment-setup.ts).
+# The app handles SIGTERM/SIGINT itself (graceful drain, C-5.4); compose
+# still sets init: true — PID-1 zombie reaping, plus a backstop if node is
+# ever wrapped in a shell that would swallow signals. Required env:
+# ENVIRONMENT, SERVER_PORT (+ MONGO_DB_* to be useful). MONGO_DB_ATLAS takes
+# the strings 'true'/'false' (mapped to boolean by environment-setup.ts).
 CMD ["node", "dist/main/index.js"]

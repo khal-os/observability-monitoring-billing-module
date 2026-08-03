@@ -4,6 +4,8 @@ import {
   GetBillingSummaryUseCase,
 } from './billing-protocols.js';
 import { InvalidParamError, MissingParamError } from '../../errors/index.js';
+import { apiErrorSchema } from '../../helpers/docs-schemas.js';
+import { BillingPeriodStateError } from '../../../domain/useCases/close-billing-period-use-case.js';
 import { buildStatement } from '../../../application/useCases/billingStatement/statement-engine.js';
 import { usageRecord } from '../../../application/useCases/billingStatement/billing-test-fakes.js';
 
@@ -57,8 +59,22 @@ const makeSummary = (): BillingSummary => ({
   comparison: null,
 });
 
+/**
+ * The message the real use case raises for a future month (audit
+ * B-10.3) — informative prose the client is supposed to READ, so the
+ * mapping must carry it to the wire.
+ */
+const FUTURE_MONTH_MESSAGE =
+  'O mês 2099-01 está no futuro — não há nada a faturar.';
+
 class GetBillingSummaryStub implements GetBillingSummaryUseCase {
-  async get(_year: number, _month: number): Promise<BillingSummary> {
+  async get(year: number, _month: number): Promise<BillingSummary> {
+    // Reproduces the use case's own period-state rejection so the
+    // controller's HTTP mapping is exercised against the REAL error type.
+    if (year === 2099) {
+      throw new BillingPeriodStateError(FUTURE_MONTH_MESSAGE);
+    }
+
     return makeSummary();
   }
 }
@@ -112,6 +128,29 @@ describe('GetBillingSummaryController', () => {
 
       expect(httpResponse.statusCode).toBe(400);
       expect(httpResponse.body).toEqual(new InvalidParamError('year'));
+    });
+
+    it('MUST answer a FUTURE month with a {name, msg} body — the domain error never travels raw', async () => {
+      const { sut } = makeSut();
+
+      const httpResponse = await sut.handle({
+        query: { year: '2099', month: '1' },
+      });
+
+      expect(httpResponse.statusCode).toBe(400);
+
+      // What res.json() actually puts on the wire: own-enumerable
+      // properties only. Handing the plain domain Error to
+      // buildBadRequest serialized `{"name":"BillingPeriodStateError"}` —
+      // no msg (message is non-enumerable) and an internal class name.
+      const wireBody = JSON.parse(JSON.stringify(httpResponse.body));
+
+      expect(wireBody).toEqual({
+        name: 'InvalidParamError',
+        msg: FUTURE_MONTH_MESSAGE,
+      });
+      // The same strict schema the OpenAPI 400s document.
+      expect(() => apiErrorSchema.parse(wireBody)).not.toThrow();
     });
   });
 

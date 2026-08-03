@@ -1,4 +1,7 @@
-import { HttpTokenAuthenticator } from './http-token-authenticator.js';
+import {
+  HttpTokenAuthenticator,
+  MAX_CACHE_ENTRIES,
+} from './http-token-authenticator.js';
 
 const makeSut = (
   overrides?: {
@@ -185,6 +188,65 @@ describe('HttpTokenAuthenticator', () => {
       // And the recovery is immediate: the next attempt gets the truth.
       mock.mockResolvedValue(activeAnswer(true));
       expect(await sut.isAuthenticated('tkn')).toBe(true);
+    });
+
+    it('MUST treat a 200 without a boolean `active` as an error — fail closed NOW, nothing cached (RFC 7662)', async () => {
+      const mock = jest
+        .fn()
+        .mockResolvedValueOnce({ ok: true, json: async () => ({}) })
+        .mockResolvedValueOnce(activeAnswer(true));
+      withFetchReturning(mock);
+      const sut = makeSut({ negativeTtlMs: 5_000, now: () => 0 });
+
+      // The malformed 200 fails closed for THIS request…
+      expect(await sut.isAuthenticated('tkn')).toBe(false);
+      // …but wrote NO 5s negative entry: with the clock unmoved, the very
+      // next attempt re-asks and the good token is honored immediately.
+      expect(await sut.isAuthenticated('tkn')).toBe(true);
+      expect(mock).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('cache bound', () => {
+    const activeAnswer = (active: boolean) => ({
+      ok: true,
+      json: async () => ({ active }),
+    });
+
+    it('MUST cap the cache at MAX_CACHE_ENTRIES: the oldest entry is evicted, later ones survive', async () => {
+      const mock = jest.fn().mockResolvedValue(activeAnswer(true));
+      withFetchReturning(mock);
+      const sut = makeSut({ now: () => 0 });
+
+      for (let i = 0; i < MAX_CACHE_ENTRIES + 1; i += 1) {
+        await sut.isAuthenticated(`tkn-${i}`);
+      }
+      expect(mock).toHaveBeenCalledTimes(MAX_CACHE_ENTRIES + 1);
+      expect(sut['cache'].size).toBe(MAX_CACHE_ENTRIES);
+
+      // tkn-1 survived the eviction: served from cache, no new fetch…
+      await sut.isAuthenticated('tkn-1');
+      expect(mock).toHaveBeenCalledTimes(MAX_CACHE_ENTRIES + 1);
+
+      // …but tkn-0 (oldest-inserted) was evicted to make room: re-asks.
+      await sut.isAuthenticated('tkn-0');
+      expect(mock).toHaveBeenCalledTimes(MAX_CACHE_ENTRIES + 2);
+    });
+
+    it('MUST sweep expired entries on insert — a garbage-token flood leaves no residue past the TTL', async () => {
+      const mock = jest.fn().mockResolvedValue(activeAnswer(false));
+      withFetchReturning(mock);
+      let clock = 0;
+      const sut = makeSut({ negativeTtlMs: 5_000, now: () => clock });
+
+      await sut.isAuthenticated('garbage-1');
+      await sut.isAuthenticated('garbage-2');
+      expect(sut['cache'].size).toBe(2);
+
+      // Past the negative TTL, ONE fresh insert pops both dead entries.
+      clock = 5_000;
+      await sut.isAuthenticated('garbage-3');
+      expect(sut['cache'].size).toBe(1);
     });
   });
 });

@@ -6,7 +6,11 @@ import {
   SourceTrace,
   TokenCounts,
 } from '../../../../application/interfaces/trace-source-client.js';
-import { SpanRow, SummaryRow } from './clickhouse-row-schema.js';
+import {
+  SalvageableTokenField,
+  SpanRow,
+  SummaryRow,
+} from './clickhouse-row-schema.js';
 
 // decision 59 — raw-row counterpart of langwatch-api-mapper.ts. The API is
 // itself a projection of these rows; this mapper replicates the same
@@ -237,6 +241,10 @@ export const mapSummaryTrace = (
         }
       : undefined;
 
+  // The span fallback is also what decides the C-6.2 salvage: a count the
+  // schema nulled (corrupt at the source) is only safe to proceed with
+  // when THIS `?? sumSpanTokens(...)` rebuilds a real number for it —
+  // see unreconstructedTokenFields below.
   const tokens = cleanTokens({
     input: summary.promptTokens ?? sumSpanTokens(spans, 'input'),
     output: summary.completionTokens ?? sumSpanTokens(spans, 'output'),
@@ -288,3 +296,34 @@ export const mapSummaryTrace = (
     spans,
   };
 };
+
+/**
+ * The SourceTrace token type each salvageable summary count must land in
+ * for a NULLED count to count as reconstructed.
+ */
+const SALVAGED_TOKEN_TYPE: Record<SalvageableTokenField, keyof TokenCounts> = {
+  promptTokens: 'input',
+  completionTokens: 'output',
+};
+
+/**
+ * Which of the counts the schema nulled (parseSummaryRow) the span
+ * fallback did NOT rebuild — the mapped trace carries no real number for
+ * that token type, so its usage is UNKNOWN, not zero.
+ *
+ * // QA19: this is the salvage half of the stamping rule. A non-empty
+ * result means the row must stay POISON: with the corrupt type absent
+ * from `tokens`, the stamper sees it as unused, finds no missing price
+ * for it and mints an IMMUTABLE stamp that prices it at zero (R$ 0,00
+ * outright when NO type survives) — exactly what invariant 2 forbids, and
+ * unreachable by any later reprocess. Empty means every nulled count came
+ * back from the span-level `gen_ai.usage.*` sums and the trace is priced
+ * on measured usage.
+ */
+export const unreconstructedTokenFields = (
+  trace: SourceTrace,
+  nulledTokenFields: SalvageableTokenField[],
+): SalvageableTokenField[] =>
+  nulledTokenFields.filter(
+    (field) => (trace.tokens[SALVAGED_TOKEN_TYPE[field]] ?? 0) <= 0,
+  );

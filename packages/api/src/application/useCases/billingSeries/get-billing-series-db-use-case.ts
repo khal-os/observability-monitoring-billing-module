@@ -10,6 +10,7 @@ import {
 import { TokenType } from '../../../domain/models/price-version-model.js';
 import { StatementLine } from '../../../domain/models/billing-snapshot-model.js';
 import {
+  closedMonthWindows,
   firstOpenMonthStart,
   resolvePeriodStatus,
 } from '../../../domain/models/billing-period-model.js';
@@ -210,10 +211,12 @@ export class GetBillingSeriesDbUseCase implements GetBillingSeriesUseCase {
 
   /**
    * The daily lens (decision 97): same stamps, UTC-day buckets, today
-   * included and partial. Served from the live store with quarantined
-   * traces excluded — the days of a closed month therefore sum to its
-   * frozen bill. Empty days materialize as zero bars (a gap in traffic
-   * must LOOK like a gap).
+   * included and partial. Served from the live store; unresolved
+   * quarantine is excluded ONLY on days inside CLOSED months — those days
+   * must sum to the frozen bill, while a reopened month's straggler is in
+   * the LIVE total and must chart (re-audit fix: Σ daily ≡ summary holds
+   * throughout a reopen→re-close window). Empty days materialize as zero
+   * bars (a gap in traffic must LOOK like a gap).
    */
   async listDaily(days: number): Promise<BillingSeriesDay[]> {
     const now = this.now();
@@ -225,10 +228,14 @@ export class GetBillingSeriesDbUseCase implements GetBillingSeriesUseCase {
     const from = new Date(todayStart - (days - 1) * 86_400_000);
     const toExclusive = new Date(todayStart + 86_400_000);
 
-    const [rollup, periods] = await Promise.all([
-      this.billingQueryRepository.dailyRollup(from, toExclusive),
-      this.billingPeriodRepository.listAll(),
-    ]);
+    // Periods FIRST: the rollup's quarantine-exclusion scope is exactly
+    // the closed months' windows.
+    const periods = await this.billingPeriodRepository.listAll();
+    const rollup = await this.billingQueryRepository.dailyRollup(
+      from,
+      toExclusive,
+      closedMonthWindows(periods),
+    );
 
     const periodByMonth = new Map(
       periods.map((period) => [`${period.year}-${period.month}`, period]),

@@ -314,6 +314,93 @@ describe('HttpLangWatchClient', () => {
     expect(traces.map((trace) => trace.traceId)).toEqual(['trace-a']);
   });
 
+  it('MUST defer a trace still receiving spans — the start-axis clamp cannot see the update axis (audit B-4)', async () => {
+    const now = Date.now();
+    // Upper bound 20 min back: the window itself clears the quiet period,
+    // so ONLY the per-trace activity check can catch the live trace.
+    const recentWindow = {
+      from: new Date(now - 7_200_000),
+      to: new Date(now - 1_200_000),
+    };
+    const settledStart = now - 6_000_000;
+    const activeStart = now - 5_000_000;
+    const { fetchFn } = makeFetchStub(
+      [[{ trace_id: 'trace-settled' }, { trace_id: 'trace-active' }]],
+      2,
+      {
+        detailOverrides: {
+          'trace-settled': makeDetail('trace-settled', settledStart),
+          'trace-active': {
+            ...makeDetail('trace-active', activeStart),
+            // Started inside the window, but a span landed a minute ago:
+            // the trace is still being built, and its token counts with
+            // it — stamping it now freezes a partial, immutable cost.
+            spans: [
+              {
+                span_id: 'trace-active-span',
+                type: 'llm',
+                model: 'gpt-4o-mini',
+                timestamps: {
+                  started_at: activeStart,
+                  finished_at: now - 60_000,
+                },
+                metrics: { prompt_tokens: 10, completion_tokens: 5 },
+              },
+            ],
+          },
+        },
+      },
+    );
+    const sut = new HttpLangWatchClient({
+      endpoint: 'https://langwatch.example.com',
+      apiKey: 'sk-lw-test',
+      fetchFn,
+    });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const traces = await fetchAll(sut, recentWindow);
+
+    expect(traces.map((trace) => trace.traceId)).toEqual(['trace-settled']);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('trace deferred (traceId=trace-active)'),
+    );
+    // The operator is told the window is incomplete, same as the
+    // ClickHouse path — the deferred rows stay in the source.
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('re-run later to cover the rest'),
+    );
+
+    warn.mockRestore();
+  });
+
+  it('MUST NOT defer a settled trace whose window merely ends near now', async () => {
+    const now = Date.now();
+    const startedAt = now - 3_600_000;
+    const { fetchFn } = makeFetchStub([[{ trace_id: 'trace-settled' }]], 1, {
+      detailOverrides: {
+        'trace-settled': makeDetail('trace-settled', startedAt),
+      },
+    });
+    const sut = new HttpLangWatchClient({
+      endpoint: 'https://langwatch.example.com',
+      apiKey: 'sk-lw-test',
+      fetchFn,
+    });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const traces = await fetchAll(sut, {
+      from: new Date(now - 7_200_000),
+      to: new Date(now), // clamped back by the quiet period (decision 61)
+    });
+
+    expect(traces.map((trace) => trace.traceId)).toEqual(['trace-settled']);
+    expect(warn).not.toHaveBeenCalledWith(
+      expect.stringContaining('trace deferred'),
+    );
+
+    warn.mockRestore();
+  });
+
   it('MUST fail loudly on a non-2xx response — never a silent empty sync', async () => {
     const fetchFn = (async () => ({
       ok: false,

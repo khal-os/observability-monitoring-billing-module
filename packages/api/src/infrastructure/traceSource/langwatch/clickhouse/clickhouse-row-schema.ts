@@ -56,28 +56,48 @@ export const spanRowSchema = z.looseObject({
 export type SummaryRow = z.infer<typeof summaryRowSchema>;
 export type SpanRow = z.infer<typeof spanRowSchema>;
 
+/** The only fields the salvage rule may repair — never identity/timestamps. */
+export type SalvageableTokenField = 'promptTokens' | 'completionTokens';
+
 export type SummaryRowParse =
-  | { ok: true; row: SummaryRow; salvagedFields: string[] }
+  | { ok: true; row: SummaryRow; nulledTokenFields: SalvageableTokenField[] }
   | { ok: false; error: string };
 
-/** The only fields the salvage rule may repair — never identity/timestamps. */
-const SALVAGEABLE_TOKEN_FIELDS = new Set(['promptTokens', 'completionTokens']);
+const SALVAGEABLE_TOKEN_FIELDS = new Set<SalvageableTokenField>([
+  'promptTokens',
+  'completionTokens',
+]);
+
+const isSalvageableTokenField = (
+  field: string,
+): field is SalvageableTokenField =>
+  SALVAGEABLE_TOKEN_FIELDS.has(field as SalvageableTokenField);
 
 /**
- * audit C-6.2 salvage rule: a summary row failing ONLY the token-count
- * refinement (negative/fractional counts — an instrumentation defect, not
- * schema drift) is SALVAGED: the offending counts are nulled and the
- * trace proceeds — content preserved, tokens fall back to span sums or
- * absent (pending_price/unclassified beats a dropped trace). Rows failing
- * structurally (missing id/timestamps, wrong shapes) remain poison. This
- * also removes the old asymmetry where the same bad-token defect dropped
- * the whole trace at summary level but only the count at span level.
+ * audit C-6.2 salvage rule — HALF of it. A summary row failing ONLY the
+ * token-count refinement (negative/fractional counts — an instrumentation
+ * defect, not schema drift) has the offending counts NULLED here and
+ * returns them in `nulledTokenFields`; content and identity are preserved.
+ *
+ * Whether the row is then SALVAGED or stays POISON is deliberately NOT
+ * decided here (audit iteration 1, invariant 2): nulling alone lets a
+ * trace whose real usage is unknown reach the stamper with ZERO used
+ * token types, where it is stamped R$ 0,00 IMMUTABLY — the one outcome
+ * invariant 2 forbids, and one reprocess can never rescue (a trace with
+ * no used token type has no missing price to wait for). The client
+ * completes the rule after mapping: it salvages only when the span-level
+ * `gen_ai.usage.*` sums reconstruct EVERY nulled count, and keeps the row
+ * poison otherwise (durably recorded — a poison record beats a wrong
+ * immutable stamp). Rows failing structurally (missing id/timestamps,
+ * wrong shapes) remain poison regardless. This still removes the old
+ * asymmetry where the same bad-token defect dropped the whole trace at
+ * summary level but only the count at span level.
  */
 export const parseSummaryRow = (raw: unknown): SummaryRowParse => {
   const parsed = summaryRowSchema.safeParse(raw);
 
   if (parsed.success) {
-    return { ok: true, row: parsed.data, salvagedFields: [] };
+    return { ok: true, row: parsed.data, nulledTokenFields: [] };
   }
 
   const offendingFields = new Set(
@@ -87,7 +107,7 @@ export const parseSummaryRow = (raw: unknown): SummaryRowParse => {
   const salvageable =
     typeof raw === 'object' &&
     raw !== null &&
-    [...offendingFields].every((field) => SALVAGEABLE_TOKEN_FIELDS.has(field));
+    [...offendingFields].every(isSalvageableTokenField);
 
   if (salvageable) {
     const retried = summaryRowSchema.safeParse({
@@ -99,7 +119,9 @@ export const parseSummaryRow = (raw: unknown): SummaryRowParse => {
       return {
         ok: true,
         row: retried.data,
-        salvagedFields: [...offendingFields].sort(),
+        nulledTokenFields: [...offendingFields]
+          .filter(isSalvageableTokenField)
+          .sort(),
       };
     }
   }

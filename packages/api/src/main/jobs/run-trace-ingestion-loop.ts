@@ -1,4 +1,5 @@
 import {
+  makeIngestFailureRepository,
   makeReprocessPendingUseCase,
   makeSyncBatchesUseCase,
   traceIngestionWorkerSettings,
@@ -49,11 +50,13 @@ const sleep = (ms: number): Promise<void> =>
 const TRANSIENT_BACKOFF_BASE_MS = 5_000;
 const TRANSIENT_BACKOFF_CAP_MS = 300_000;
 
-const database = makeDatabase();
-
-await database.connect();
-
-try {
+/**
+ * The worker's body, extracted so every exit path — including the idle
+ * stack's — leaves through the caller's `finally` (re-audit 2026-08, sync
+ * minors: the idle branch used to `process.exit(0)`, skipping the
+ * disconnect entirely).
+ */
+const runWorker = async (): Promise<void> => {
   const batchSync = makeSyncBatchesUseCase();
 
   if (!batchSync) {
@@ -68,7 +71,7 @@ try {
       await sleep(3600_000);
     }
 
-    process.exit(0);
+    return;
   }
 
   // Fatal by design: never sync through an unverified source schema.
@@ -78,6 +81,8 @@ try {
     `Trace ingestion worker: started (interval ${traceIngestionWorkerSettings.intervalMs / 1000}s, ` +
       `reprocess every ${traceIngestionWorkerSettings.reprocessIntervalMs / 1000}s).`,
   );
+
+  const ingestFailureRepository = makeIngestFailureRepository();
 
   let backoffMs = TRANSIENT_BACKOFF_BASE_MS;
   let lastReprocessAt = 0;
@@ -103,6 +108,26 @@ try {
           `${String(error)}`,
       );
       drainFailed = true;
+    }
+
+    // re-audit 2026-08 (sync item 3): the dead-letter trail gets a voice.
+    // Parked traces are traces the archive is MISSING (invariant 6), and
+    // until now the only sign of them was the log line of the cycle that
+    // wrote them. One cheap count per cycle, never per batch; a failing
+    // count is reported, never fatal (the drain already owns the backoff).
+    try {
+      const deadLettered = await ingestFailureRepository.countUnresolved();
+
+      if (deadLettered > 0) {
+        console.warn(
+          `Trace ingestion worker: ${deadLettered} trace(s) parked in the dead-letter trail ` +
+            "(ingest_failures) — recover them with the README's Day-2 runbook.",
+        );
+      }
+    } catch (error) {
+      console.warn(
+        `Trace ingestion worker: dead-letter count unavailable this cycle: ${String(error)}`,
+      );
     }
 
     // Periodic reprocess sweep (decision 63: also triggered directly by
@@ -136,6 +161,14 @@ try {
   }
 
   console.log('Trace ingestion worker: stopped cleanly.');
+};
+
+const database = makeDatabase();
+
+await database.connect();
+
+try {
+  await runWorker();
 } finally {
   await database.disconnect();
 }

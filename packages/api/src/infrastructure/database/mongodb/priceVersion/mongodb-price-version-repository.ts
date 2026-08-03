@@ -8,6 +8,7 @@ import {
   TokenType,
 } from '../../../../domain/models/price-version-model.js';
 import { MongoDb } from '../mongo-db.js';
+import { isDuplicateKeyError } from '../helpers/is-duplicate-key-error.js';
 
 export const PRICE_VERSIONS_COLLECTION = 'price_versions';
 
@@ -78,10 +79,7 @@ export class MongoDbPriceVersionRepository implements PriceVersionRepository {
     } catch (error) {
       // E11000 on the unique (model, tokenType, effectiveFrom) index →
       // the contract's typed error; driver text never crosses the boundary.
-      if (
-        error instanceof Error &&
-        (error as { code?: number }).code === 11000
-      ) {
+      if (isDuplicateKeyError(error)) {
         throw new DuplicatePriceVersionError(version);
       }
 

@@ -10,6 +10,7 @@ import {
   yearMonthQueryShape,
 } from '../../helpers/query-validation.js';
 import { buildBadRequest } from '../../helpers/http-helper.js';
+import { InvalidParamError } from '../../errors/index.js';
 import { toBillingSummaryView } from './billing-view-model.js';
 import { BillingSummaryView } from './billing-view-schemas.js';
 import { BillingPeriodStateError } from '../../../domain/useCases/close-billing-period-use-case.js';
@@ -226,9 +227,11 @@ export class ExportStatementController implements Controller {
       view = toBillingSummaryView(await this.getBillingSummary.get(year, month));
     } catch (error) {
       // audit B-10.3: same 400 mapping as the summary — a future month
-      // must not export a legit-looking zero statement (nor 500).
+      // must not export a legit-looking zero statement (nor 500). Same
+      // re-wrap too: the body is the {name, msg} ApiError, never the raw
+      // domain error (which serializes to `{"name": ...}` alone).
       if (error instanceof BillingPeriodStateError) {
-        return buildBadRequest(error);
+        return buildBadRequest(new InvalidParamError('month', error.message));
       }
 
       throw error;

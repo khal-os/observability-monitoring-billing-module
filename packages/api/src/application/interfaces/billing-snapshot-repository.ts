@@ -62,4 +62,17 @@ export interface BillingSnapshotRepository {
     month: number,
     version: number,
   ): Promise<BillingUsageRecord[]>;
+
+  /**
+   * Just the traceIds a snapshot billed — a projected read of the same
+   * durable usage records. The close's repair path (re-audit): when a
+   * crash landed the committed close but not the post-close quarantine
+   * reconciliation, the retry re-runs the reconciliation from these ids
+   * without materializing the full records.
+   */
+  findUsageTraceIds(
+    year: number,
+    month: number,
+    version: number,
+  ): Promise<string[]>;
 }

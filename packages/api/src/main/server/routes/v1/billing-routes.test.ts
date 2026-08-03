@@ -98,6 +98,26 @@ describe('Billing Routes', () => {
         .get('/api/v1/billing/summary?year=2026&month=6&foo=1')
         .expect(400);
     });
+
+    // Wave review: the future-month rejection is a DOMAIN error the
+    // controllers re-wrap. Covered at controller level, but only real HTTP
+    // proves what the client actually receives — the raw domain error
+    // serialized to `{"name":"BillingPeriodStateError"}`: no `msg` at all,
+    // and an internal class name on the wire. Pinned on BOTH resources.
+    it('MUST return a 400 {name, msg} for a future month — never a bare domain error', async () => {
+      for (const path of [
+        '/api/v1/billing/summary?year=2099&month=1',
+        '/api/v1/billing/statement?year=2099&month=1&format=csv',
+        '/api/v1/billing/statement?year=2099&month=1&format=html',
+      ]) {
+        const response = await request(app).get(path).expect(400);
+
+        expect(response.body).toEqual({
+          name: 'InvalidParamError',
+          msg: expect.stringContaining('está no futuro'),
+        });
+      }
+    });
   });
 
   describe('MANDATORY consistency check: summary ≡ Σ stamped costs', () => {

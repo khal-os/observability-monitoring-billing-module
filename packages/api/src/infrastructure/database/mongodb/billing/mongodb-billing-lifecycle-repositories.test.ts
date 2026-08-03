@@ -57,6 +57,14 @@ const makeTrace = (overrides: Partial<TraceModel> = {}): TraceModel => ({
 const JUNE_START = new Date('2026-06-01T00:00:00.000Z');
 const JULY_START = new Date('2026-07-01T00:00:00.000Z');
 
+/**
+ * The daily rollup's quarantine-exclusion scope (decisions 97/100): June
+ * CLOSED — its days must sum to its frozen bill, so an unresolved
+ * straggler inside the window stays out. The same shape the series use
+ * case derives with `closedMonthWindows(periods)`.
+ */
+const JUNE_CLOSED_WINDOWS = [{ start: JUNE_START, end: JULY_START }];
+
 const makeSnapshot = (
   version: number,
   records: ReturnType<typeof usageRecord>[],
@@ -691,7 +699,11 @@ describe('Billing lifecycle repositories (integration)', () => {
       );
 
       const sut = new MongoDbBillingQueryRepository();
-      const days = await sut.dailyRollup(JUNE_START, JULY_START);
+      const days = await sut.dailyRollup(
+        JUNE_START,
+        JULY_START,
+        JUNE_CLOSED_WINDOWS,
+      );
 
       expect(days.map((day) => [day.date.getUTCDate(), day.totalCostMicrocents])).toEqual([
         [5, 2_500_000_100],
@@ -731,10 +743,47 @@ describe('Billing lifecycle repositories (integration)', () => {
       );
 
       const sut = new MongoDbBillingQueryRepository();
-      const days = await sut.dailyRollup(JUNE_START, JULY_START);
+      const days = await sut.dailyRollup(
+        JUNE_START,
+        JULY_START,
+        JUNE_CLOSED_WINDOWS,
+      );
 
       expect(days).toHaveLength(1);
       expect(days[0]?.totalCostMicrocents).toBe(5_000_000_000);
+    });
+
+    it('dailyRollup excludes unresolved quarantine ONLY inside CLOSED months — a reopened month charts its straggler', async () => {
+      const traces = new MongoDbTraceRepository();
+      await traces.insertIfAbsent(makeTrace({ traceId: 'norm-1' }));
+      await traces.insertIfAbsent(
+        makeTrace({
+          traceId: 'straggler-1',
+          billingQuarantine: {
+            reason: 'period_closed',
+            quarantinedAt: new Date(),
+          },
+        }),
+      );
+
+      const sut = new MongoDbBillingQueryRepository();
+
+      // June REOPENED (or never closed): no window in scope. The live
+      // summary bills every stamped trace — straggler included — so the
+      // days must chart it too, or Σ daily ≠ summary for the whole
+      // reopen→re-close window (re-audit divergence).
+      const openDays = await sut.dailyRollup(JUNE_START, JULY_START, []);
+
+      expect(openDays[0]?.totalCostMicrocents).toBe(5_000_000_000);
+
+      // Same store, June CLOSED: the straggler is outside the frozen bill.
+      const closedDays = await sut.dailyRollup(
+        JUNE_START,
+        JULY_START,
+        JUNE_CLOSED_WINDOWS,
+      );
+
+      expect(closedDays[0]?.totalCostMicrocents).toBe(2_500_000_000);
     });
   });
 });

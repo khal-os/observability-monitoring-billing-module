@@ -5,6 +5,7 @@ import {
 } from '../../../../domain/models/billing-period-model.js';
 import { BillingPeriodRepository } from '../../../../application/interfaces/billing-period-repository.js';
 import { MongoDb } from '../mongo-db.js';
+import { isDuplicateKeyError } from '../helpers/is-duplicate-key-error.js';
 
 export const BILLING_PERIODS_COLLECTION = 'billing_periods';
 
@@ -98,7 +99,7 @@ export class MongoDbBillingPeriodRepository implements BillingPeriodRepository {
       // Upsert race on the (year, month) unique index: the other writer
       // created the document first — for THIS operation that means the
       // month was (or is being) closed concurrently.
-      if ((error as { code?: number }).code === 11000) {
+      if (isDuplicateKeyError(error)) {
         return 'conflict';
       }
 

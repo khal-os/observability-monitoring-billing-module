@@ -12,6 +12,7 @@ import { toFilterCounterDims } from '../../../../domain/models/filter-counter-mo
 import { deriveUnclassified } from '../../../../application/useCases/syncTraces/trace-mapper.js';
 import { MongoDb } from '../mongo-db.js';
 import { TRACES_COLLECTION } from '../collections.js';
+import { isDuplicateKeyError } from '../helpers/is-duplicate-key-error.js';
 import { MongoDbFilterCounterRepository } from '../filterCounter/mongodb-filter-counter-repository.js';
 import { MongoDbSessionSummaryRepository } from '../session/mongodb-session-summary-repository.js';
 
@@ -22,16 +23,46 @@ const filterCounters = new MongoDbFilterCounterRepository();
 // self-healing on the next touch.
 const sessionSummaries = new MongoDbSessionSummaryRepository();
 
+// The recompute runs AFTER the trace write committed, and the
+// materialization is self-healing by design (next touch or the rebuild
+// job) — so a recompute failure must never bubble into the caller's
+// outcome. Before this catch, a post-commit throw made the ingest loop
+// count a STORED trace as failed and dead-letter it (re-audit): the
+// write's outcome is the transaction's outcome, nothing later.
 const recomputeSessionOf = async (
   sessionId: string | undefined | null,
 ): Promise<void> => {
-  if (typeof sessionId === 'string') {
+  if (typeof sessionId !== 'string') return;
+
+  try {
     await sessionSummaries.recompute(sessionId);
+  } catch (error) {
+    console.warn(
+      `session summary recompute failed for session "${sessionId}" — ` +
+        'summary stays stale until the next touch or rebuild (decision 80):',
+      error,
+    );
   }
 };
 
-const isDuplicateKey = (error: unknown): boolean =>
-  (error as { code?: number }).code === 11000;
+/**
+ * audit re-check (item 3): both reconcile passes write via chunked $in —
+ * a full month of traceIds in ONE updateMany hit the 16MB command ceiling
+ * around ~300-400k ids, and it threw AFTER the committed close (the exact
+ * closed-but-unreconciled state the repair path exists for). 10k string
+ * ids ≈ well under 1MB per command.
+ */
+const RECONCILE_CHUNK_SIZE = 10_000;
+
+const chunksOf = <T>(items: T[], size: number): T[][] => {
+  const chunks: T[][] = [];
+
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+
+  return chunks;
+};
 
 /**
  * Storage convention: OPTIONAL FIELDS ARE STORED AS NULL, never absent —
@@ -65,7 +96,7 @@ export class MongoDbTraceRepository implements TraceRepository {
       // audit B-4 residual: the skipped branch carries the STORED token
       // total (tiny projected read) so the ingest path can surface
       // source/store token divergence without a second full read.
-      if (isDuplicateKey(error)) {
+      if (isDuplicateKeyError(error)) {
         const stored = await traces.findOne(
           { traceId: trace.traceId },
           { projection: { _id: 0, tokensTotal: 1 } },
@@ -82,7 +113,9 @@ export class MongoDbTraceRepository implements TraceRepository {
     // Sessions read-model (decision 80) — deliberately OUTSIDE the
     // transaction: recompute-on-touch is self-healing (next touch or
     // rebuild), and keeping the transaction two writes wide keeps it
-    // fast and conflict-free.
+    // fast and conflict-free. A recompute failure is swallowed (warned)
+    // inside recomputeSessionOf: the trace IS stored, so the outcome
+    // below must stay 'inserted' (re-audit item 5).
     await recomputeSessionOf(trace.sessionId);
 
     return 'inserted';
@@ -178,7 +211,8 @@ export class MongoDbTraceRepository implements TraceRepository {
 
     // Attribution feeds the session's first-trace block — refresh the
     // materialized summary (decision 80); outside the transaction, same
-    // rationale as insertIfAbsent (self-healing by design).
+    // rationale as insertIfAbsent (self-healing by design, failures
+    // warned and swallowed — the committed correction stands).
     await recomputeSessionOf(sessionId);
   }
 
@@ -222,13 +256,24 @@ export class MongoDbTraceRepository implements TraceRepository {
     }
 
     // The stamp moved this session's cost/pending totals — refresh the
-    // materialized summary (decision 80).
-    const stamped = await MongoDb.getCollection(TRACES_COLLECTION).findOne(
-      { traceId },
-      { projection: { _id: 0, sessionId: 1 } },
-    );
+    // materialized summary (decision 80). POST-COMMIT: the CAS above
+    // already stamped the trace, so a failure in this tail (the sessionId
+    // lookup included) must never turn into a reported stamp failure —
+    // warn and answer with the committed outcome (re-audit item 5).
+    try {
+      const stamped = await MongoDb.getCollection(TRACES_COLLECTION).findOne(
+        { traceId },
+        { projection: { _id: 0, sessionId: 1 } },
+      );
 
-    await recomputeSessionOf(stamped?.['sessionId'] as string | null);
+      await recomputeSessionOf(stamped?.['sessionId'] as string | null);
+    } catch (error) {
+      console.warn(
+        `post-stamp session lookup failed for trace "${traceId}" — ` +
+          'summary stays stale until the next touch or rebuild (decision 80):',
+        error,
+      );
+    }
 
     return 'stamped';
   }
@@ -254,52 +299,88 @@ export class MongoDbTraceRepository implements TraceRepository {
     monthEnd: Date,
     snapshotTraceIds: string[],
     snapshotVersion: number,
+    // Parameterized (default: the 16MB-safe constant) so the chunking
+    // logic itself is testable with a tiny size.
+    chunkSize: number = RECONCILE_CHUNK_SIZE,
   ): Promise<QuarantineReconciliation> {
     const traces = MongoDb.getCollection(TRACES_COLLECTION);
-    const window = { startedAt: { $gte: monthStart, $lt: monthEnd } };
 
     // Decision 100, pass 1 — FLAG STRAGGLERS: whatever the ingest-vs-close
     // interleaving let through unflagged, if the snapshot did not bill it,
-    // it is quarantined now. Matching on the absent reason keeps the pass
-    // idempotent (a retry re-matches nothing) and preserves the original
-    // quarantinedAt of traces the ingestor already flagged.
-    const flagged = await traces.updateMany(
-      {
-        ...window,
-        traceId: { $nin: snapshotTraceIds },
-        'billingQuarantine.reason': { $exists: false },
-      },
-      {
-        $set: {
-          billingQuarantine: {
-            reason: 'period_closed',
-            quarantinedAt: new Date(),
+    // it is quarantined now. The straggler set is computed CLIENT-SIDE
+    // (item 3): a `$nin` of the full month's ids rode one update command
+    // into the 16MB ceiling, so instead the month's traceIds stream
+    // through a projected cursor, the snapshot's id Set is subtracted in
+    // memory, and the resulting diff — tiny by construction, it is only
+    // the stragglers — is flagged via chunked $in. Matching on the absent
+    // reason keeps the pass idempotent (a retry re-matches nothing) and
+    // preserves the original quarantinedAt of traces the ingestor already
+    // flagged.
+    const snapshotIdSet = new Set(snapshotTraceIds);
+    const stragglerIds: string[] = [];
+    const monthIds = traces.find(
+      { startedAt: { $gte: monthStart, $lt: monthEnd } },
+      { projection: { _id: 0, traceId: 1 } },
+    );
+
+    for await (const document of monthIds) {
+      const traceId = document['traceId'] as string;
+
+      if (!snapshotIdSet.has(traceId)) {
+        stragglerIds.push(traceId);
+      }
+    }
+
+    const quarantinedAt = new Date();
+    let flaggedStragglers = 0;
+
+    // traceId is globally unique (the ingest idempotency index), and every
+    // id below came from the month scan above — no window re-filter needed.
+    for (const chunk of chunksOf(stragglerIds, chunkSize)) {
+      const flagged = await traces.updateMany(
+        {
+          traceId: { $in: chunk },
+          'billingQuarantine.reason': { $exists: false },
+        },
+        {
+          $set: {
+            billingQuarantine: {
+              reason: 'period_closed',
+              quarantinedAt,
+            },
           },
         },
-      },
-    );
+      );
+
+      flaggedStragglers += flagged.modifiedCount;
+    }
 
     // Pass 2 — ABSORB THE ADJUDICATED: flagged traces this snapshot DID
     // bill (the reopen→re-close correction flow, decision 89). The
     // historical mark stays; the absorbed version resolves it, so readers
     // (dailyRollup, countQuarantined) stop treating it as outside the
     // bill. Idempotent: re-setting the same version modifies nothing.
-    const absorbed = await traces.updateMany(
-      {
-        ...window,
-        traceId: { $in: snapshotTraceIds },
-        'billingQuarantine.reason': { $exists: true },
-      },
-      {
-        $set: {
-          'billingQuarantine.absorbedInSnapshotVersion': snapshotVersion,
-        },
-      },
-    );
+    // Chunked $in for the same 16MB reason; the snapshot's ids are
+    // month-scoped by construction (they come from the month's own usage
+    // records).
+    let absorbed = 0;
 
-    return {
-      flaggedStragglers: flagged.modifiedCount,
-      absorbed: absorbed.modifiedCount,
-    };
+    for (const chunk of chunksOf(snapshotTraceIds, chunkSize)) {
+      const result = await traces.updateMany(
+        {
+          traceId: { $in: chunk },
+          'billingQuarantine.reason': { $exists: true },
+        },
+        {
+          $set: {
+            'billingQuarantine.absorbedInSnapshotVersion': snapshotVersion,
+          },
+        },
+      );
+
+      absorbed += result.modifiedCount;
+    }
+
+    return { flaggedStragglers, absorbed };
   }
 }

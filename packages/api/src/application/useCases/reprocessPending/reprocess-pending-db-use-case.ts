@@ -7,6 +7,10 @@ import {
 import { BillingPeriodRepository } from '../../interfaces/billing-period-repository.js';
 import { modelKey } from '../../../domain/models/model-ref.js';
 import { stampTokens } from '../syncTraces/price-stamper.js';
+import {
+  closedMonthKeys,
+  monthKeyOf,
+} from '../syncTraces/trace-ingestor.js';
 
 /**
  * US3/T5: when the missing price is finally registered, pending traces get
@@ -34,10 +38,12 @@ export class ReprocessPendingDbUseCase implements ReprocessPendingUseCase {
   async reprocess(): Promise<ReprocessReport> {
     const pendingTraces = await this.traceRepository.findPendingPrice();
 
-    const closedMonths = new Set(
-      (await this.billingPeriodRepository.listAll())
-        .filter((period) => period.status === 'closed')
-        .map((period) => `${period.year}-${period.month}`),
+    // re-audit 2026-08 (sync item 6): the SAME closed-month key rule as
+    // ingestion, imported instead of re-derived — trace-ingestor already
+    // called these shared, and two copies of a month key is exactly how
+    // "stamped here but blocked there" divergence starts.
+    const closedMonths = closedMonthKeys(
+      await this.billingPeriodRepository.listAll(),
     );
 
     const report: ReprocessReport = {
@@ -49,9 +55,7 @@ export class ReprocessPendingDbUseCase implements ReprocessPendingUseCase {
     };
 
     for (const trace of pendingTraces) {
-      const monthKey = `${trace.startedAt.getUTCFullYear()}-${trace.startedAt.getUTCMonth() + 1}`;
-
-      if (closedMonths.has(monthKey)) {
+      if (closedMonths.has(monthKeyOf(trace.startedAt))) {
         report.blockedClosedMonth += 1;
         continue;
       }

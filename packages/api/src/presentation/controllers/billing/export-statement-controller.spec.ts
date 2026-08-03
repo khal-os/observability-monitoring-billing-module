@@ -4,6 +4,8 @@ import {
   GetBillingSummaryUseCase,
 } from './billing-protocols.js';
 import { InvalidParamError, MissingParamError } from '../../errors/index.js';
+import { apiErrorSchema } from '../../helpers/docs-schemas.js';
+import { BillingPeriodStateError } from '../../../domain/useCases/close-billing-period-use-case.js';
 import { buildStatement } from '../../../application/useCases/billingStatement/statement-engine.js';
 import {
   usageRecord,
@@ -52,10 +54,20 @@ const makeSummary = (
   };
 };
 
+/** The real use case's future-month rejection message (audit B-10.3). */
+const FUTURE_MONTH_MESSAGE =
+  'O mês 2099-01 está no futuro — não há nada a faturar.';
+
 class GetBillingSummaryStub implements GetBillingSummaryUseCase {
   summary: BillingSummary = makeSummary();
 
-  async get(_year: number, _month: number): Promise<BillingSummary> {
+  async get(year: number, _month: number): Promise<BillingSummary> {
+    // Same period-state rejection the use case raises, so the export's
+    // mapping is exercised against the REAL error type.
+    if (year === 2099) {
+      throw new BillingPeriodStateError(FUTURE_MONTH_MESSAGE);
+    }
+
     return this.summary;
   }
 }
@@ -106,6 +118,28 @@ describe('ExportStatementController', () => {
 
       expect(httpResponse.statusCode).toBe(400);
       expect(httpResponse.body).toEqual(new InvalidParamError('foo'));
+    });
+
+    it('MUST refuse a FUTURE month in BOTH representations with a {name, msg} body', async () => {
+      const { sut } = makeSut();
+
+      const future = { year: '2099', month: '1' };
+      const csv = await sut.handle({ query: { ...csvQuery, ...future } });
+      const html = await sut.handle({ query: { ...htmlQuery, ...future } });
+
+      for (const httpResponse of [csv, html]) {
+        expect(httpResponse.statusCode).toBe(400);
+
+        // The wire body — own-enumerable properties only, exactly what
+        // res.json() emits. The raw domain Error carried `name` alone.
+        const wireBody = JSON.parse(JSON.stringify(httpResponse.body));
+
+        expect(wireBody).toEqual({
+          name: 'InvalidParamError',
+          msg: FUTURE_MONTH_MESSAGE,
+        });
+        expect(() => apiErrorSchema.parse(wireBody)).not.toThrow();
+      }
     });
   });
 

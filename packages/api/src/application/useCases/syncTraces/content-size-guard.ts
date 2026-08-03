@@ -26,14 +26,52 @@ export interface TruncatedContent {
 
 export type SizeGuardResult =
   | { trace: TraceModel; truncated: false }
-  | { trace: TraceModel; truncated: true; originalBytes: number };
+  | {
+      trace: TraceModel;
+      truncated: true;
+      /**
+       * re-audit 2026-08 (sync item 4): still over the cap after EVERY
+       * clip pass — the document has no storable form. The caller must
+       * NOT insert and must NOT record a truncation event (there is no
+       * stored-but-clipped trace to audit); it dead-letters under the
+       * honest 'oversized_unstorable' kind instead.
+       */
+      unstorable: boolean;
+      originalBytes: number;
+    };
+
+/**
+ * re-audit 2026-08 (sync item 4): thrown by the ingest path when the
+ * guard reports `unstorable` — routed by the sync loops to a dead-letter
+ * record with its own kind, so the failure is never mistaken for a
+ * generic ingest error and never leaves a truncation record describing a
+ * store that did not happen.
+ */
+export class UnstorableTraceError extends Error {
+  readonly originalBytes: number;
+
+  constructor(traceId: string, originalBytes: number) {
+    super(
+      `Trace ${traceId} estimated at ${originalBytes} bytes still exceeds ` +
+        `the ${MAX_TRACE_DOCUMENT_BYTES}-byte document cap after clipping ` +
+        'span content, trace content and span error messages — unstorable ' +
+        'as one document; dead-lettered honestly instead of recording a ' +
+        'truncation that never reached the store.',
+    );
+    this.name = 'UnstorableTraceError';
+    this.originalBytes = originalBytes;
+  }
+}
 
 /**
  * Pre-insert size guard (audit B-3): estimates the document's serialized
  * size and, above the cap, replaces span content (then trace-level
- * content, only if spans alone are not enough) with TruncatedContent
- * markers. Tokens and costs are UNTOUCHED — they come from counts, not
- * content — so the price stamp is exactly what it would have been.
+ * content, then span error messages — each pass only while the
+ * re-estimate still reads over the cap) with truncation markers. Tokens
+ * and costs are UNTOUCHED — they come from counts, not content — so the
+ * price stamp is exactly what it would have been. A document that stays
+ * over the cap after every pass is reported `unstorable` — never
+ * silently inserted, never falsely recorded as stored-but-clipped.
  */
 export const truncateOversizedContent = (
   trace: TraceModel,
@@ -59,14 +97,42 @@ export const truncateOversizedContent = (
   }));
 
   let clipped: TraceModel = { ...trace, contentTruncated: true, spans };
+  let clippedBytes = estimateBytes(clipped);
 
-  if (estimateBytes(clipped) > MAX_TRACE_DOCUMENT_BYTES) {
+  if (clippedBytes > MAX_TRACE_DOCUMENT_BYTES) {
     clipped = {
       ...clipped,
       input: marker(trace.input),
       output: marker(trace.output),
     };
+    clippedBytes = estimateBytes(clipped);
   }
 
-  return { trace: clipped, truncated: true, originalBytes };
+  // re-audit 2026-08 (sync item 4): the bulk is not always in
+  // input/output — span error messages can carry it (huge stack dumps ×
+  // many spans). errorMessage is a plain string field, so its marker is a
+  // string, not a TruncatedContent object.
+  if (clippedBytes > MAX_TRACE_DOCUMENT_BYTES) {
+    clipped = {
+      ...clipped,
+      spans: clipped.spans.map((span) =>
+        span.errorMessage === undefined
+          ? span
+          : {
+              ...span,
+              errorMessage: `[truncated ${estimateBytes({
+                content: span.errorMessage,
+              })} bytes]`,
+            },
+      ),
+    };
+    clippedBytes = estimateBytes(clipped);
+  }
+
+  return {
+    trace: clipped,
+    truncated: true,
+    unstorable: clippedBytes > MAX_TRACE_DOCUMENT_BYTES,
+    originalBytes,
+  };
 };

@@ -8,9 +8,7 @@ import {
   sessionOnlyMatch,
   sessionSummaryStages,
 } from './session-summary-pipeline.js';
-
-const isDuplicateKey = (error: unknown): boolean =>
-  (error as { code?: number }).code === 11000;
+import { retryOnceOnDuplicateKey } from '../helpers/retry-once-on-duplicate-key.js';
 
 /**
  * Materialized sessions read-model (decision 80): one small document per
@@ -30,14 +28,16 @@ const isDuplicateKey = (error: unknown): boolean =>
  *
  * There is NO single-writer assumption (audit B-6): the ingestion worker
  * and a manual `make sync` are a legal combination, so two recomputes of
- * one session can overlap. The recompute is therefore a single
- * server-side $merge pipeline — aggregate and write happen inside ONE
- * aggregation command, per-target-document serialized by the server —
- * instead of a client-side read-then-replace whose round-trip gap let a
- * slow writer overwrite a fresher summary with stale numbers (permanent
- * for finished conversations, until the rebuild job). Two concurrent
- * first-touch $merge inserts of the same _id can still race into E11000;
- * one retry settles it (the second pass finds the document and replaces).
+ * one session can overlap. The recompute is a single server-side $merge
+ * pipeline — aggregate and write happen inside ONE aggregation command —
+ * which SHRANK the lost-update window from a client round-trip gap to
+ * the intra-command gap between the aggregation's read snapshot and its
+ * merge write; it did NOT eliminate it. Two overlapping recomputes can
+ * still, in principle, land with the earlier read snapshot writing last
+ * — the healer for that residue is the same one as for a crash: the next
+ * touch of the session, or the rebuild job. Two concurrent first-touch
+ * $merge inserts of the same _id can also race into E11000; one retry
+ * settles it (the second pass finds the document and replaces).
  */
 export class MongoDbSessionSummaryRepository {
   async recompute(sessionId: string): Promise<void> {
@@ -61,15 +61,9 @@ export class MongoDbSessionSummaryRepository {
         ])
         .toArray();
 
-    try {
-      await merge();
-    } catch (error) {
-      if (!isDuplicateKey(error)) {
-        throw error;
-      }
-
-      await merge();
-    }
+    // Wave review: the same first-touch race the sync's trails hit, so
+    // the same house helper — not a third hand-rolled copy of it.
+    await retryOnceOnDuplicateKey(merge);
 
     // $merge writes nothing for an empty input, so a session with no
     // traces left would keep its summary forever. Defensive today (the

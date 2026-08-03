@@ -199,6 +199,16 @@ export class InMemoryBillingSnapshotRepository implements BillingSnapshotReposit
     return found ? this.revive(found) : null;
   }
 
+  async findUsageTraceIds(
+    year: number,
+    month: number,
+    version: number,
+  ): Promise<string[]> {
+    return (this.usage.get(this.key(year, month, version)) ?? []).map(
+      (record) => record.traceId,
+    );
+  }
+
   async findUsageRecords(
     year: number,
     month: number,
@@ -260,7 +270,14 @@ export class StubBillingQueryRepository implements BillingQueryRepository {
     return this.rollupRows;
   }
 
-  async dailyRollup(from: Date, toExclusive: Date): Promise<DailyRollupRow[]> {
+  async dailyRollup(
+    from: Date,
+    toExclusive: Date,
+    _closedMonthWindows: { start: Date; end: Date }[],
+  ): Promise<DailyRollupRow[]> {
+    // The stub's rows are pre-quarantine-resolved fixtures — the
+    // closed-window exclusion scope is the Mongo adapter's business
+    // (proven by its integration tests); here only the window applies.
     return this.dailyRows.filter(
       (row) => row.date >= from && row.date < toExclusive,
     );
@@ -276,6 +293,40 @@ export class StubBillingQueryRepository implements BillingQueryRepository {
 
   async accruedCostMicrocents(): Promise<number> {
     return this.accrued;
+  }
+
+  /**
+   * Close-order guard inputs (re-audit): derived from the configured
+   * per-month data, so lifecycle specs exercise the guard with the same
+   * fixtures they feed the close.
+   */
+  async earliestTraceAt(): Promise<Date | null> {
+    const monthStarts = [
+      ...new Set(
+        [...this.usageByMonth.keys(), ...this.pendingByMonth.keys()].filter(
+          (key) =>
+            (this.usageByMonth.get(key)?.length ?? 0) > 0 ||
+            (this.pendingByMonth.get(key)?.traceCount ?? 0) > 0,
+        ),
+      ),
+    ].map((key) => {
+      const [year, month] = key.split('-').map(Number);
+
+      return Date.UTC(year as number, (month as number) - 1, 1);
+    });
+
+    return monthStarts.length === 0
+      ? null
+      : new Date(Math.min(...monthStarts));
+  }
+
+  async hasTraces(monthStart: Date): Promise<boolean> {
+    const key = this.monthKey(monthStart);
+
+    return (
+      (this.usageByMonth.get(key)?.length ?? 0) > 0 ||
+      (this.pendingByMonth.get(key)?.traceCount ?? 0) > 0
+    );
   }
 }
 

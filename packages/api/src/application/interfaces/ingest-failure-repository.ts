@@ -7,8 +7,19 @@
  * failing trace is recorded HERE and the batch continues; this collection
  * is the recovery trail, not the container log.
  */
+/**
+ * re-audit 2026-08 (sync item 4): dead letters are not all the same
+ * failure. A generic `ingest_failure` is re-runnable — the operator
+ * re-syncs the recorded context window and the trace lands. An
+ * `oversized_unstorable` trace never will: no clip pass brings it under
+ * the document cap, so a re-sync is wasted work and the row is the
+ * decision record, not a retry hint (README Day-2 tells them apart).
+ */
+export type IngestFailureKind = 'ingest_failure' | 'oversized_unstorable';
+
 export interface IngestFailureRecord {
   traceId: string;
+  kind: IngestFailureKind;
   /**
    * Where the sync stood when the trace failed — the windowed run records
    * its window, the continuous loop its cursor.
@@ -38,6 +49,17 @@ export interface IngestFailureRepository {
    * Recorded so the clipping is auditable, never silent.
    */
   recordTruncation(record: IngestTruncationRecord): Promise<void>;
+
+  /**
+   * re-audit 2026-08 (sync item 3): how many traces are currently PARKED
+   * in the trail — every failure-kind row, since the runbook resolves a
+   * dead letter by re-syncing its context window and DELETING the row
+   * (there is no resolved flag; a row that exists is a trace the archive
+   * is still missing). Truncation events are excluded: those traces ARE
+   * stored, the row is an audit mark. Cheap by contract (a counting
+   * query) — the ingestion worker asks once per cycle.
+   */
+  countUnresolved(): Promise<number>;
 }
 
 /**

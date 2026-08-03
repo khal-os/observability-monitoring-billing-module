@@ -392,18 +392,42 @@ export class MongoDbBillingQueryRepository implements BillingQueryRepository {
     );
   }
 
-  async dailyRollup(from: Date, toExclusive: Date): Promise<DailyRollupRow[]> {
+  async dailyRollup(
+    from: Date,
+    toExclusive: Date,
+    closedMonthWindows: { start: Date; end: Date }[],
+  ): Promise<DailyRollupRow[]> {
+    // UNRESOLVED quarantine is outside a FROZEN bill (decision 100), so
+    // the exclusion applies ONLY to days inside CLOSED months — that is
+    // what keeps a closed month's days summing to its frozen total
+    // (decision 97). In a reopened (or never-closed) month the live
+    // summary bills every stamped trace, straggler included, so its days
+    // must chart too (re-audit: without this scope, Σ daily diverged
+    // from the live summary between a reopen and its re-close). A trace
+    // ABSORBED by a re-close is billed by snapshot v+1 (decision 89), so
+    // it charts either way.
+    const quarantineScope =
+      closedMonthWindows.length === 0
+        ? {}
+        : {
+            $or: [
+              ...NOT_UNRESOLVED_QUARANTINE_MATCH.$or,
+              {
+                $nor: closedMonthWindows.map((window) => ({
+                  startedAt: { $gte: window.start, $lt: window.end },
+                })),
+              },
+            ],
+          };
+
     const documents = (await MongoDb.getCollection(TRACES_COLLECTION)
       .aggregate([
         {
           $match: {
+            // The startedAt bound stays FIRST — it is the indexed cut.
             startedAt: { $gte: from, $lt: toExclusive },
             pricingStatus: 'stamped',
-            // UNRESOLVED quarantine is outside every bill (decision 100) —
-            // excluding it keeps a closed month's days summing to its
-            // frozen total (decision 97). A trace ABSORBED by a re-close
-            // is billed by snapshot v+1 (decision 89), so it charts.
-            ...NOT_UNRESOLVED_QUARANTINE_MATCH,
+            ...quarantineScope,
           },
         },
         { $project: { startedAt: 1, stampedCosts: 1 } },
@@ -468,6 +492,27 @@ export class MongoDbBillingQueryRepository implements BillingQueryRepository {
       'billingQuarantine.reason': { $exists: true },
       'billingQuarantine.absorbedInSnapshotVersion': { $exists: false },
     });
+  }
+
+  async earliestTraceAt(): Promise<Date | null> {
+    // One indexed min read ({startedAt: -1} index, ascending scan) — the
+    // close-order guard's anchor.
+    const document = await MongoDb.getCollection(TRACES_COLLECTION)
+      .find({}, { projection: { _id: 0, startedAt: 1 } })
+      .sort({ startedAt: 1 })
+      .limit(1)
+      .next();
+
+    return (document?.['startedAt'] as Date | undefined) ?? null;
+  }
+
+  async hasTraces(monthStart: Date, monthEnd: Date): Promise<boolean> {
+    const document = await MongoDb.getCollection(TRACES_COLLECTION).findOne(
+      { startedAt: { $gte: monthStart, $lt: monthEnd } },
+      { projection: { _id: 1 } },
+    );
+
+    return document !== null;
   }
 
   async accruedCostMicrocents(monthStart: Date, upTo: Date): Promise<number> {

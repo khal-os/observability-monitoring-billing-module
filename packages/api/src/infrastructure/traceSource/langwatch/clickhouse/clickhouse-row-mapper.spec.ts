@@ -1,5 +1,8 @@
 import { SpanRow, SummaryRow } from './clickhouse-row-schema.js';
-import { mapSummaryTrace } from './clickhouse-row-mapper.js';
+import {
+  mapSummaryTrace,
+  unreconstructedTokenFields,
+} from './clickhouse-row-mapper.js';
 
 // Shapes taken from REAL rows of the live 3.5.0 instance (decision 59):
 // an agno/OTel agent trace with a root agent span and one llm child.
@@ -364,5 +367,86 @@ describe('mapSummaryTrace', () => {
     ]);
 
     expect(trace.spans[1]?.tokens).toEqual({ cache_write: 1084 });
+  });
+});
+
+describe('unreconstructedTokenFields — the salvage half of the rule', () => {
+  const spanless = () =>
+    mapSummaryTrace(
+      makeSummary({
+        attributes: {},
+        promptTokens: null,
+        completionTokens: null,
+      }),
+      [],
+    );
+
+  const withSpanUsage = () =>
+    mapSummaryTrace(
+      makeSummary({ promptTokens: null, completionTokens: null }),
+      [makeRootSpan(), makeLlmSpan()],
+    );
+
+  it('MUST report nothing missing when the span usage sums rebuilt every nulled count', () => {
+    const trace = withSpanUsage();
+
+    expect(trace.tokens).toMatchObject({ input: 313, output: 9 });
+    expect(
+      unreconstructedTokenFields(trace, ['completionTokens', 'promptTokens']),
+    ).toEqual([]);
+  });
+
+  it('MUST report EVERY nulled count when no span carries usage — unknown usage is not zero (invariant 2)', () => {
+    const trace = spanless();
+
+    expect(trace.tokens).toEqual({});
+    expect(
+      unreconstructedTokenFields(trace, ['completionTokens', 'promptTokens']),
+    ).toEqual(['completionTokens', 'promptTokens']);
+  });
+
+  it('MUST report only the count the spans left unrebuilt (partial corruption)', () => {
+    const trace = mapSummaryTrace(
+      makeSummary({ promptTokens: null, completionTokens: 9 }),
+      [
+        makeRootSpan(),
+        makeLlmSpan({
+          attributes: {
+            'langwatch.span.type': 'llm',
+            'gen_ai.response.model': 'claude-sonnet-5',
+            'gen_ai.usage.output_tokens': '9',
+          },
+        }),
+      ],
+    );
+
+    // The healthy count is irrelevant here — only promptTokens was nulled,
+    // and nothing rebuilt it.
+    expect(trace.tokens.input).toBeUndefined();
+    expect(unreconstructedTokenFields(trace, ['promptTokens'])).toEqual([
+      'promptTokens',
+    ]);
+  });
+
+  it('MUST treat a rebuilt-to-zero count as unreconstructed — a stamp at zero is never salvage', () => {
+    const trace = mapSummaryTrace(
+      makeSummary({ promptTokens: null, completionTokens: null }),
+      [
+        makeRootSpan(),
+        makeLlmSpan({
+          attributes: {
+            'langwatch.span.type': 'llm',
+            'gen_ai.response.model': 'claude-sonnet-5',
+            'gen_ai.usage.input_tokens': '0',
+            'gen_ai.usage.output_tokens': '9',
+          },
+        }),
+      ],
+    );
+
+    expect(unreconstructedTokenFields(trace, ['promptTokens'])).toEqual([
+      'promptTokens',
+    ]);
+    expect(unreconstructedTokenFields(trace, ['completionTokens'])).toEqual([]);
   });
 });

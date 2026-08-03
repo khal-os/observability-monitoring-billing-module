@@ -25,6 +25,18 @@ import { InMemoryBillingPeriodRepository } from '../billingStatement/billing-tes
 const NOW = new Date('2026-07-23T15:00:00.000Z');
 const QUIET_MS = 900_000;
 
+/**
+ * An infra-class store failure, in the SHAPE the driver produces (the
+ * classifier is duck-typed on purpose — see isSystemicStoreError).
+ */
+const mongoNetworkError = (): Error => {
+  const error = new Error('connection 4 to mongo:27017 closed');
+
+  error.name = 'MongoNetworkError';
+
+  return error;
+};
+
 const makeTrace = (traceId: string): SourceTrace => ({
   traceId,
   sessionId: 'sess-001',
@@ -114,10 +126,13 @@ class TraceRepositoryStub implements TraceRepository {
     [];
   insertResult: InsertIfAbsentResult = 'inserted';
   failOn = new Set<string>();
+  /** What a failOn trace throws — the classifier tests need infra shapes. */
+  failWith: (traceId: string) => unknown = (traceId) =>
+    new Error(`store down at ${traceId}`);
 
   async insertIfAbsent(trace: TraceModel): Promise<InsertIfAbsentResult> {
     if (this.failOn.has(trace.traceId)) {
-      throw new Error(`store down at ${trace.traceId}`);
+      throw this.failWith(trace.traceId);
     }
 
     if (this.insertResult === 'inserted') {
@@ -165,6 +180,10 @@ class IngestFailureRepositoryStub implements IngestFailureRepository {
   async recordTruncation(record: IngestTruncationRecord): Promise<void> {
     this.truncations.push(record);
   }
+
+  async countUnresolved(): Promise<number> {
+    return this.failures.length;
+  }
 }
 
 const makeSut = (args?: {
@@ -176,12 +195,13 @@ const makeSut = (args?: {
   const priceVersionRepositoryStub = new PriceVersionRepositoryStub();
   const traceRepositoryStub = new TraceRepositoryStub();
   const ingestFailureRepositoryStub = new IngestFailureRepositoryStub();
+  const billingPeriodRepository = new InMemoryBillingPeriodRepository();
   const sut = new SyncBatchesDbUseCase({
     traceBatchSource: traceBatchSourceStub,
     syncStateRepository: syncStateRepositoryStub,
     priceVersionRepository: priceVersionRepositoryStub,
     traceRepository: traceRepositoryStub,
-    billingPeriodRepository: new InMemoryBillingPeriodRepository(),
+    billingPeriodRepository,
     ingestFailureRepository: ingestFailureRepositoryStub,
     estimateDocumentBytes: (): number => 1024,
     batchSize: args?.batchSize ?? 2,
@@ -195,6 +215,7 @@ const makeSut = (args?: {
     syncStateRepositoryStub,
     traceRepositoryStub,
     ingestFailureRepositoryStub,
+    billingPeriodRepository,
   };
 };
 
@@ -268,12 +289,123 @@ describe('SyncBatchesDbUseCase', () => {
     expect(ingestFailureRepositoryStub.failures).toEqual([
       expect.objectContaining({
         traceId: 'trace-002',
+        kind: 'ingest_failure',
         context: 'cursor=start',
         error: expect.stringContaining('store down at trace-002'),
       }),
     ]);
 
     warn.mockRestore();
+  });
+
+  it('MUST dead-letter a SMALL all-failing batch (trace-shaped errors) and STILL advance — documented steady-state semantics', async () => {
+    const {
+      sut,
+      traceBatchSourceStub,
+      syncStateRepositoryStub,
+      ingestFailureRepositoryStub,
+      traceRepositoryStub,
+    } = makeSut({ batchSize: 10 });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const traces = Array.from({ length: 3 }, (_, index) =>
+      makeTrace(`trace-${index}`),
+    );
+
+    traceBatchSourceStub.batch = {
+      traces,
+      nextCursor: cursorOf('trace-2'),
+      scanned: 3,
+    };
+    for (const trace of traces) {
+      traceRepositoryStub.failOn.add(trace.traceId);
+    }
+
+    const report = await sut.syncNextBatch();
+
+    expect(report).toMatchObject({ scanned: 3, inserted: 0, failed: 3 });
+    expect(ingestFailureRepositoryStub.failures).toHaveLength(3);
+    // Below the ≥10 breaker, three poison traces are three poison traces —
+    // parking them and moving on is the B-3 contract.
+    expect(syncStateRepositoryStub.writes).toEqual([cursorOf('trace-2')]);
+
+    warn.mockRestore();
+  });
+
+  it('MUST rethrow an INFRA-class failure without parking or advancing — the steady-state hole the ≥10 breaker cannot see (re-audit sync item 2)', async () => {
+    const {
+      sut,
+      traceBatchSourceStub,
+      syncStateRepositoryStub,
+      ingestFailureRepositoryStub,
+      traceRepositoryStub,
+    } = makeSut({ batchSize: 10 });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const traces = Array.from({ length: 3 }, (_, index) =>
+      makeTrace(`trace-${index}`),
+    );
+
+    traceBatchSourceStub.batch = {
+      traces,
+      nextCursor: cursorOf('trace-2'),
+      scanned: 3,
+    };
+    for (const trace of traces) {
+      traceRepositoryStub.failOn.add(trace.traceId);
+    }
+    traceRepositoryStub.failWith = mongoNetworkError;
+
+    await expect(sut.syncNextBatch()).rejects.toThrow(/connection 4 to mongo/);
+
+    // The watermark must NOT move over traces the store could not take,
+    // and no dead letter may claim they were examined and rejected.
+    expect(syncStateRepositoryStub.writes).toEqual([]);
+    expect(ingestFailureRepositoryStub.failures).toEqual([]);
+
+    warn.mockRestore();
+  });
+
+  it('MUST rethrow a transaction-labelled failure too (TransientTransactionError)', async () => {
+    const { sut, traceRepositoryStub, syncStateRepositoryStub } = makeSut();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    traceRepositoryStub.failOn.add('trace-001');
+    traceRepositoryStub.failWith = (): unknown =>
+      Object.assign(new Error('transaction aborted'), {
+        hasErrorLabel: (label: string) => label === 'TransientTransactionError',
+      });
+
+    await expect(sut.syncNextBatch()).rejects.toThrow(/transaction aborted/);
+    expect(syncStateRepositoryStub.writes).toEqual([]);
+
+    warn.mockRestore();
+  });
+
+  it('MUST quarantine a PAST-month trace whose month closed after the cycle read its set (re-audit sync item 5)', async () => {
+    const { sut, traceRepositoryStub, billingPeriodRepository } = makeSut();
+
+    await billingPeriodRepository.markClosed({
+      year: 2026,
+      month: 7,
+      closedAt: new Date('2026-08-01T00:00:00.000Z'),
+      snapshotVersion: 1,
+      audit: {
+        at: new Date('2026-08-01T00:00:00.000Z'),
+        action: 'close',
+        trigger: 'runbook',
+        snapshotVersion: 1,
+      },
+    });
+    // THE stale set: what a cycle that started before the close saw.
+    jest.spyOn(billingPeriodRepository, 'listAll').mockResolvedValue([]);
+
+    const report = await sut.syncNextBatch();
+
+    expect(report.quarantined).toBe(1);
+    expect(traceRepositoryStub.inserted[0]?.billingQuarantine).toEqual(
+      expect.objectContaining({ reason: 'period_closed' }),
+    );
   });
 
   it('MUST throw WITHOUT advancing when every trace of a non-trivial batch fails — store outage, not poison (audit B-3 breaker)', async () => {

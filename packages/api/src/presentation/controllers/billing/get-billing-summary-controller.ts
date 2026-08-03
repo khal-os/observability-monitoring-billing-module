@@ -6,6 +6,7 @@ import {
   HttpResponse,
 } from './billing-protocols.js';
 import { buildBadRequest, buildSuccess } from '../../helpers/http-helper.js';
+import { InvalidParamError } from '../../errors/index.js';
 import {
   parseQuery,
   yearMonthQueryShape,
@@ -39,8 +40,17 @@ export class GetBillingSummaryController implements Controller {
       // audit B-10.3: a period-state rejection (e.g. a FUTURE month —
       // nothing legitimate queries the future) is the caller's mistake:
       // 400 with the domain message, never a 500.
+      //
+      // Re-audit: the DOMAIN error must not travel as the body. It is a
+      // plain Error, so `res.json` serialized own-enumerable properties
+      // only — `{"name":"BillingPeriodStateError"}`, no `msg` (the
+      // structural {name, msg} contract ApiError exists to guarantee,
+      // and the strict apiErrorSchema the 400s document) plus an internal
+      // class name on the wire. Re-wrapped as the house InvalidParamError
+      // (the offending param IS the month), KEEPING the domain's
+      // explanation as the message.
       if (error instanceof BillingPeriodStateError) {
-        return buildBadRequest(error);
+        return buildBadRequest(new InvalidParamError('month', error.message));
       }
 
       throw error;

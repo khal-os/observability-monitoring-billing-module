@@ -15,23 +15,25 @@ const validRow = () => ({
   rootSpanType: 'agent',
 });
 
-describe('parseSummaryRow — the C-6.2 salvage rule', () => {
-  it('MUST pass a valid row through unchanged, unsalvaged', () => {
+describe('parseSummaryRow — the C-6.2 salvage rule (boundary half)', () => {
+  it('MUST pass a valid row through unchanged, with nothing nulled', () => {
     const result = parseSummaryRow(validRow());
 
     expect(result).toMatchObject({
       ok: true,
-      salvagedFields: [],
+      nulledTokenFields: [],
       row: expect.objectContaining({ traceId: 'trace-a', promptTokens: 10 }),
     });
   });
 
-  it('MUST salvage a row whose ONLY defect is a fractional token count — nulling just that count', () => {
+  it('MUST null ONLY the offending count when a fractional count is the sole defect — and REPORT it, so the client can decide the salvage', () => {
     const result = parseSummaryRow({ ...validRow(), promptTokens: 10.5 });
 
     expect(result).toMatchObject({
       ok: true,
-      salvagedFields: ['promptTokens'],
+      // Reported, not silently repaired: this list is what the client
+      // checks against the span-level usage sums (invariant 2).
+      nulledTokenFields: ['promptTokens'],
       row: expect.objectContaining({
         traceId: 'trace-a',
         promptTokens: null,
@@ -43,7 +45,7 @@ describe('parseSummaryRow — the C-6.2 salvage rule', () => {
     });
   });
 
-  it('MUST salvage negative counts on both token fields at once', () => {
+  it('MUST null negative counts on both token fields at once', () => {
     const result = parseSummaryRow({
       ...validRow(),
       promptTokens: -1,
@@ -52,7 +54,7 @@ describe('parseSummaryRow — the C-6.2 salvage rule', () => {
 
     expect(result).toMatchObject({
       ok: true,
-      salvagedFields: ['completionTokens', 'promptTokens'],
+      nulledTokenFields: ['completionTokens', 'promptTokens'],
       row: expect.objectContaining({
         promptTokens: null,
         completionTokens: null,

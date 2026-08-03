@@ -11,12 +11,16 @@ import {
 } from '../../../../application/interfaces/trace-batch-source.js';
 import { PoisonRowRepository } from '../../../../application/interfaces/poison-row-repository.js';
 import {
+  SalvageableTokenField,
   SpanRow,
   SummaryRow,
   parseSummaryRow,
   spanRowSchema,
 } from './clickhouse-row-schema.js';
-import { mapSummaryTrace } from './clickhouse-row-mapper.js';
+import {
+  mapSummaryTrace,
+  unreconstructedTokenFields,
+} from './clickhouse-row-mapper.js';
 import {
   DEFAULT_QUIET_PERIOD_MS,
   clampWindowToQuietPeriod,
@@ -77,6 +81,17 @@ const SPANS_SELECT = `
   ORDER BY StartTime ASC, SpanId ASC`;
 
 /**
+ * A summary row that passed the boundary, carried alongside the raw row it
+ * came from: the salvage decision below needs BOTH the counts the schema
+ * nulled and the untouched raw row (forensics for the durable record).
+ */
+interface ParsedSummary {
+  row: SummaryRow;
+  nulledTokenFields: SalvageableTokenField[];
+  raw: unknown;
+}
+
+/**
  * decision 59 — LangWatch source read straight from its ClickHouse store
  * (same compose network) instead of the HTTP API: the search API returns
  * at most the newest ~100 traces per window and spans only via an N+1
@@ -90,7 +105,9 @@ const SPANS_SELECT = `
  * container logs rotate; the durable record is the recovery trail), never
  * fatal, and the cursor advances past them (decision 62 — one bad row
  * must not stall ingestion). Summary rows whose ONLY defect is a bad
- * token count are salvaged instead (see parseSummaryRow). EXCEPT when a
+ * token count MAY be salvaged instead — but only when the span-level
+ * usage sums rebuild every corrupt count (see toSourceTraces; every
+ * salvage leaves its own durable `summary_salvaged` record). EXCEPT when a
  * whole non-trivial batch is poison (decision 79): that is
  * indistinguishable from schema drift (the startup tripwire runs once —
  * a LangWatch upgrade mid-run would otherwise convert 100% of traffic to
@@ -317,23 +334,17 @@ export class ClickHouseLangWatchClient
     rawRows: unknown[],
     context: string,
   ): Promise<SourceTrace[]> {
-    const summaries: SummaryRow[] = [];
+    const summaries: ParsedSummary[] = [];
 
     for (const raw of rawRows) {
       const parsed = parseSummaryRow(raw);
 
       if (parsed.ok) {
-        if (parsed.salvagedFields.length > 0) {
-          // audit C-6.2 salvage: bad token counts alone never drop a
-          // trace — counts nulled, content preserved, logged here.
-          console.warn(
-            `Sync: summary row salvaged (traceId=${parsed.row.traceId}): ` +
-              `invalid token counts nulled (${parsed.salvagedFields.join(', ')}); ` +
-              'the trace proceeds with content preserved (audit C-6.2).',
-          );
-        }
-
-        summaries.push(parsed.row);
+        summaries.push({
+          row: parsed.row,
+          nulledTokenFields: parsed.nulledTokenFields,
+          raw,
+        });
         continue;
       }
 
@@ -357,33 +368,106 @@ export class ClickHouseLangWatchClient
     }
 
     const spansByTrace = await this.fetchSpans(
-      summaries.map((summary) => summary.traceId),
+      summaries.map((summary) => summary.row.traceId),
       context,
     );
 
     const traces: SourceTrace[] = [];
 
-    for (const summary of summaries) {
+    for (const { row, nulledTokenFields, raw } of summaries) {
+      let trace: SourceTrace;
+
       try {
-        traces.push(
-          mapSummaryTrace(summary, spansByTrace.get(summary.traceId) ?? []),
-        );
+        trace = mapSummaryTrace(row, spansByTrace.get(row.traceId) ?? []);
       } catch (error) {
         console.warn(
-          `Sync: poison trace skipped (traceId=${summary.traceId}): ${String(error)}`,
+          `Sync: poison trace skipped (traceId=${row.traceId}): ${String(error)}`,
         );
         await this.poisonRowRepository?.record({
           kind: 'summary',
-          id: summary.traceId,
+          id: row.traceId,
           context,
           error: String(error),
           seenAt: new Date(),
-          rawRow: summary,
+          rawRow: raw,
         });
+        continue;
       }
+
+      if (
+        nulledTokenFields.length > 0 &&
+        !(await this.salvageIsSafe(trace, nulledTokenFields, raw, context))
+      ) {
+        continue;
+      }
+
+      traces.push(trace);
     }
 
     return traces;
+  }
+
+  /**
+   * The second half of the C-6.2 salvage rule (audit iteration 1,
+   * invariant 2). The schema nulled the corrupt counts; the trace may only
+   * proceed if the span-level `gen_ai.usage.*` sums rebuilt EVERY one of
+   * them. Otherwise the usage behind those counts is unknown and letting
+   * the trace through stamps it — immutably — as if that usage were zero
+   * (R$ 0,00 outright when nothing survives, a silently zero-priced type
+   * on partial corruption), which no reprocess can ever undo.
+   *
+   * Either way the outcome is recorded durably at decision time: a safe
+   * salvage as `summary_salvaged` (a console.warn is not a trail — C-6.2),
+   * a refused one as ordinary poison. The row is then skipped and the
+   * cursor advances past it like any other poison row (decision 62).
+   */
+  private async salvageIsSafe(
+    trace: SourceTrace,
+    nulledTokenFields: SalvageableTokenField[],
+    raw: unknown,
+    context: string,
+  ): Promise<boolean> {
+    const nulled = nulledTokenFields.join(', ');
+    const unreconstructed = unreconstructedTokenFields(trace, nulledTokenFields);
+
+    if (unreconstructed.length > 0) {
+      const error =
+        `invalid token counts (${nulled}) with no span-level usage to ` +
+        `rebuild ${unreconstructed.join(', ')} — the real usage is unknown, ` +
+        'so the trace is NOT salvaged: ingesting it would stamp that usage ' +
+        'at R$ 0,00 immutably (invariant 2).';
+
+      console.warn(
+        `Sync: poison summary row skipped (traceId=${trace.traceId}): ${error}`,
+      );
+      await this.poisonRowRepository?.record({
+        kind: 'summary',
+        id: trace.traceId,
+        context,
+        error,
+        seenAt: new Date(),
+        rawRow: raw,
+      });
+
+      return false;
+    }
+
+    const note =
+      `invalid token counts nulled (${nulled}) and rebuilt from the ` +
+      'span-level usage sums; the trace proceeds with content preserved ' +
+      '(audit C-6.2).';
+
+    console.warn(`Sync: summary row salvaged (traceId=${trace.traceId}): ${note}`);
+    await this.poisonRowRepository?.record({
+      kind: 'summary_salvaged',
+      id: trace.traceId,
+      context,
+      error: note,
+      seenAt: new Date(),
+      rawRow: raw,
+    });
+
+    return true;
   }
 
   private async fetchSpans(
@@ -445,7 +529,11 @@ const assertNotAllPoison = (rowCount: number, traceCount: number): void => {
         'this looks like LangWatch schema drift, not isolated poison rows. ' +
         'Halting WITHOUT advancing the cursor (the rows stay fetchable). ' +
         'Restart the worker to re-run the schema tripwire; if the LangWatch ' +
-        'image changed, re-validate the SELECTs/mapper first (decision 59).',
+        'image changed, re-validate the SELECTs/mapper first (decision 59). ' +
+        'The poison_rows records say which boundary rejected each row — a ' +
+        'whole batch of refused salvages (corrupt token counts no span ' +
+        'usage could rebuild) is an instrumentation defect at the source, ' +
+        'not drift here.',
     );
   }
 };

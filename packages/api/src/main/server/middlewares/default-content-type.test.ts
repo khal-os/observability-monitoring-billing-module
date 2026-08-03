@@ -22,4 +22,13 @@ describe('Content-Type Middleware', () => {
   it('SHOULD set the xml Content-Type header when requested', async () => {
     await request(app).get('/test-content-type-xml').expect('content-type', /xml/);
   });
+
+  it('MUST NOT pre-set JSON on OPTIONS — the default OPTIONS reply is a plain-text method list', async () => {
+    const response = await request(app)
+      .options('/test-content-type')
+      .expect(200);
+
+    expect(response.headers.allow).toContain('GET');
+    expect(response.headers['content-type']).not.toContain('application/json');
+  });
 });

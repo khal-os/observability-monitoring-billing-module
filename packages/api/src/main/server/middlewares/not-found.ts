@@ -31,6 +31,10 @@ const toMatcher = (path: string): RegExp =>
       .split('/')
       .map((segment) => (segment.startsWith(':') ? '[^/]+' : segment))
       .join('/')}/?$`,
+    // Express routing is case-INsensitive by default; this table must
+    // match the router, or POST /API/V1/TRACES would answer 404 while
+    // POST /api/v1/traces answers 405.
+    'i',
   );
 
 const ROUTE_MATCHERS = KNOWN_ROUTES.map((route) => ({

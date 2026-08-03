@@ -105,11 +105,19 @@ export interface BillingQueryRepository {
   /**
    * Daily cost rollup over [from, toExclusive), UTC-day buckets, token-type
    * split. EXCLUDES traces with UNRESOLVED quarantine (reason present,
-   * absorbedInSnapshotVersion absent — decision 100): the days of a
-   * closed month must sum to its frozen bill (decision 97), and a trace
-   * absorbed by a re-close (decision 89) is billed, so it charts.
+   * absorbedInSnapshotVersion absent — decision 100) ONLY on days inside
+   * `closedMonthWindows`: the days of a CLOSED month must sum to its
+   * frozen bill (decision 97), and a trace absorbed by a re-close
+   * (decision 89) is billed, so it charts. Outside those windows (open,
+   * in-progress, or REOPENED months) the live summary bills every stamped
+   * trace — straggler included — so no exclusion applies there, keeping
+   * Σ daily ≡ live summary throughout a reopen→re-close window.
    */
-  dailyRollup(from: Date, toExclusive: Date): Promise<DailyRollupRow[]>;
+  dailyRollup(
+    from: Date,
+    toExclusive: Date,
+    closedMonthWindows: { start: Date; end: Date }[],
+  ): Promise<DailyRollupRow[]>;
 
   /** Max ingestedAt among the month's traces (freshness watermark), or null. */
   ingestionWatermark(monthStart: Date, monthEnd: Date): Promise<Date | null>;
@@ -124,4 +132,19 @@ export interface BillingQueryRepository {
 
   /** Total stamped cost accrued in [monthStart, upTo) — the projection's numerator (US12). */
   accruedCostMicrocents(monthStart: Date, upTo: Date): Promise<number>;
+
+  /**
+   * startedAt of the EARLIEST stored trace (one indexed min read), or null
+   * on an empty store. The close-order guard's anchor (re-audit): every
+   * month from here to the month being closed must be closed or
+   * trace-free before a newer month may close.
+   */
+  earliestTraceAt(): Promise<Date | null>;
+
+  /**
+   * Cheap existence probe: does ANY trace start inside
+   * [monthStart, monthEnd)? Used by the close-order guard to let genuine
+   * gap months (no traffic at all) pass without a lifecycle document.
+   */
+  hasTraces(monthStart: Date, monthEnd: Date): Promise<boolean>;
 }

@@ -12,7 +12,9 @@ import { EstimateDocumentBytes } from '../../interfaces/ingest-failure-repositor
 import {
   assertNotAllFailed,
   closedMonthKeys,
+  ingestFailureKindOf,
   ingestSourceTrace,
+  isSystemicStoreError,
 } from '../syncTraces/trace-ingestor.js';
 import { BillingPeriodRepository } from '../../interfaces/billing-period-repository.js';
 
@@ -120,6 +122,7 @@ export class SyncBatchesDbUseCase implements SyncBatchesUseCase {
           {
             priceVersionRepository: this.priceVersionRepository,
             traceRepository: this.traceRepository,
+            billingPeriodRepository: this.billingPeriodRepository,
             ingestFailureRepository: this.ingestFailureRepository,
             estimateDocumentBytes: this.estimateDocumentBytes,
           },
@@ -147,6 +150,15 @@ export class SyncBatchesDbUseCase implements SyncBatchesUseCase {
 
         report.skipped += 1;
       } catch (error) {
+        // re-audit 2026-08 (sync item 2): an infra-class failure is not
+        // poison. Dead-lettering it would park good traces AND advance the
+        // watermark past them — the steady-state hole the ≥10 breaker
+        // cannot see (a caught-up worker runs 1–9-trace batches). Rethrow:
+        // the batch aborts BEFORE the bookmark, the cursor stays put.
+        if (isSystemicStoreError(error)) {
+          throw error;
+        }
+
         // audit B-3: per-trace isolation — the dead-letter row is the
         // recovery trail; the batch continues and the cursor advances
         // past the poison trace instead of re-reading it forever.
@@ -156,6 +168,7 @@ export class SyncBatchesDbUseCase implements SyncBatchesUseCase {
         );
         await this.ingestFailureRepository.recordFailure({
           traceId: trace.traceId,
+          kind: ingestFailureKindOf(error),
           context,
           error: String(error),
           seenAt: new Date(),

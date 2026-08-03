@@ -15,7 +15,18 @@ await server.start(config);
  */
 const HARD_KILL_TIMEOUT_MS = 10_000;
 
+// Idempotence: SIGTERM followed by ^C must NOT run two concurrent
+// shutdowns — the second server.stop() would throw ERR_SERVER_NOT_RUNNING
+// and race exit(1) against the first drain's exit(0).
+let shuttingDown = false;
+
 const shutdown = (signal: NodeJS.Signals): void => {
+  if (shuttingDown) {
+    console.log(`${signal} received: shutdown already in progress.`);
+    return;
+  }
+  shuttingDown = true;
+
   console.log(`${signal} received: shutting down…`);
 
   // unref: the timer must never keep an otherwise-finished process alive.

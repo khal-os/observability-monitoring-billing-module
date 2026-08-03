@@ -26,9 +26,18 @@ import {
  * Guards:
  * - only a fully-past UTC calendar month can close (the current month is
  *   partial by definition — invariant 8);
+ * - CLOSE ORDER (re-audit): months close OLDEST-FIRST — closing M while an
+ *   older month still has traces and was never closed is blocked, naming
+ *   the month to close first. The C-7.1 live-scan bound
+ *   (firstOpenMonthStart) starts at the earliest non-closed month, so an
+ *   out-of-order close would silently drop the skipped month's money from
+ *   /bills and the monthly series while the summary still showed it;
  * - BLOCKED while any pending_price trace exists in the month (T6): the
  *   bill never silently drops open costs;
- * - already-closed month → state error (reopen first, audited).
+ * - already-closed month → state error (reopen first, audited) — after
+ *   RE-RUNNING the post-close quarantine reconciliation from the durable
+ *   snapshot, so a retry of a close that crashed between the committed
+ *   transaction and the reconciliation heals instead of just refusing.
  */
 export class CloseBillingPeriodDbUseCase implements CloseBillingPeriodUseCase {
   private readonly billingQueryRepository: BillingQueryRepository;
@@ -68,11 +77,12 @@ export class CloseBillingPeriodDbUseCase implements CloseBillingPeriodUseCase {
     const period = await this.billingPeriodRepository.find(year, month);
 
     if (period?.status === 'closed') {
-      throw new BillingPeriodStateError(
-        `O mês ${year}-${String(month).padStart(2, '0')} já está fechado ` +
-          `(snapshot v${period.snapshotVersion}). Reabra antes de refechar.`,
-      );
+      await this.repairReconciliationAndRefuse(year, month, start, end, period);
     }
+
+    // Re-audit close-order guard: every month from the earliest stored
+    // trace up to M-1 must be closed or trace-free BEFORE M closes.
+    await this.assertOlderMonthsClosed(year, month);
 
     const pending = await this.billingQueryRepository.pendingPriceSummary(
       start,
@@ -168,5 +178,110 @@ export class CloseBillingPeriodDbUseCase implements CloseBillingPeriodUseCase {
       ingestionWatermark,
       quarantine,
     };
+  }
+
+  /**
+   * Re-audit repair path: the reconciliation runs AFTER the committed
+   * close transaction, so a crash (or throw) between the two leaves the
+   * month closed-but-unreconciled — and the natural retry
+   * (`make billing-close` again) used to refuse with "já está fechado"
+   * WITHOUT healing. Before refusing, re-run the reconciliation (both
+   * passes are idempotent) from the DURABLE snapshot usage ids of the
+   * CURRENT version; the refusal message then says so. Exit semantics are
+   * unchanged: the runbook still surfaces the already-closed state error.
+   */
+  private async repairReconciliationAndRefuse(
+    year: number,
+    month: number,
+    start: Date,
+    end: Date,
+    period: { snapshotVersion?: number },
+  ): Promise<never> {
+    const alreadyClosed =
+      `O mês ${year}-${String(month).padStart(2, '0')} já está fechado ` +
+      `(snapshot v${period.snapshotVersion}). Reabra antes de refechar.`;
+
+    if (typeof period.snapshotVersion !== 'number') {
+      // Corrupt lifecycle document — nothing durable to reconcile from;
+      // refuse plainly (the summary path reports the corruption loudly).
+      throw new BillingPeriodStateError(alreadyClosed);
+    }
+
+    const billedTraceIds = await this.billingSnapshotRepository.findUsageTraceIds(
+      year,
+      month,
+      period.snapshotVersion,
+    );
+
+    await this.traceRepository.reconcileQuarantineAfterClose(
+      start,
+      end,
+      billedTraceIds,
+      period.snapshotVersion,
+    );
+
+    throw new BillingPeriodStateError(
+      `${alreadyClosed} Reconciliação de quarentena reverificada/reparada ` +
+        `a partir do snapshot v${period.snapshotVersion}.`,
+    );
+  }
+
+  /**
+   * Re-audit close-order guard: firstOpenMonthStart (the C-7.1 live-scan
+   * bound) walks forward from the EARLIEST closed month — so closing M
+   * while an OLDER month still has traces and was never closed would push
+   * that month behind the bound: its money would vanish from /bills and
+   * the monthly series while the summary still showed it. Enforce
+   * oldest-first here: every month from the earliest stored trace to M-1
+   * must be closed or trace-free (a genuine no-traffic gap month passes).
+   */
+  private async assertOlderMonthsClosed(
+    year: number,
+    month: number,
+  ): Promise<void> {
+    const earliest = await this.billingQueryRepository.earliestTraceAt();
+
+    if (!earliest) return;
+
+    const targetOrdinal = year * 12 + (month - 1);
+    let cursorYear = earliest.getUTCFullYear();
+    let cursorMonth = earliest.getUTCMonth() + 1;
+
+    if (cursorYear * 12 + (cursorMonth - 1) >= targetOrdinal) return;
+
+    const closedMonths = new Set(
+      (await this.billingPeriodRepository.listAll())
+        .filter((period) => period.status === 'closed')
+        .map((period) => `${period.year}-${period.month}`),
+    );
+
+    // Months are few (one iteration per calendar month of history), and
+    // the trace-free probe only runs for the non-closed ones.
+    while (cursorYear * 12 + (cursorMonth - 1) < targetOrdinal) {
+      if (!closedMonths.has(`${cursorYear}-${cursorMonth}`)) {
+        const window = monthWindowUtc(cursorYear, cursorMonth);
+
+        if (await this.billingQueryRepository.hasTraces(window.start, window.end)) {
+          const blocking = `${cursorYear}-${String(cursorMonth).padStart(2, '0')}`;
+
+          throw new BillingCloseBlockedError({
+            pendingTraceCount: 0,
+            modelsWithoutPrice: [],
+            message:
+              `Fechamento de ${year}-${String(month).padStart(2, '0')} ` +
+              `bloqueado: o mês ${blocking} tem traces e nunca foi fechado — ` +
+              `feche ${blocking} primeiro (fechamento é sempre do mês mais ` +
+              'antigo para o mais novo).',
+          });
+        }
+      }
+
+      cursorMonth += 1;
+
+      if (cursorMonth === 13) {
+        cursorMonth = 1;
+        cursorYear += 1;
+      }
+    }
   }
 }

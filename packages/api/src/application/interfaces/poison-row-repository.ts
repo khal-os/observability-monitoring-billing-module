@@ -8,13 +8,20 @@
  * as the archive itself.
  */
 export interface PoisonRowRecord {
-  /** Which boundary rejected the row. */
-  kind: 'summary' | 'span' | 'http-detail';
+  /**
+   * Which boundary rejected the row — or, for `summary_salvaged`, ACCEPTED
+   * it under repair: a summary whose corrupt token counts were nulled and
+   * rebuilt from span-level usage (audit iteration 1). A salvage is not a
+   * skip, but it is a boundary defect that reached the permanent archive,
+   * so it belongs in the same durable trail: `summary_salvaged` records
+   * are the only ones whose trace WAS ingested.
+   */
+  kind: 'summary' | 'span' | 'http-detail' | 'summary_salvaged';
   /** The row's own id (traceId for summaries/details, spanId for spans). */
   id: string;
   /** Cursor/window position of the sync when the row was seen. */
   context: string;
-  /** The validation/mapping error, verbatim. */
+  /** The validation/mapping error — or, for a salvage, what was repaired. */
   error: string;
   seenAt: Date;
   /**

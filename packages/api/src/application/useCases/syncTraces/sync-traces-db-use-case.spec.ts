@@ -75,10 +75,13 @@ class TraceRepositoryStub implements TraceRepository {
   attributionUpdates: { traceId: string; attribution: TraceAttribution }[] = [];
   insertResult: InsertIfAbsentResult = 'inserted';
   failOn = new Set<string>();
+  /** What a failOn trace throws — the classifier tests need infra shapes. */
+  failWith: (traceId: string) => unknown = (traceId) =>
+    new Error(`store down at ${traceId}`);
 
   async insertIfAbsent(trace: TraceModel): Promise<InsertIfAbsentResult> {
     if (this.failOn.has(trace.traceId)) {
-      throw new Error(`store down at ${trace.traceId}`);
+      throw this.failWith(trace.traceId);
     }
 
     if (this.insertResult === 'inserted') {
@@ -126,9 +129,25 @@ class IngestFailureRepositoryStub implements IngestFailureRepository {
   async recordTruncation(record: IngestTruncationRecord): Promise<void> {
     this.truncations.push(record);
   }
+
+  async countUnresolved(): Promise<number> {
+    return this.failures.length;
+  }
 }
 
 const SMALL_DOCUMENT_BYTES = 1024;
+
+/**
+ * An infra-class store failure, in the SHAPE the driver produces (the
+ * classifier is duck-typed on purpose — see isSystemicStoreError).
+ */
+const mongoNetworkError = (): Error => {
+  const error = new Error('connection 4 to mongo:27017 closed');
+
+  error.name = 'MongoNetworkError';
+
+  return error;
+};
 
 const makeSut = (args?: { estimateDocumentBytes?: EstimateDocumentBytes }) => {
   const traceSourceClientStub = new TraceSourceClientStub();
@@ -336,10 +355,60 @@ describe('SyncTracesDbUseCase', () => {
       expect(ingestFailureRepositoryStub.failures).toEqual([
         expect.objectContaining({
           traceId: 'trace-poison',
+          kind: 'ingest_failure',
           context: 'window=[2026-06-01T00:00:00.000Z, 2026-06-15T00:00:00.000Z)',
           error: expect.stringContaining('store down at trace-poison'),
         }),
       ]);
+
+      warn.mockRestore();
+    });
+
+    it('MUST dead-letter a SMALL all-failing page (trace-shaped errors) and finish the run — the breaker is for outages', async () => {
+      const { sut, traceSourceClientStub, traceRepositoryStub, ingestFailureRepositoryStub } =
+        makeSut();
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const page = Array.from({ length: 3 }, (_, index) =>
+        makeTrace({ traceId: `trace-${index}` }),
+      );
+
+      traceSourceClientStub.pages = [page];
+      for (const trace of page) {
+        traceRepositoryStub.failOn.add(trace.traceId);
+      }
+
+      const report = await sut.sync(WINDOW);
+
+      // Documented semantics: below the ≥10 breaker, trace-shaped failures
+      // are poison — parked, and the run completes (the window is the
+      // windowed sync's cursor: re-running it re-reads the same traces).
+      expect(report).toMatchObject({ fetched: 3, inserted: 0, failed: 3 });
+      expect(ingestFailureRepositoryStub.failures).toHaveLength(3);
+
+      warn.mockRestore();
+    });
+
+    it('MUST rethrow an INFRA-class failure instead of dead-lettering it — a store that cannot write is not poison (re-audit sync item 2)', async () => {
+      const { sut, traceSourceClientStub, traceRepositoryStub, ingestFailureRepositoryStub } =
+        makeSut();
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const page = Array.from({ length: 3 }, (_, index) =>
+        makeTrace({ traceId: `trace-${index}` }),
+      );
+
+      traceSourceClientStub.pages = [page];
+      for (const trace of page) {
+        traceRepositoryStub.failOn.add(trace.traceId);
+      }
+      traceRepositoryStub.failWith = mongoNetworkError;
+
+      await expect(sut.sync(WINDOW)).rejects.toThrow(/connection 4 to mongo/);
+
+      // Nothing parked: these traces are still owed to the archive, and the
+      // window stays re-runnable.
+      expect(ingestFailureRepositoryStub.failures).toEqual([]);
 
       warn.mockRestore();
     });
@@ -435,6 +504,90 @@ describe('SyncTracesDbUseCase', () => {
 
       warn.mockRestore();
     });
+
+    it('MUST clip span errorMessage bulk too, and record the truncation ONLY AFTER the insert landed (re-audit sync item 4)', async () => {
+      const {
+        sut,
+        traceSourceClientStub,
+        traceRepositoryStub,
+        ingestFailureRepositoryStub,
+      } = makeSut({ estimateDocumentBytes: estimator });
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const insertSpy = jest.spyOn(traceRepositoryStub, 'insertIfAbsent');
+      const truncationSpy = jest.spyOn(
+        ingestFailureRepositoryStub,
+        'recordTruncation',
+      );
+
+      // The bulk is in an error message, not in input/output — the shape
+      // the first guard could not reach.
+      traceSourceClientStub.pages = [[
+        makeTrace({
+          spans: [
+            {
+              spanId: 'span-1',
+              type: 'llm',
+              name: 'chat',
+              startedAt: new Date('2026-06-05T14:00:00.000Z'),
+              finishedAt: new Date('2026-06-05T14:00:02.000Z'),
+              status: 'error',
+              errorMessage: HUGE,
+            },
+          ],
+        }),
+      ]];
+
+      const report = await sut.sync(WINDOW);
+
+      const stored = traceRepositoryStub.inserted[0];
+
+      expect(report).toMatchObject({ inserted: 1, failed: 0 });
+      expect(stored?.contentTruncated).toBe(true);
+      expect(stored?.spans[0]?.errorMessage).toBe(
+        `[truncated ${OVERSIZE_BYTES} bytes]`,
+      );
+      expect(ingestFailureRepositoryStub.truncations).toHaveLength(1);
+
+      // The record describes a STORED trace — so it may only be written
+      // after the store call returned (it used to run before the insert,
+      // able to describe a write that never happened).
+      expect(insertSpy.mock.invocationCallOrder[0]).toBeLessThan(
+        truncationSpy.mock.invocationCallOrder[0] as number,
+      );
+
+      warn.mockRestore();
+    });
+
+    it('MUST dead-letter a still-oversized trace under its own kind, with NO truncation record, counted failed (re-audit sync item 4)', async () => {
+      const {
+        sut,
+        traceSourceClientStub,
+        traceRepositoryStub,
+        ingestFailureRepositoryStub,
+      } = makeSut({
+        // Pathological: every clip pass still reads over the cap.
+        estimateDocumentBytes: (): number => OVERSIZE_BYTES,
+      });
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const report = await sut.sync(WINDOW);
+
+      expect(report).toMatchObject({ fetched: 1, inserted: 0, failed: 1 });
+      expect(traceRepositoryStub.inserted).toEqual([]);
+      // Honest kind: a re-sync will never fix this one, so it must not
+      // look like a re-runnable ingest failure.
+      expect(ingestFailureRepositoryStub.failures).toEqual([
+        expect.objectContaining({
+          traceId: 'trace-001',
+          kind: 'oversized_unstorable',
+          error: expect.stringContaining('still exceeds'),
+        }),
+      ]);
+      // No truncation record: nothing was stored to describe.
+      expect(ingestFailureRepositoryStub.truncations).toEqual([]);
+
+      warn.mockRestore();
+    });
   });
 
   describe('Token divergence on skipped re-syncs (audit B-4 residual, Q3)', () => {
@@ -497,6 +650,68 @@ describe('SyncTracesDbUseCase', () => {
       expect(traceRepositoryStub.inserted[0]?.billingQuarantine).toEqual(
         expect.objectContaining({ reason: 'period_closed' }),
       );
+    });
+
+    it('MUST reload the closed-months set PER PAGE — a multi-hour backfill cannot ride one snapshot (re-audit sync item 5)', async () => {
+      const { sut, traceSourceClientStub, billingPeriodRepository } = makeSut();
+      const listAllSpy = jest.spyOn(billingPeriodRepository, 'listAll');
+
+      traceSourceClientStub.pages = [
+        [makeTrace({ traceId: 'trace-001' })],
+        [makeTrace({ traceId: 'trace-002' })],
+        [makeTrace({ traceId: 'trace-003' })],
+      ];
+
+      await sut.sync(WINDOW);
+
+      expect(listAllSpy).toHaveBeenCalledTimes(3);
+    });
+
+    it('MUST quarantine a PAST-month trace whose month closed after the set was read — stale set, fresh double-check (re-audit sync item 5)', async () => {
+      const { sut, traceRepositoryStub, billingPeriodRepository } = makeSut();
+
+      await billingPeriodRepository.markClosed({
+        year: 2026,
+        month: 6,
+        closedAt: new Date('2026-07-01T00:00:00.000Z'),
+        snapshotVersion: 1,
+        audit: {
+          at: new Date('2026-07-01T00:00:00.000Z'),
+          action: 'close',
+          trigger: 'runbook',
+          snapshotVersion: 1,
+        },
+      });
+      // THE stale set: what a cycle that started before the close saw.
+      jest.spyOn(billingPeriodRepository, 'listAll').mockResolvedValue([]);
+
+      const report = await sut.sync(WINDOW);
+
+      expect(report.quarantined).toBe(1);
+      expect(traceRepositoryStub.inserted[0]?.billingQuarantine).toEqual(
+        expect.objectContaining({ reason: 'period_closed' }),
+      );
+    });
+
+    it('MUST NOT pay a period lookup for a CURRENT-month trace — the hot path stays N+1-free (re-audit sync item 5)', async () => {
+      const { sut, traceSourceClientStub, billingPeriodRepository } = makeSut();
+      const findSpy = jest.spyOn(billingPeriodRepository, 'find');
+      const now = new Date();
+      // Mid-month, current UTC month: the steady-state shape.
+      const startedAt = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 15, 12),
+      );
+
+      traceSourceClientStub.pages = [[
+        makeTrace({
+          startedAt,
+          finishedAt: new Date(startedAt.getTime() + 4000),
+        }),
+      ]];
+
+      await sut.sync(WINDOW);
+
+      expect(findSpy).not.toHaveBeenCalled();
     });
   });
 });

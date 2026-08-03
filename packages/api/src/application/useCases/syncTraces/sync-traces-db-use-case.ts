@@ -11,7 +11,9 @@ import { EstimateDocumentBytes } from '../../interfaces/ingest-failure-repositor
 import {
   assertNotAllFailed,
   closedMonthKeys,
+  ingestFailureKindOf,
   ingestSourceTrace,
+  isSystemicStoreError,
 } from './trace-ingestor.js';
 import { BillingPeriodRepository } from '../../interfaces/billing-period-repository.js';
 
@@ -40,12 +42,6 @@ export class SyncTracesDbUseCase implements SyncTracesUseCase {
   }
 
   async sync(window: SyncWindowInput): Promise<SyncReport> {
-    // audit C-7.3: one listAll per run, not one period lookup per trace
-    // (see closedMonthKeys for why a cycle-start read is safe).
-    const closedMonths = closedMonthKeys(
-      await this.billingPeriodRepository.listAll(),
-    );
-
     const report: SyncReport = {
       window,
       fetched: 0,
@@ -64,6 +60,16 @@ export class SyncTracesDbUseCase implements SyncTracesUseCase {
     for await (const page of this.traceSourceClient.fetchTracesPaged(window)) {
       report.fetched += page.length;
 
+      // audit C-7.3: one listAll per PAGE, not one period lookup per trace.
+      // re-audit 2026-08 (sync item 5): per page, not per run — a 49-day
+      // backfill runs for hours, and a run-start snapshot would carry a
+      // month that closed meanwhile all the way to the end of the
+      // backfill. listAll reads one document per month that ever had a
+      // lifecycle action; per page (≤1000 traces) it is noise.
+      const closedMonths = closedMonthKeys(
+        await this.billingPeriodRepository.listAll(),
+      );
+
       let failedInPage = 0;
 
       for (const trace of page) {
@@ -75,6 +81,7 @@ export class SyncTracesDbUseCase implements SyncTracesUseCase {
             {
               priceVersionRepository: this.priceVersionRepository,
               traceRepository: this.traceRepository,
+              billingPeriodRepository: this.billingPeriodRepository,
               ingestFailureRepository: this.ingestFailureRepository,
               estimateDocumentBytes: this.estimateDocumentBytes,
             },
@@ -102,6 +109,14 @@ export class SyncTracesDbUseCase implements SyncTracesUseCase {
 
           report.skipped += 1;
         } catch (error) {
+          // re-audit 2026-08 (sync item 2): an infra-class failure is not
+          // poison — dead-lettering it would park perfectly good traces
+          // and keep the run going against a store that cannot write.
+          // Abort the run; the window is re-runnable by construction.
+          if (isSystemicStoreError(error)) {
+            throw error;
+          }
+
           // audit B-3: per-trace isolation — one poison trace is
           // dead-lettered and the run continues; without this, a single
           // deterministic failure re-ran forever while the source's
@@ -113,6 +128,7 @@ export class SyncTracesDbUseCase implements SyncTracesUseCase {
           );
           await this.ingestFailureRepository.recordFailure({
             traceId: trace.traceId,
+            kind: ingestFailureKindOf(error),
             context,
             error: String(error),
             seenAt: new Date(),

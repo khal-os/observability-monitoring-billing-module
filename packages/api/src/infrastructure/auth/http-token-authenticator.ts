@@ -1,6 +1,14 @@
 import { createHash } from 'node:crypto';
 import { TokenAuthenticator } from '../../application/interfaces/token-authenticator.js';
 
+/**
+ * Hard bound on cached verdicts (~200B each → ~2MB worst case). Without it
+ * every distinct garbage token would leave an entry behind for its full
+ * TTL and the map itself would grow without limit — linear memory growth
+ * under a token-flood, a slow leak under credential rotation.
+ */
+export const MAX_CACHE_ENTRIES = 10_000;
+
 export interface HttpTokenAuthenticatorOptions {
   authSystemUrl: string;
   /**
@@ -41,6 +49,11 @@ interface CachedVerdict {
  * NEVER cached — each attempt re-asks and fails closed, so an auth-system
  * blip is retried on the very next request. Concurrent checks of the same
  * token share one in-flight introspection.
+ *
+ * The cache is BOUNDED (MAX_CACHE_ENTRIES): expired entries are swept
+ * opportunistically on insert, and at capacity the oldest-inserted entry
+ * is evicted — an attacker flooding garbage tokens recycles cache slots
+ * instead of growing the heap.
  */
 export class HttpTokenAuthenticator implements TokenAuthenticator {
   private readonly authSystemUrl: string;
@@ -80,12 +93,7 @@ export class HttpTokenAuthenticator implements TokenAuthenticator {
         // Only a definitive Auth System answer is cacheable; an error
         // (undefined) answers false NOW but leaves nothing behind.
         if (verdict !== undefined) {
-          this.cache.set(key, {
-            authenticated: verdict,
-            expiresAt:
-              this.now() +
-              (verdict ? this.positiveTtlMs : this.negativeTtlMs),
-          });
+          this.cacheVerdict(key, verdict);
         }
         return verdict === true;
       })
@@ -96,6 +104,35 @@ export class HttpTokenAuthenticator implements TokenAuthenticator {
     this.inFlight.set(key, check);
 
     return check;
+  }
+
+  /**
+   * Bounded insert (mirrors the application-layer TtlCache semantics
+   * without importing across layers): expired entries are popped from the
+   * front first; delete-before-set re-enters a refreshed key at the back
+   * of the Map's insertion order (the eviction order); at capacity the
+   * oldest-inserted entry is evicted.
+   */
+  private cacheVerdict(key: string, authenticated: boolean): void {
+    const now = this.now();
+
+    for (const [staleKey, entry] of this.cache) {
+      if (entry.expiresAt > now) break;
+      this.cache.delete(staleKey);
+    }
+
+    this.cache.delete(key);
+
+    if (this.cache.size >= MAX_CACHE_ENTRIES) {
+      const oldest = this.cache.keys().next().value;
+      if (oldest !== undefined) this.cache.delete(oldest);
+    }
+
+    this.cache.set(key, {
+      authenticated,
+      expiresAt:
+        now + (authenticated ? this.positiveTtlMs : this.negativeTtlMs),
+    });
   }
 
   /** true/false = definitive introspection result; undefined = error (uncached, fail closed). */
@@ -120,8 +157,12 @@ export class HttpTokenAuthenticator implements TokenAuthenticator {
         },
       );
       if (!response.ok) return undefined;
-      const body = (await response.json()) as { active?: unknown };
-      return body.active === true;
+      const body = (await response.json()) as { active?: unknown } | null;
+      const active = body?.active;
+      // RFC 7662 REQUIRES a boolean `active`; a 200 without one is NOT a
+      // definitive negative — error path: uncached, fails closed for THIS
+      // request only (a good token must never serve a 5s cached 401).
+      return typeof active === 'boolean' ? active : undefined;
     } catch {
       return undefined;
     }

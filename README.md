@@ -110,6 +110,19 @@ make down CLIENT=<name>        # stop (volumes preserved)
 make ps
 ```
 
+**Dead-lettered traces.** A trace that fails ingestion is parked in the
+`ingest_failures` collection (the batch continues; the worker logs the
+backlog count each cycle when it is non-zero). Each row carries the
+traceId, the error, and the `context` the sync was in when it failed — a
+window or a cursor position. Recovery is re-running that context:
+`make sync CLIENT=<name> FROM=… TO=…` over the window while LangWatch's
+~49-day retention still holds the trace, then delete the row (there is no
+resolved flag — a row that exists is a trace the archive is still
+missing). Rows with `kind: oversized_unstorable` are the exception: the
+trace exceeds the document cap even fully clipped, so no re-sync will fix
+it and the row stays as the record. Source rows that never became traces
+never reach this collection — their trail is `poison_rows`.
+
 Month lifecycle (T6) is runbook-only — no HTTP mutation endpoint:
 
 ```bash

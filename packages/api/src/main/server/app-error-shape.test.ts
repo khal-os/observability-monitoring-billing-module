@@ -96,5 +96,27 @@ describe('App error shape', () => {
         msg: 'Not found: GET /api/v1/nope',
       });
     });
+
+    it('MUST match the table case-insensitively, like Express routing (POST /API/V1/TRACES)', async () => {
+      const response = await request(app)
+        .post('/API/V1/TRACES')
+        .expect(405)
+        .expect('Content-Type', /json/);
+
+      expect(response.headers.allow).toBe('GET');
+      expect(response.body).toEqual({
+        name: 'MethodNotAllowedError',
+        msg: 'Method not allowed: POST /API/V1/TRACES',
+      });
+    });
+  });
+
+  it('MUST answer OPTIONS on a known path with Allow and WITHOUT the JSON default content-type', async () => {
+    const response = await request(app).options('/api/v1/traces').expect(200);
+
+    // Express's default OPTIONS handler: a plain-text method list. The
+    // default-content-type middleware must not stamp it application/json.
+    expect(response.headers.allow).toContain('GET');
+    expect(response.headers['content-type']).not.toContain('application/json');
   });
 });

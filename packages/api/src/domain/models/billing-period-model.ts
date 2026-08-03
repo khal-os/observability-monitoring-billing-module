@@ -81,6 +81,21 @@ export const previousMonthOf = (
   month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 };
 
 /**
+ * UTC windows of every lifecycle-CLOSED month — the scope where the
+ * daily rollup's unresolved-quarantine exclusion applies (decision 97:
+ * the days of a frozen month must sum to its frozen bill; in a reopened
+ * or never-closed month the straggler is part of the LIVE total, so its
+ * days must chart). Stated once so the series use case and the tests
+ * derive the same windows from the same periods.
+ */
+export const closedMonthWindows = (
+  periods: BillingPeriodModel[],
+): { start: Date; end: Date }[] =>
+  periods
+    .filter((period) => period.status === 'closed')
+    .map((period) => monthWindowUtc(period.year, period.month));
+
+/**
  * audit C-7.1: the live-scan bound — UTC start of the earliest month NOT
  * closed. Live aggregations (bill list, monthly rollup) scan only from
  * here; everything before is closed history, served from period docs +
@@ -91,7 +106,11 @@ export const previousMonthOf = (
  * non-closed month (a gap, or a reopened month) is the bound. No closed
  * month ⇒ null (unbounded — today's behavior). Assumes the runbook's
  * oldest-first close discipline: a never-closed month OLDER than the
- * earliest closed one would fall outside the scan.
+ * earliest closed one would fall outside the scan. That assumption is
+ * SAFE because the close use case ENFORCES it (re-audit close-order
+ * guard): a month can only close once every older month with traces is
+ * closed, so a trace-bearing month older than the earliest closed one
+ * cannot exist.
  */
 export const firstOpenMonthStart = (
   periods: BillingPeriodModel[],

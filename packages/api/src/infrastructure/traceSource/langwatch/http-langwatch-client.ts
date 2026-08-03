@@ -30,6 +30,37 @@ const REQUEST_TIMEOUT_MS = 30_000;
 const POISON_BREAKER_MIN_ROWS = 10;
 
 /**
+ * The last instant this payload PROVES the trace was still being written:
+ * the newest of its derived end and every span boundary it carries.
+ *
+ * // QA14: the search/detail payloads expose no UpdatedAt — the axis the
+ * ClickHouse source cursors on (trace_summaries.UpdatedAt). The only
+ * timestamps here are the trace `started_at` (+ `metrics.total_time_ms`,
+ * from which the mapper derives the end) and each span's
+ * `started_at`/`finished_at`. This maximum is therefore a PROXY for the
+ * update axis: it moves whenever a new span lands — the case audit B-4 is
+ * about — but cannot see an in-place edit that adds neither span nor
+ * time. Residual accepted on this fallback path; the ClickHouse source
+ * reads the real axis.
+ */
+const lastObservableActivity = (trace: SourceTrace): Date => {
+  let latestMs = Math.max(
+    trace.startedAt.getTime(),
+    trace.finishedAt.getTime(),
+  );
+
+  for (const span of trace.spans) {
+    latestMs = Math.max(
+      latestMs,
+      span.startedAt.getTime(),
+      span.finishedAt.getTime(),
+    );
+  }
+
+  return new Date(latestMs);
+};
+
+/**
  * Real LangWatch client (QA14 resolvido): consulta o
  * `POST /api/traces/search` e busca cada trace em
  * `GET /api/traces/{id}?format=json` — a busca devolve os spans vazios,
@@ -43,7 +74,9 @@ const POISON_BREAKER_MIN_ROWS = 10;
  * usam a fonte ClickHouse.
  *
  * Mantém a semântica de janela half-open [from, to) do contrato aplicando
- * o filtro localmente por cima do startDate/endDate do servidor.
+ * o filtro localmente por cima do startDate/endDate do servidor, e defere
+ * traces cuja última atividade observável caia dentro do quiet period
+ * (audit B-4) — o clamp da janela sozinho só cobre o eixo de início.
  */
 export class HttpLangWatchClient implements TraceSourceClient {
   private readonly endpoint: string;
@@ -74,7 +107,16 @@ export class HttpLangWatchClient implements TraceSourceClient {
   async *fetchTracesPaged(
     requestedWindow: SyncWindow,
   ): AsyncIterable<SourceTrace[]> {
-    const safe = clampWindowToQuietPeriod(requestedWindow, this.quietPeriodMs);
+    // ONE clock read for both quiet-period ceilings: the start-axis clamp
+    // below and the update-axis cutoff further down must not disagree.
+    // (The ClickHouse source anchors on the SOURCE clock — audit C-6.4 —
+    // which this path has no cheap way to read; see the QA14 note there.)
+    const now = new Date();
+    const safe = clampWindowToQuietPeriod(
+      requestedWindow,
+      this.quietPeriodMs,
+      now,
+    );
 
     if (!safe) {
       console.warn(
@@ -133,9 +175,17 @@ export class HttpLangWatchClient implements TraceSourceClient {
       );
     }
 
+    // audit B-4 on this path: the clamp above holds the trace START axis
+    // only, so a trace that started before the ceiling but is STILL
+    // receiving spans (long agent run, human-in-the-loop pause) would be
+    // ingested and stamped with partial tokens, immutably. Defer anything
+    // whose last observable activity is younger than this instant; the
+    // rows stay in the source for a later run.
+    const activityCeiling = new Date(now.getTime() - this.quietPeriodMs);
     const context = `window=[${window.from.toISOString()}, ${window.to.toISOString()})`;
     const traces: SourceTrace[] = [];
     let poisonDetails = 0;
+    let deferred = 0;
 
     for (const item of page.traces) {
       const raw = await this.request(
@@ -166,9 +216,23 @@ export class HttpLangWatchClient implements TraceSourceClient {
       try {
         const mapped = mapApiTrace(detail.data);
 
-        if (mapped.startedAt >= window.from && mapped.startedAt < window.to) {
-          traces.push(mapped);
+        if (mapped.startedAt < window.from || mapped.startedAt >= window.to) {
+          continue;
         }
+
+        const activity = lastObservableActivity(mapped);
+
+        if (activity >= activityCeiling) {
+          deferred += 1;
+          console.warn(
+            `Sync: trace deferred (traceId=${item.trace_id}): last ` +
+              `observable activity ${activity.toISOString()} falls inside ` +
+              'the quiet period (audit B-4).',
+          );
+          continue;
+        }
+
+        traces.push(mapped);
       } catch (error) {
         poisonDetails += 1;
         console.warn(
@@ -198,6 +262,14 @@ export class HttpLangWatchClient implements TraceSourceClient {
           'validation — this looks like LangWatch API drift, not isolated ' +
           'poison rows. Halting (decision 79); the poison_rows records ' +
           'carry the details.',
+      );
+    }
+
+    if (deferred > 0) {
+      console.warn(
+        `Sync: ${deferred} trace(s) still active after ` +
+          `${activityCeiling.toISOString()} were deferred (quiet period on ` +
+          'the update axis, audit B-4) — re-run later to cover the rest.',
       );
     }
 

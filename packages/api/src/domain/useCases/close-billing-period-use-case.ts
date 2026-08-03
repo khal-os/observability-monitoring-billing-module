@@ -29,12 +29,22 @@ export class BillingCloseBlockedError extends Error {
   readonly pendingTraceCount: number;
   readonly modelsWithoutPrice: string[];
 
-  constructor(args: { pendingTraceCount: number; modelsWithoutPrice: string[] }) {
+  constructor(args: {
+    pendingTraceCount: number;
+    modelsWithoutPrice: string[];
+    /**
+     * Overrides the default pending-price message — used by blocks that
+     * are not about pending prices (e.g. the oldest-first close-order
+     * guard). The runbook prints this verbatim, so it must name the fix.
+     */
+    message?: string;
+  }) {
     super(
-      `Fechamento bloqueado: ${args.pendingTraceCount} trace(s) com preço ` +
-        `pendente no mês (modelos sem preço: ${
-          args.modelsWithoutPrice.join(', ') || '—'
-        }). Registre os preços e rode o reprocess antes de fechar.`,
+      args.message ??
+        `Fechamento bloqueado: ${args.pendingTraceCount} trace(s) com preço ` +
+          `pendente no mês (modelos sem preço: ${
+            args.modelsWithoutPrice.join(', ') || '—'
+          }). Registre os preços e rode o reprocess antes de fechar.`,
     );
     this.name = 'BillingCloseBlockedError';
     this.pendingTraceCount = args.pendingTraceCount;
