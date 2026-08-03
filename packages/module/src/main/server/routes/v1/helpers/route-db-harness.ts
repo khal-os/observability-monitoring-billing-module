@@ -16,7 +16,7 @@ import {
   BILLING_SNAPSHOTS_COLLECTION,
   BILLING_SNAPSHOT_USAGE_COLLECTION,
 } from '@khal/core/infrastructure/database/mongodb/billing/mongodb-billing-snapshot-repository.js';
-import { makeSyncTracesUseCase } from '../../../../factories/sync-factory.js';
+import { makeSyncTracesUseCase } from '@khal/connector/main/factories/sync-factory.js';
 import { StampedTokenCost } from '@khal/core/domain/models/trace-model.js';
 
 /**

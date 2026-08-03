@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { registerPriceVersionRequestSchema } from '../../presentation/controllers/prices/price-view-schemas.js';
 import { parseRunbookDate } from './parse-runbook-date.js';
 
 /**
@@ -9,20 +6,13 @@ import { parseRunbookDate } from './parse-runbook-date.js';
  * The job used to parse `--effective-from` with a bare `new Date()`, which
  * happily reads the pt-BR spelling "01/07/2026" as 7 January (US m/d/y) and
  * registers an immutable price for six months nobody contracted.
+ *
+ * BEHAVIOR lives here with the parser; each door's one line of wiring is
+ * pinned in the package that owns the door (module: insert-price-version +
+ * the POST /prices schema; connector: run-sync) — a top-level-await job
+ * cannot be exercised in-process, so those pins are source-level.
  */
 describe('parseRunbookDate (runbook --effective-from border)', () => {
-  /** What the HTTP door does with the same string — the reference answer. */
-  const httpDoor = (raw: string): Date | null => {
-    const parsed = registerPriceVersionRequestSchema.safeParse({
-      model: 'anthropic/claude-opus-4-8',
-      token_type: 'input',
-      price_brl_per_million: '82.50',
-      effective_from: raw,
-    });
-
-    return parsed.success ? parsed.data.effective_from : null;
-  };
-
   describe('ACCEPTS the spellings POST /prices accepts', () => {
     it('MUST read a date-only value as UTC midnight', () => {
       expect(parseRunbookDate('2026-07-01')?.toISOString()).toBe(
@@ -62,48 +52,6 @@ describe('parseRunbookDate (runbook --effective-from border)', () => {
       expect(parseRunbookDate('')).toBeNull();
       expect(parseRunbookDate('2026-02-30')).toBeNull();
     });
-  });
-
-  it('MUST answer exactly like POST /prices for every one of those spellings (C-2)', () => {
-    const spellings = [
-      '2026-07-01',
-      '2026-07-01T00:00:00Z',
-      '2026-07-01T00:00:00+03:00',
-      '2026-07-01T00:00:00-03:00',
-      '2026-07-01T00:00:00',
-      '01/07/2026',
-      'July 1 2026',
-      '2026-7-1',
-      '2026-02-30',
-      'not-a-date',
-      '',
-    ];
-
-    const answers = spellings.map((raw) => [
-      raw,
-      parseRunbookDate(raw)?.toISOString() ?? 'REFUSED',
-    ]);
-    const reference = spellings.map((raw) => [
-      raw,
-      httpDoor(raw)?.toISOString() ?? 'REFUSED',
-    ]);
-
-    expect(answers).toEqual(reference);
-  });
-
-  /**
-   * The job itself is a top-level-await script that connects the database on
-   * import, so it cannot be exercised in-process. Its ONE line of wiring is
-   * pinned here at source level (same technique as architecture-boundaries):
-   * putting `new Date(effectiveFromRaw)` back would restore the divergence
-   * with every assertion above still green.
-   */
-  it('MUST be the border insert-price-version.ts actually uses', () => {
-    const job = readFileSync(join(__dirname, 'insert-price-version.ts'), 'utf-8');
-
-    expect(job).toContain("from './parse-runbook-date.js'");
-    expect(job).toContain('parseRunbookDate(effectiveFromRaw)');
-    expect(job).not.toContain('new Date(effectiveFromRaw)');
   });
 });
 
@@ -148,45 +96,5 @@ describe('parseRunbookDate (runbook --from/--to sync border, decision 123)', () 
 
   it('MUST refuse a timezone-less datetime (the window would shift per host)', () => {
     expect(parseRunbookDate('2026-07-01T00:00:00')).toBeNull();
-  });
-
-  /** Same source-level pin as the price door: run-sync is a top-level-await script. */
-  it('MUST be the border run-sync.ts actually uses', () => {
-    const job = readFileSync(join(__dirname, 'run-sync.ts'), 'utf-8');
-
-    expect(job).toContain("from './parse-runbook-date.js'");
-    expect(job).toContain("parseRunbookDate(values['from'])");
-    expect(job).toContain("parseRunbookDate(values['to'])");
-    expect(job).not.toContain("new Date(values['from'])");
-    expect(job).not.toContain("new Date(values['to'])");
-  });
-
-  /**
-   * Found by running the built job, not by reading it: an unparseable date
-   * and an out-of-order window are DIFFERENT operator errors and must not
-   * share one message. Folded together, `--from 01/07/2026 --to 15/07/2026`
-   * answered "--from must be strictly before --to" — ordered, in the reading
-   * that produced them — pointing the operator away from the actual problem
-   * on the one door decision 123 exists to keep honest about dates.
-   */
-  it('MUST diagnose an unparseable date separately from an out-of-order window', () => {
-    const job = readFileSync(join(__dirname, 'run-sync.ts'), 'utf-8');
-    // Anchored on the emitted string, not the bare phrase: the comment above
-    // the guard quotes the old message, and matching prose instead of code is
-    // exactly how a source-level pin stops testing anything.
-    const ordering = job.indexOf("'Sync: --from must be strictly before");
-    const fromHint = job.indexOf('Invalid --from');
-    const toHint = job.indexOf('Invalid --to');
-
-    expect(fromHint).toBeGreaterThan(-1);
-    expect(toHint).toBeGreaterThan(-1);
-
-    // The ordering message must be reached only AFTER both parses succeeded,
-    // and must not carry the format hint that belongs to the parse failures.
-    expect(ordering).toBeGreaterThan(fromHint);
-    expect(ordering).toBeGreaterThan(toHint);
-    expect(job).not.toContain(
-      'strictly before --to. ${RUNBOOK_DATE_FORMAT_HINT}',
-    );
   });
 });

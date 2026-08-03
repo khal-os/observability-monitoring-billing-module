@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isoDateRule } from '@khal/core/common/helpers/iso-date-rule.js';
 import { HttpResponse } from '../interfaces/index.js';
 import { InvalidParamError, MissingParamError } from '../errors/index.js';
 import { buildBadRequest } from './http-helper.js';
@@ -19,10 +20,7 @@ export const paginationSchema = {
  * NaN refine catches ISO-shaped impossible dates (e.g. 2026-02-30) that
  * survive the format check.
  */
-export const isoDateParam = z
-  .union([z.iso.date(), z.iso.datetime({ offset: true })])
-  .transform((value) => new Date(value))
-  .refine((date) => !Number.isNaN(date.getTime()));
+export const isoDateParam = isoDateRule;
 
 /**
  * Calendar-month address shared by the billing endpoints (C-3): both

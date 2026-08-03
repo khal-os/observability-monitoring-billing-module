@@ -2,10 +2,8 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { z } from 'zod';
 import {
-  LangWatchEnvironmentVariables,
   MongoDbEnvironmentVariables,
   ServerEnvironmentVariables,
-  TraceIngestionWorkerEnvironmentVariables,
 } from '../interfaces/index.js';
 
 const environmentEnum = {
@@ -17,20 +15,9 @@ const environmentEnum = {
 type Environment = (typeof environmentEnum)[keyof typeof environmentEnum];
 
 export interface EnvironmentVariables
-  extends
-    ServerEnvironmentVariables,
-    MongoDbEnvironmentVariables,
-    LangWatchEnvironmentVariables,
-    TraceIngestionWorkerEnvironmentVariables {
+  extends ServerEnvironmentVariables, MongoDbEnvironmentVariables {
   Environment: Environment;
 }
-
-/** Optional positive-integer env string (worker knobs). */
-const optionalIntString = (name: string) =>
-  z
-    .string()
-    .regex(/^\d+$/, `${name} must be a valid integer string`)
-    .optional();
 
 /**
  * Optional env string where EMPTY means unset. Compose forwards these vars
@@ -68,17 +55,6 @@ const envSchema = z
     MONGO_DB_NAME: z.string().optional(),
     MONGO_DB_PASSWORD: z.string().optional(),
     MONGO_DB_USER: z.string().optional(),
-    LANGWATCH_ENDPOINT: z.string().optional(),
-    LANGWATCH_API_KEY: z.string().optional(),
-    LANGWATCH_CLICKHOUSE_URL: z.string().optional(),
-    LANGWATCH_CLICKHOUSE_USER: z.string().optional(),
-    LANGWATCH_CLICKHOUSE_PASSWORD: z.string().optional(),
-    LANGWATCH_CLICKHOUSE_DATABASE: z.string().optional(),
-    LANGWATCH_PROJECT_ID: z.string().optional(),
-    TRACE_INGESTION_INTERVAL_SECONDS: optionalIntString('TRACE_INGESTION_INTERVAL_SECONDS'),
-    TRACE_INGESTION_BATCH_SIZE: optionalIntString('TRACE_INGESTION_BATCH_SIZE'),
-    TRACE_INGESTION_QUIET_PERIOD_SECONDS: optionalIntString('TRACE_INGESTION_QUIET_PERIOD_SECONDS'),
-    REPROCESS_INTERVAL_SECONDS: optionalIntString('REPROCESS_INTERVAL_SECONDS'),
   })
   .transform((env) => ({
     ...env,
@@ -88,18 +64,6 @@ const envSchema = z
       : undefined,
     MONGO_DB_ATLAS: env.MONGO_DB_ATLAS
       ? env.MONGO_DB_ATLAS === 'true'
-      : undefined,
-    TRACE_INGESTION_INTERVAL_SECONDS: env.TRACE_INGESTION_INTERVAL_SECONDS
-      ? parseInt(env.TRACE_INGESTION_INTERVAL_SECONDS, 10)
-      : undefined,
-    TRACE_INGESTION_BATCH_SIZE: env.TRACE_INGESTION_BATCH_SIZE
-      ? parseInt(env.TRACE_INGESTION_BATCH_SIZE, 10)
-      : undefined,
-    TRACE_INGESTION_QUIET_PERIOD_SECONDS: env.TRACE_INGESTION_QUIET_PERIOD_SECONDS
-      ? parseInt(env.TRACE_INGESTION_QUIET_PERIOD_SECONDS, 10)
-      : undefined,
-    REPROCESS_INTERVAL_SECONDS: env.REPROCESS_INTERVAL_SECONDS
-      ? parseInt(env.REPROCESS_INTERVAL_SECONDS, 10)
       : undefined,
   }));
 
@@ -138,15 +102,4 @@ export const environment: EnvironmentVariables = {
   mongoDbPassword: safeEnvironment.MONGO_DB_PASSWORD,
   mongoDbPort: safeEnvironment.MONGO_DB_PORT,
   mongoDbUser: safeEnvironment.MONGO_DB_USER,
-  langwatchEndpoint: safeEnvironment.LANGWATCH_ENDPOINT,
-  langwatchApiKey: safeEnvironment.LANGWATCH_API_KEY,
-  langwatchClickhouseUrl: safeEnvironment.LANGWATCH_CLICKHOUSE_URL,
-  langwatchClickhouseUser: safeEnvironment.LANGWATCH_CLICKHOUSE_USER,
-  langwatchClickhousePassword: safeEnvironment.LANGWATCH_CLICKHOUSE_PASSWORD,
-  langwatchClickhouseDatabase: safeEnvironment.LANGWATCH_CLICKHOUSE_DATABASE,
-  langwatchProjectId: safeEnvironment.LANGWATCH_PROJECT_ID,
-  traceIngestionIntervalSeconds: safeEnvironment.TRACE_INGESTION_INTERVAL_SECONDS,
-  traceIngestionBatchSize: safeEnvironment.TRACE_INGESTION_BATCH_SIZE,
-  traceIngestionQuietPeriodSeconds: safeEnvironment.TRACE_INGESTION_QUIET_PERIOD_SECONDS,
-  reprocessIntervalSeconds: safeEnvironment.REPROCESS_INTERVAL_SECONDS,
 };

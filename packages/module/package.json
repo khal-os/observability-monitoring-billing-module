@@ -10,8 +10,6 @@
     "start:dev": "ENVIRONMENT=development tsx watch src/main/index.ts",
     "migrate": "ENVIRONMENT=development tsx src/main/jobs/run-migrations.ts",
     "price:insert": "ENVIRONMENT=development tsx src/main/jobs/insert-price-version.ts",
-    "sync": "ENVIRONMENT=development tsx src/main/jobs/run-sync.ts",
-    "ingestion:loop": "ENVIRONMENT=development tsx src/main/jobs/run-trace-ingestion-loop.ts",
     "reprocess:pending": "ENVIRONMENT=development tsx src/main/jobs/reprocess-pending.ts",
     "billing:close": "ENVIRONMENT=development tsx src/main/jobs/close-billing-period.ts",
     "billing:reopen": "ENVIRONMENT=development tsx src/main/jobs/reopen-billing-period.ts",
@@ -26,6 +24,7 @@
   "license": "ISC",
   "type": "module",
   "devDependencies": {
+    "@khal/connector": "*",
     "@shelf/jest-mongodb": "^6.0.2",
     "@types/express": "^4.17.1",
     "@types/jest": "^30.0.0",

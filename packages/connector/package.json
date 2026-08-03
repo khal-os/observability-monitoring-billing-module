@@ -1,7 +1,7 @@
 {
-  "name": "@khal/core",
+  "name": "@khal/connector",
   "version": "1.0.0",
-  "description": "The store and its rules: domain models, price stamping, reprocess, MongoDB repositories. No HTTP, no trace sources.",
+  "description": "The trace-source side: LangWatch adapters (ClickHouse/HTTP/fake), the sync write path and the ingestion worker. Depends on @khal/core only.",
   "type": "module",
   "private": true,
   "exports": {
@@ -9,7 +9,9 @@
     "./*": "./dist/*"
   },
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "build": "rm -rf dist && tsc -b tsconfig.build.json",
+    "sync": "ENVIRONMENT=development tsx src/main/jobs/run-sync.ts",
+    "ingestion:loop": "ENVIRONMENT=development tsx src/main/jobs/run-trace-ingestion-loop.ts",
     "test": "ENVIRONMENT=test jest --passWithNoTests --silent --noStackTrace --collectCoverage=false --runInBand",
     "test:verbose": "ENVIRONMENT=test jest --passWithNoTests",
     "test:unit": "npm test -- --watch --config=jest-unit.config.mjs",
@@ -25,9 +27,14 @@
     "@types/node": "^25.6.0",
     "jest": "^30.3.0",
     "ts-jest": "^29.4.9",
+    "tsx": "^4.21.0",
     "typescript": "^6.0.3"
   },
   "dependencies": {
+    "@clickhouse/client": "^1.23.1",
+    "@khal/core": "*",
+    "dotenv": "^17.4.2",
+    "fast-glob": "^3.3.3",
     "mongodb": "^7.2.0",
     "zod": "^4.3.6"
   }

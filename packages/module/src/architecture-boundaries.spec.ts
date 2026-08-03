@@ -1,20 +1,21 @@
 /**
- * Architecture fitness tests for @khal/module — these ENFORCE that swapping
- * the trace source vendor (LangWatch today) can never touch business rules:
+ * Architecture fitness tests for @khal/module — the module sees only traces
+ * already ingested; the trace source lives entirely in @khal/connector:
  *
- * 1. The vendor name may only appear inside its adapter
- *    (infrastructure/traceSource/langwatch/), the environment wiring
- *    (infrastructure/configuration/) and the composition root
- *    (main/factories/sync-factory.ts). application/presentation/common
- *    are vendor-blind by test, not by convention.
- * 2. Dependency direction: application must not reach infrastructure,
+ * 1. The module is VENDOR-BLIND BY PACKAGE: no trace-source vendor name may
+ *    appear anywhere here. Stronger than the pre-split rule, which had to
+ *    allow the adapter directory — the split moved it out wholesale.
+ * 2. @khal/connector may be imported by TESTS ONLY (the route harness seeds
+ *    through the real ingestion; the pipeline test proves invariant 3
+ *    end-to-end) — never by production files, so the shipped module has no
+ *    path to a trace source.
+ * 3. Dependency direction: application must not reach infrastructure,
  *    presentation or main; presentation only domain (+ its own layer and
  *    common). Cross-package imports count: '@khal/core/<layer>/...' is
  *    treated as that layer — the package boundary must not launder a
  *    forbidden dependency.
- * 3. Storage backend containment (decision 56): storage now lives in
- *    @khal/core/infrastructure/database (plus the ingestion bookkeeping
- *    repos still local to this package); both count as "storage" here.
+ * 4. Storage backend containment (decision 56): storage lives in
+ *    @khal/core/infrastructure/database; it counts as "storage" here.
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -70,22 +71,32 @@ const layerOfImport = (file: string, specifier: string): string | null =>
 
 const VENDOR = /langwatch/i;
 
-const VENDOR_ALLOWED_PREFIXES = [
-  'infrastructure/traceSource/langwatch/',
-  'infrastructure/configuration/',
-  'main/factories/sync-factory.ts',
-  'architecture-boundaries.spec.ts',
-];
-
 describe('Architecture boundaries (@khal/module)', () => {
-  it('MUST keep every layer outside the adapter vendor-blind (swap-safe)', () => {
+  it('MUST keep the whole package vendor-blind (the adapter lives in the connector)', () => {
+    const offenders = allFiles
+      .filter(
+        (file) =>
+          posixRelative(file) !== 'architecture-boundaries.spec.ts' &&
+          VENDOR.test(readFileSync(file, 'utf-8')),
+      )
+      .map(posixRelative);
+
+    expect(offenders).toEqual([]);
+  });
+
+  it('MUST confine @khal/connector to test files — production code has no path to a trace source', () => {
     const offenders = allFiles
       .filter((file) => {
         const path = posixRelative(file);
 
-        return (
-          !VENDOR_ALLOWED_PREFIXES.some((prefix) => path.startsWith(prefix)) &&
-          VENDOR.test(readFileSync(file, 'utf-8'))
+        // The harness is test-support (imported by route suites only) and
+        // excluded from the build like every spec/test file.
+        if (/\.(spec|test)\.ts$/.test(path)) return false;
+        if (path === 'main/server/routes/v1/helpers/route-db-harness.ts')
+          return false;
+
+        return importsOf(file).some((specifier) =>
+          specifier.startsWith('@khal/connector/'),
         );
       })
       .map(posixRelative);

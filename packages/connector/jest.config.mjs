@@ -23,11 +23,9 @@ const config = {
   collectCoverageFrom: [
     '<rootDir>/src/**/*.ts',
     // Test-support code is not production source: contract suites belong to
-    // the ports' test surface, the shared billing fakes to the billing
-    // suites, the route harness to the route suites.
+    // the ports' test surface, the shared billing fakes to the billing suites.
     '!<rootDir>/src/**/*.contract.ts',
     '!<rootDir>/src/**/billing-test-fakes.ts',
-    '!<rootDir>/src/main/server/routes/v1/helpers/route-db-harness.ts',
   ],
 
   // The directory where Jest should output its coverage files
@@ -103,7 +101,6 @@ const config = {
     // Workspace packages resolve via exports maps (node16) at build/runtime;
     // jest runs CommonJS with node10 resolution, so map them to source.
     '^@khal/core/(.*)\\.js$': '<rootDir>/../core/src/$1.ts',
-    '^@khal/connector/(.*)\\.js$': '<rootDir>/../connector/src/$1.ts',
   },
 
   // An array of regexp pattern strings, matched against all module paths before considered 'visible' to the module loader

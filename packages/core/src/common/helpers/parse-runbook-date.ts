@@ -1,13 +1,14 @@
-import { registerPriceVersionRequestSchema } from '../../presentation/controllers/prices/price-view-schemas.js';
+import { isoDateRule } from './iso-date-rule.js';
 
 /**
  * The ONE date border for every runbook door — `--effective-from` of the
  * price job, `--from`/`--to` of the sync job, and whatever comes next.
  *
- * It does NOT restate the rule: it reuses the very schema POST /prices
- * validates with (date-only = UTC midnight, or an OFFSET-CARRYING ISO-8601
- * datetime; a timezone-less local datetime is refused, B-8) — the same
- * union `isoDateParam` gives the HTTP list endpoints.
+ * It does NOT restate the rule: it reuses `isoDateRule` — the ONE
+ * definition (date-only = UTC midnight, or an OFFSET-CARRYING ISO-8601
+ * datetime; a timezone-less local datetime is refused, B-8) that POST
+ * /prices validates `effective_from` with and `isoDateParam` gives the
+ * HTTP list endpoints.
  *
  * Re-spelling the rule per door is exactly how it broke, twice. The price
  * job used a bare `new Date()`, so the pt-BR spelling `01/07/2026` parsed
@@ -25,7 +26,7 @@ import { registerPriceVersionRequestSchema } from '../../presentation/controller
  * Hence: one parser, no exceptions. A new job that takes a date uses this,
  * never `new Date()`.
  */
-const runbookDateSchema = registerPriceVersionRequestSchema.shape.effective_from;
+const runbookDateSchema = isoDateRule;
 
 /** Printed next to the rejected value — the accepted spelling, up front. */
 export const RUNBOOK_DATE_FORMAT_HINT =

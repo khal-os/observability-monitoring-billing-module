@@ -15,12 +15,26 @@ import { sourceTraceListSchema } from './source-trace-schema.js';
 // the TraceSourceClient interface.
 
 const defaultFixtureFiles = (): string[] =>
-  fg
-    .sync('**/src/infrastructure/traceSource/fixtures/*.json', {
-      ignore: ['**/node_modules/**'],
-      absolute: true,
-    })
-    .sort();
+  [
+    ...new Set(
+      fg.sync(
+        [
+          // From the connector's own cwd (container, jobs, this package's
+          // tests) and from the workspace root.
+          '**/src/infrastructure/traceSource/fixtures/*.json',
+          // From a SIBLING package's cwd: @khal/module's route suites seed
+          // through the real ingestion (dev-only dependency), and the
+          // node_modules symlink route is ignored below — so the fixtures
+          // are named by their workspace path.
+          '../connector/src/infrastructure/traceSource/fixtures/*.json',
+        ],
+        {
+          ignore: ['**/node_modules/**'],
+          absolute: true,
+        },
+      ),
+    ),
+  ].sort();
 
 export class FakeTraceSourceClient implements TraceSourceClient {
   private readonly fixtureFiles: string[];

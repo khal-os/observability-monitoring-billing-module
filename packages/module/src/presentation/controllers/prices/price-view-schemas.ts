@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { tokenTypeSchema } from '../../helpers/docs-schemas.js';
 import { brlToMicrocents } from '@khal/core/common/helpers/money/money.js';
+import { isoDateRule } from '@khal/core/common/helpers/iso-date-rule.js';
 
 const convertsToMicrocents = (value: string): boolean => {
   try {
@@ -48,10 +49,7 @@ export const registerPriceVersionRequestSchema = z.strictObject({
     .refine(convertsToMicrocents, {
       message: 'price_brl_per_million exceeds the representable range',
     }),
-  effective_from: z
-    .union([z.iso.date(), z.iso.datetime({ offset: true })])
-    .transform((value) => new Date(value))
-    .refine((date) => !Number.isNaN(date.getTime())),
+  effective_from: isoDateRule,
 });
 
 export const registerPriceVersionResponseSchema = z.strictObject({

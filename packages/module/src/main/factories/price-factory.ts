@@ -4,7 +4,7 @@ import { RegisterPriceVersionDbUseCase } from '../../application/useCases/regist
 import { RegisterPriceVersionUseCase } from '@khal/core/domain/useCases/register-price-version-use-case.js';
 import { RegisterPriceVersionController } from '../../presentation/controllers/prices/register-price-version-controller.js';
 import { Controller } from '../../presentation/interfaces/index.js';
-import { makeReprocessPendingUseCase } from './sync-factory.js';
+import { makeReprocessPendingUseCase } from './reprocess-factory.js';
 
 export const makePriceVersionRepository = (): PriceVersionRepository =>
   new MongoDbPriceVersionRepository();

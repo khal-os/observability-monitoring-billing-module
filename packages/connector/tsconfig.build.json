@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "references": [{ "path": "../core/tsconfig.build.json" }],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/**/*.spec.ts",
+    "src/**/*.test.ts",
+    "src/**/*.contract.ts"
+  ]
+}

@@ -16,8 +16,8 @@ import {
 import { seedPocPrices } from '@khal/core/infrastructure/database/mongodb/priceVersion/poc-price-seed.js';
 import { MongoDbTraceRepository } from '@khal/core/infrastructure/database/mongodb/trace/mongodb-trace-repository.js';
 import { TRACES_COLLECTION } from '@khal/core/infrastructure/database/mongodb/collections.js';
-import { FakeTraceSourceClient } from '../../traceSource/fake-trace-source-client.js';
-import { SyncTracesDbUseCase } from '../../../application/useCases/syncTraces/sync-traces-db-use-case.js';
+import { FakeTraceSourceClient } from '@khal/connector/infrastructure/traceSource/fake-trace-source-client.js';
+import { SyncTracesDbUseCase } from '@khal/connector/application/useCases/syncTraces/sync-traces-db-use-case.js';
 import { ReprocessPendingDbUseCase } from '@khal/core/application/useCases/reprocessPending/reprocess-pending-db-use-case.js';
 import { CloseBillingPeriodDbUseCase } from '../../../application/useCases/billingLifecycle/close-billing-period-db-use-case.js';
 import { ReopenBillingPeriodDbUseCase } from '../../../application/useCases/billingLifecycle/reopen-billing-period-db-use-case.js';
@@ -33,14 +33,14 @@ import {
 } from '@khal/core/infrastructure/database/mongodb/billing/mongodb-billing-snapshot-repository.js';
 import { MongoDbBillingQueryRepository } from '@khal/core/infrastructure/database/mongodb/billing/mongodb-billing-query-repository.js';
 import { INGEST_FAILURES_COLLECTION } from '@khal/core/infrastructure/database/mongodb/collections.js';
-import { MongoDbIngestFailureRepository } from './ingestFailures/mongodb-ingest-failure-repository.js';
-import { estimateBsonBytes } from './ingestFailures/bson-size-estimator.js';
+import { MongoDbIngestFailureRepository } from '@khal/connector/infrastructure/database/mongodb/ingestFailures/mongodb-ingest-failure-repository.js';
+import { estimateBsonBytes } from '@khal/connector/infrastructure/database/mongodb/ingestFailures/bson-size-estimator.js';
 import { GetTraceDetailDbUseCase } from '../../../application/useCases/queryTraces/get-trace-detail-db-use-case.js';
 import { MongoDbTraceQueryRepository } from '@khal/core/infrastructure/database/mongodb/trace/mongodb-trace-query-repository.js';
 import { brlToMicrocents } from '@khal/core/common/helpers/money/money.js';
 import { StampedTokenCost } from '@khal/core/domain/models/trace-model.js';
 import { closedMonthWindows } from '@khal/core/domain/models/billing-period-model.js';
-import { SourceTrace } from '../../../application/interfaces/trace-source-client.js';
+import { SourceTrace } from '@khal/connector/application/interfaces/trace-source-client.js';
 
 const WINDOW_1 = {
   from: new Date('2026-06-01T00:00:00.000Z'),

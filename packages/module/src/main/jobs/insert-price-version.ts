@@ -10,7 +10,7 @@ import { DuplicatePriceVersionError } from '@khal/core/domain/errors/duplicate-p
 import {
   RUNBOOK_DATE_FORMAT_HINT,
   parseRunbookDate,
-} from './parse-runbook-date.js';
+} from '@khal/core/common/helpers/parse-runbook-date.js';
 
 /**
  * T4 runbook (v1 has no admin UI): registers a NEW price version — always

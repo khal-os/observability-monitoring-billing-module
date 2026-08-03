@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "outDir": "dist",
+    "module": "node16",
+    "target": "es2025",
+    "removeComments": true,
+    "noEmitOnError": true,
+    "esModuleInterop": true,
+    "sourceMap": true,
+    "rootDir": "src",
+    "allowJs": true,
+    "isolatedModules": true,
+    "ignoreDeprecations": "6.0",
+    "types": ["node", "jest"],
+    "moduleResolution": "node16"
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
+}

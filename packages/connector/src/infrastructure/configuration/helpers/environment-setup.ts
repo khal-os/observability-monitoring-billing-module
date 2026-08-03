@@ -1,0 +1,134 @@
+import dotenv from 'dotenv';
+import path from 'path';
+import { z } from 'zod';
+import { MongoDbEnvironmentVariables } from '@khal/core/infrastructure/configuration/interfaces/mongodb-environment-variables.js';
+import {
+  LangWatchEnvironmentVariables,
+  TraceIngestionWorkerEnvironmentVariables,
+} from '../interfaces/index.js';
+
+const environmentEnum = {
+  PRODUCTION: 'production',
+  TEST: 'test',
+  DEVELOPMENT: 'development',
+} as const;
+
+type Environment = (typeof environmentEnum)[keyof typeof environmentEnum];
+
+/**
+ * The connector is a WORKER, not a server: no SERVER_PORT, no auth vars —
+ * the old single-package schema forced the ingestion worker to declare a
+ * port it never listened on (compose had to fake one).
+ */
+export interface EnvironmentVariables
+  extends
+    MongoDbEnvironmentVariables,
+    LangWatchEnvironmentVariables,
+    TraceIngestionWorkerEnvironmentVariables {
+  Environment: Environment;
+  /** Deployment display name (single-tenant instance) — optional, logs only. */
+  clientName?: string;
+}
+
+/** Optional positive-integer env string (worker knobs). */
+const optionalIntString = (name: string) =>
+  z
+    .string()
+    .regex(/^\d+$/, `${name} must be a valid integer string`)
+    .optional();
+
+const envSchema = z
+  .object({
+    ENVIRONMENT: z.enum([
+      environmentEnum.PRODUCTION,
+      environmentEnum.TEST,
+      environmentEnum.DEVELOPMENT,
+    ] as const),
+    CLIENT_NAME: z.string().optional(),
+    MONGO_DB_PORT: z
+      .string()
+      .regex(/^\d+$/, 'MONGO_DB_PORT must be a valid integer string')
+      .optional(),
+    // env vars are always strings — a boolean here would reject every set
+    // value and crash the boot; the transform below maps to boolean.
+    MONGO_DB_ATLAS: z.enum(['true', 'false']).optional(),
+    MONGO_DB_HOST: z.string().optional(),
+    MONGO_DB_NAME: z.string().optional(),
+    MONGO_DB_PASSWORD: z.string().optional(),
+    MONGO_DB_USER: z.string().optional(),
+    LANGWATCH_ENDPOINT: z.string().optional(),
+    LANGWATCH_API_KEY: z.string().optional(),
+    LANGWATCH_CLICKHOUSE_URL: z.string().optional(),
+    LANGWATCH_CLICKHOUSE_USER: z.string().optional(),
+    LANGWATCH_CLICKHOUSE_PASSWORD: z.string().optional(),
+    LANGWATCH_CLICKHOUSE_DATABASE: z.string().optional(),
+    LANGWATCH_PROJECT_ID: z.string().optional(),
+    TRACE_INGESTION_INTERVAL_SECONDS: optionalIntString('TRACE_INGESTION_INTERVAL_SECONDS'),
+    TRACE_INGESTION_BATCH_SIZE: optionalIntString('TRACE_INGESTION_BATCH_SIZE'),
+    TRACE_INGESTION_QUIET_PERIOD_SECONDS: optionalIntString('TRACE_INGESTION_QUIET_PERIOD_SECONDS'),
+    REPROCESS_INTERVAL_SECONDS: optionalIntString('REPROCESS_INTERVAL_SECONDS'),
+  })
+  .transform((env) => ({
+    ...env,
+    MONGO_DB_PORT: env.MONGO_DB_PORT
+      ? parseInt(env.MONGO_DB_PORT, 10)
+      : undefined,
+    MONGO_DB_ATLAS: env.MONGO_DB_ATLAS
+      ? env.MONGO_DB_ATLAS === 'true'
+      : undefined,
+    TRACE_INGESTION_INTERVAL_SECONDS: env.TRACE_INGESTION_INTERVAL_SECONDS
+      ? parseInt(env.TRACE_INGESTION_INTERVAL_SECONDS, 10)
+      : undefined,
+    TRACE_INGESTION_BATCH_SIZE: env.TRACE_INGESTION_BATCH_SIZE
+      ? parseInt(env.TRACE_INGESTION_BATCH_SIZE, 10)
+      : undefined,
+    TRACE_INGESTION_QUIET_PERIOD_SECONDS: env.TRACE_INGESTION_QUIET_PERIOD_SECONDS
+      ? parseInt(env.TRACE_INGESTION_QUIET_PERIOD_SECONDS, 10)
+      : undefined,
+    REPROCESS_INTERVAL_SECONDS: env.REPROCESS_INTERVAL_SECONDS
+      ? parseInt(env.REPROCESS_INTERVAL_SECONDS, 10)
+      : undefined,
+  }));
+
+const narrowedEnv = Object.values(environmentEnum).includes(
+  process.env.ENVIRONMENT as Environment,
+)
+  ? (process.env.ENVIRONMENT as Environment)
+  : environmentEnum.DEVELOPMENT;
+
+dotenv.config({
+  path: path.resolve(process.cwd(), `.env.${narrowedEnv}`),
+});
+
+const unsafeEnv = process.env as Record<string, string>;
+
+const parsedEnv = envSchema.safeParse(unsafeEnv);
+
+if (!parsedEnv.success) {
+  console.error('Invalid environment variables:', parsedEnv.error);
+  process.exit(1);
+}
+
+const safeEnvironment = parsedEnv.data;
+
+export const environment: EnvironmentVariables = {
+  Environment: safeEnvironment.ENVIRONMENT,
+  clientName: safeEnvironment.CLIENT_NAME || undefined,
+  mongoDbAtlas: safeEnvironment.MONGO_DB_ATLAS,
+  mongoDbHost: safeEnvironment.MONGO_DB_HOST,
+  mongoDbName: safeEnvironment.MONGO_DB_NAME,
+  mongoDbPassword: safeEnvironment.MONGO_DB_PASSWORD,
+  mongoDbPort: safeEnvironment.MONGO_DB_PORT,
+  mongoDbUser: safeEnvironment.MONGO_DB_USER,
+  langwatchEndpoint: safeEnvironment.LANGWATCH_ENDPOINT,
+  langwatchApiKey: safeEnvironment.LANGWATCH_API_KEY,
+  langwatchClickhouseUrl: safeEnvironment.LANGWATCH_CLICKHOUSE_URL,
+  langwatchClickhouseUser: safeEnvironment.LANGWATCH_CLICKHOUSE_USER,
+  langwatchClickhousePassword: safeEnvironment.LANGWATCH_CLICKHOUSE_PASSWORD,
+  langwatchClickhouseDatabase: safeEnvironment.LANGWATCH_CLICKHOUSE_DATABASE,
+  langwatchProjectId: safeEnvironment.LANGWATCH_PROJECT_ID,
+  traceIngestionIntervalSeconds: safeEnvironment.TRACE_INGESTION_INTERVAL_SECONDS,
+  traceIngestionBatchSize: safeEnvironment.TRACE_INGESTION_BATCH_SIZE,
+  traceIngestionQuietPeriodSeconds: safeEnvironment.TRACE_INGESTION_QUIET_PERIOD_SECONDS,
+  reprocessIntervalSeconds: safeEnvironment.REPROCESS_INTERVAL_SECONDS,
+};

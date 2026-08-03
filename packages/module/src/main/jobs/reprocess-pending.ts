@@ -1,4 +1,4 @@
-import { makeReprocessPendingUseCase } from '../factories/sync-factory.js';
+import { makeReprocessPendingUseCase } from '../factories/reprocess-factory.js';
 import { makeDatabase } from '../factories/database-factory.js';
 
 /**

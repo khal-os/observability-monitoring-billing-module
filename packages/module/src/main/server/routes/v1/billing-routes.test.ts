@@ -5,7 +5,7 @@
  */
 import request from 'supertest';
 import { server } from '../../app.js';
-import { makeReprocessPendingUseCase } from '../../../factories/sync-factory.js';
+import { makeReprocessPendingUseCase } from '@khal/connector/main/factories/sync-factory.js';
 import { makePriceVersionRepository } from '../../../factories/price-factory.js';
 import {
   routeDbHarness,
