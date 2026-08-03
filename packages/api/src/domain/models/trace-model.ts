@@ -124,6 +124,17 @@ export interface TraceModel {
    * historical mark of the late arrival.
    */
   billingQuarantine?: { reason: 'period_closed'; quarantinedAt: Date } | null;
+  /**
+   * audit B-3 (Q8, approved): the ONE sanctioned dent in invariant 6's
+   * "store everything" — a trace whose full document would breach the
+   * store's ~16MB document cap is kept, with span/trace content replaced
+   * by `{ truncated: true, originalBytes }` markers and this flag set.
+   * Tokens, costs and the price stamp are NEVER affected (they come from
+   * counts, not content), and the truncation event is recorded in
+   * ingest_failures so the clipping is auditable. Absent on every
+   * untouched trace.
+   */
+  contentTruncated?: boolean;
   ingestedAt: Date;
   /**
    * Full payloads + ordered steps, merged into the trace document
