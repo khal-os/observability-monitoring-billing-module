@@ -7,6 +7,10 @@ import {
 } from '../../domain/models/price-version-model.js';
 import { brlToMicrocents } from '../../common/helpers/money/money.js';
 import { DuplicatePriceVersionError } from '../../domain/errors/duplicate-price-version-error.js';
+import {
+  EFFECTIVE_FROM_FORMAT_HINT,
+  parseEffectiveFrom,
+} from './parse-effective-from.js';
 
 /**
  * T4 runbook (v1 has no admin UI): registers a NEW price version — always
@@ -15,7 +19,7 @@ import { DuplicatePriceVersionError } from '../../domain/errors/duplicate-price-
  *
  * Usage:
  *   npm run price:insert -- --model <model> --token-type <input|output|cache_read|cache_write> \
- *     --price-brl <e.g. 3.10> --effective-from <ISO date>
+ *     --price-brl <e.g. 3.10> --effective-from <YYYY-MM-DD or offset-carrying ISO-8601>
  */
 const { values } = parseArgs({
   options: {
@@ -33,7 +37,7 @@ const effectiveFromRaw = values['effective-from'];
 
 if (!model || !tokenType || !priceBrl || !effectiveFromRaw) {
   console.error(
-    'Usage: npm run price:insert -- --model <model> --token-type <type> --price-brl <amount> --effective-from <ISO date>',
+    'Usage: npm run price:insert -- --model <model> --token-type <type> --price-brl <amount> --effective-from <YYYY-MM-DD or offset-carrying ISO-8601>',
   );
   process.exit(1);
 }
@@ -47,7 +51,9 @@ if (!TOKEN_TYPES.includes(tokenType)) {
 
 // Same price rules as POST /prices (C-2 — the two doors cannot diverge):
 // bounded decimal string, and NEVER zero — an accidental "0" would stamp
-// every pending trace at R$ 0,00 immutably (invariant 2).
+// every pending trace at R$ 0,00 immutably (invariant 2). The
+// --effective-from border below reuses the HTTP door's own schema for the
+// same reason.
 if (!/^\d{1,8}(\.\d{1,8})?$/.test(priceBrl)) {
   console.error(
     `Invalid --price-brl "${priceBrl}". Expected a decimal string like "2.75" (up to 8 integer and 8 decimal digits).`,
@@ -62,10 +68,12 @@ if (Number(priceBrl) === 0) {
   process.exit(1);
 }
 
-const effectiveFrom = new Date(effectiveFromRaw);
+const effectiveFrom = parseEffectiveFrom(effectiveFromRaw);
 
-if (Number.isNaN(effectiveFrom.getTime())) {
-  console.error(`Invalid --effective-from date: "${effectiveFromRaw}".`);
+if (!effectiveFrom) {
+  console.error(
+    `Invalid --effective-from "${effectiveFromRaw}". ${EFFECTIVE_FROM_FORMAT_HINT}`,
+  );
   process.exit(1);
 }
 
