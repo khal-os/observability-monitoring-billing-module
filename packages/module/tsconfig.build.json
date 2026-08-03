@@ -3,7 +3,8 @@
   "compilerOptions": {
     "types": [
       "node"
-    ]
+    ],
+    "tsBuildInfoFile": "dist/tsconfig.build.tsbuildinfo"
   },
   "exclude": [
     "node_modules",

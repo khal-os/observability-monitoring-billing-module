@@ -59,7 +59,7 @@ Everything else is graded M/L: contract-hardening, consistency drift, duplicatio
 - **Note:** this changes deployment behavior for anyone relying on LAN access — flagged as an **open question** (§7-Q4) rather than auto-applied; my recommendation is loopback-by-default.
 
 ### A-3 · HIGH — `rmSync` path traversal in the fixtures generator
-- **File:** `packages/module/scripts/generate-demo-fixtures.mjs` (~:480-507)
+- **File:** `packages/connector/scripts/generate-demo-fixtures.mjs` (~:480-507)
 - **Verified:** `const dir = path.join(OUT_ROOT, name)` where `name` is raw `argv[clientFlag + 1]`; then `rmSync(dir, { recursive: true, force: true })`. `--client ..` resolves to the repo root. Shell wrappers validate the slug, but the script header documents direct invocation.
 - **Fix:** at the top of the write loop:
   ```js

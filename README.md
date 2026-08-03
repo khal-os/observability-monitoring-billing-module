@@ -89,7 +89,7 @@ docker compose -f compose.module.yml -f compose.connector.yml -f compose.mongodb
 docker compose -f compose.module.yml -f compose.connector.yml -f compose.mongodb.yml --env-file <client>.env run --rm --no-deps api node dist/main/jobs/run-migrations.js
 ```
 
-(no `compose.dev.yml`, prebuilt registry images via `API_IMAGE`/`UI_IMAGE`).
+(no `compose.dev.yml`, prebuilt registry images via `MODULE_IMAGE`/`CONNECTOR_IMAGE`/`UI_IMAGE`).
 `make up-prod CLIENT=<name>` rehearses exactly this form locally, and
 `make migrate CLIENT=<name>` is that second command.
 
@@ -212,7 +212,7 @@ sessions, durations, spans, error rate, three models — dated over the last
 honest pipeline: pushed into the client's LangWatch via the collector API,
 then ingested by the real sync with prices stamped at write time.
 
-`node packages/module/scripts/generate-demo-fixtures.mjs` (no args) still
+`node packages/connector/scripts/generate-demo-fixtures.mjs` (no args) still
 produces the three richer PoC profiles (hapvida/claro/vivo);
 `--client <name> [--traces N]` produces any client's generic set.
 
@@ -234,8 +234,11 @@ client-agnostic).
 - **RAM**: LangWatch is the heavy part (~4–5 GB/client with the configured
   caps). On one dev machine, prefer one or two clients at a time; the first
   boot of a client's LangWatch takes ~1–2 min (its own migrations).
-- **Images**: `API_IMAGE`/`UI_IMAGE` pin the platform images per deployment
-  (dev default `platform-api:local`/`platform-ui:local`). Only the ROOT
+- **Images**: `MODULE_IMAGE`/`CONNECTOR_IMAGE`/`UI_IMAGE` pin the platform
+  images per deployment (dev defaults `platform-module:local`/
+  `platform-connector:local`/`platform-ui:local`). The module image serves
+  the API and is vendor-free by construction; the connector image runs the
+  trace-ingestion-worker and `make sync`. Only the ROOT
   `package-lock.json` is authoritative; `tsc` always runs in-image because
   the local `dist/` may be stale.
 - **LangWatch secrets** (`LW_*`) are per instance; `LW_CREDENTIALS_SECRET`

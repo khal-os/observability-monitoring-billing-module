@@ -21,6 +21,28 @@ LangWatch API → trace-level sync → **price stamping at write time** (each
 trace is stored already priced) → own permanent store (traces + spans + full
 content) → live views (traces/sessions) + monthly aggregates (billing).
 
+## Package layout (decision 125 — module ⊥ connector)
+
+npm workspaces, one logical module, one version:
+
+- `packages/core` (`@khal/core`) — the store and its rules: domain models,
+  price-stamper, reprocess, ALL MongoDB repositories, migrations, the one
+  date rule (`iso-date-rule`). Bottom of the graph — imports no `@khal/*`.
+- `packages/module` (`@khal/module`) — the read API (traces/sessions/
+  billing), prices, month lifecycle, server. **Vendor-blind by package**:
+  no `langwatch` string anywhere; `@khal/connector` is a devDependency for
+  test seeding ONLY (route harness + pipeline test), enforced by test.
+- `packages/connector` (`@khal/connector`) — the trace-source side:
+  LangWatch adapters (ClickHouse/HTTP/fake+fixtures), syncTraces/
+  syncBatches, ingestion bookkeeping repos, worker loop + `run-sync` job.
+- `packages/ui` (`@khal/ui`) — static client UI.
+
+Graph: `module → core ← connector` (never module ↔ connector in production
+code). Docker mirrors it: `platform-module` (vendor-free by construction)
+and `platform-connector` (worker + fixtures) — see `docker/*.Dockerfile`.
+Each package has its own `architecture-boundaries.spec.ts`; cross-package
+imports count as the layer they name (`@khal/core/<layer>/…`).
+
 ## Invariants — never violate these
 
 1. **Price is stamped at ingestion and is immutable.** The stamp uses the
@@ -66,8 +88,8 @@ IN: T4 price table (seeded via the dev-only `make seed-prices` job — decision
 74; migrations carry only index bootstrap) · T2 sync (QA14 RESOLVED — real
 clients ship: direct-ClickHouse reads preferred, HTTP LangWatch as fallback
 with a code-level guard on the ~100-trace search cap, and the fixture-backed
-`FakeTraceSourceClient` for offline demos/tests; chain composed in
-`sync-factory.ts`) · T5 stamping · T3 store (traces/spans/content) ·
+`FakeTraceSourceClient` for offline demos/tests; chain composed in the
+connector's `sync-factory.ts`) · T5 stamping · T3 store (traces/spans/content) ·
 endpoints `GET /traces`, `GET /traces/:id`, `GET /sessions`,
 `GET /sessions/:id` (session = derived read-model grouped by `session_id`) ·
 one billing aggregate endpoint (month × agent × model) that visibly equals

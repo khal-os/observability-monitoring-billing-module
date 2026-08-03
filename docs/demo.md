@@ -12,7 +12,9 @@
 > demonstrar).
 
 Roteiro do `docs/produto/poc.md` ("Roteiro da demo"), passo a passo, com os
-comandos reais. Todos os comandos rodam em `packages/module`.
+comandos reais. Desde o split de pacotes (decisão 125), `migrate`,
+`seed-poc-prices` e `price:insert` rodam em `packages/module`; `npm run
+sync` roda em `packages/connector` (a porta de ingestão é do connector).
 
 ## Pré-requisitos
 

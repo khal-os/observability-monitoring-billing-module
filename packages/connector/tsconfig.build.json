@@ -1,9 +1,16 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "types": ["node"]
+    "types": [
+      "node"
+    ],
+    "tsBuildInfoFile": "dist/tsconfig.build.tsbuildinfo"
   },
-  "references": [{ "path": "../core/tsconfig.build.json" }],
+  "references": [
+    {
+      "path": "../core/tsconfig.build.json"
+    }
+  ],
   "exclude": [
     "node_modules",
     "dist",
