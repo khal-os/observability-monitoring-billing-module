@@ -6,6 +6,7 @@ import { sortAlignedTraceIndexes } from './013-sort-aligned-trace-indexes.js';
 import { sessionSummaryIndexes } from './014-session-summary-indexes.js';
 import { modelObject } from './015-model-object.js';
 import { billingPeriodIndexes } from './017-billing-period-indexes.js';
+import { ingestFailureIndexes } from './018-ingest-failure-indexes.js';
 
 /**
  * Ordered list — the runner applies each exactly once, in this order.
@@ -28,4 +29,5 @@ export const migrations: Migration[] = [
   sessionSummaryIndexes,
   modelObject,
   billingPeriodIndexes,
+  ingestFailureIndexes,
 ];
