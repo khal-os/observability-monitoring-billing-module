@@ -52,6 +52,23 @@ describe('Auth Middleware', () => {
       .expect(200, { ok: true });
   });
 
+  it('MUST accept a lowercase `bearer` scheme (RFC 7235: schemes are case-insensitive)', async () => {
+    const seen: string[] = [];
+    const recording: TokenAuthenticator = {
+      isAuthenticated: async (token) => {
+        seen.push(token);
+        return true;
+      },
+    };
+
+    await request(makeApp(recording))
+      .get('/test-auth')
+      .set('Authorization', 'bearer some-token')
+      .expect(200, { ok: true });
+
+    expect(seen).toEqual(['some-token']);
+  });
+
   it('MUST answer 401 (fail closed) when the authenticator throws', async () => {
     const throwing: TokenAuthenticator = {
       isAuthenticated: async () => {

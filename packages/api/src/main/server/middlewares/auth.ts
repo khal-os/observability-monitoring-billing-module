@@ -25,10 +25,10 @@ export const buildAuthMiddleware = (authenticator?: TokenAuthenticator) => {
       return;
     }
 
+    // RFC 7235: the auth-scheme is case-insensitive — `bearer x` is as
+    // valid as `Bearer x` (C-4.3).
     const header = req.headers.authorization;
-    const token = header?.startsWith('Bearer ')
-      ? header.slice('Bearer '.length)
-      : undefined;
+    const token = header?.match(/^Bearer\s+(.+)$/i)?.[1];
 
     if (!token) {
       res.status(401).json(new UnauthorizedError());
