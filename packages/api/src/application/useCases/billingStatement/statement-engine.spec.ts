@@ -182,6 +182,36 @@ describe('buildStatement (the single billing calculation — invariant 3)', () =
     expect(nullGroup?.costMicrocents).toBe(costMicrocents(10_000, PRICE_INPUT));
   });
 
+  it('stays exact at extreme magnitude: shares and cents close near 2^53 µ¢ (decision 109)', () => {
+    // Three agents at ≈3e15 µ¢ each — statement total is MAX_SAFE − 1, the
+    // money module's asserted ceiling. weight × 10000 far exceeds 2^53, so
+    // only BigInt share math keeps the allocation exact; everything must
+    // still close, deterministically.
+    const HUGE = 3_002_399_751_580_330; // ×3 = 9_007_199_254_740_990 = MAX_SAFE − 1
+    const statement = buildStatement([
+      record('h1', 'a', 'm1', [stamped('input', 1_000_000, HUGE)]),
+      record('h2', 'b', 'm2', [stamped('input', 1_000_000, HUGE)]),
+      record('h3', 'c', 'm3', [stamped('input', 1_000_000, HUGE)]),
+    ]);
+
+    expect(statement.totalCostMicrocents).toBe(Number.MAX_SAFE_INTEGER - 1);
+
+    const totalBp = statement.agents.reduce(
+      (sum, group) => sum + group.percentOfTotalBp,
+      0,
+    );
+    expect(totalBp).toBe(10_000);
+    expect(
+      statement.modelMixTotal.reduce((sum, share) => sum + share.costShareBp, 0),
+    ).toBe(10_000);
+
+    const lineCents = statement.lines.reduce(
+      (sum, line) => sum + line.displayCents,
+      0,
+    );
+    expect(lineCents).toBe(statement.totalDisplayCents);
+  });
+
   it('is DETERMINISTIC: same records in any order produce the identical statement (reproducibility, T6)', () => {
     const forward = buildStatement(FIXTURE);
     const reversed = buildStatement([...FIXTURE].reverse());
