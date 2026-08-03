@@ -1,7 +1,9 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
   "exclude": [
     "node_modules",
@@ -12,5 +14,10 @@
     "src/**/billing-test-fakes.ts",
     "src/main/server/routes/v1/helpers/route-db-harness.ts",
     "src/architecture-boundaries.spec.ts"
+  ],
+  "references": [
+    {
+      "path": "../core/tsconfig.build.json"
+    }
   ]
 }

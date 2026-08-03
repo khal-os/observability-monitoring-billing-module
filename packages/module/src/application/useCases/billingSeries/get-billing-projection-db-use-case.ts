@@ -4,7 +4,7 @@ import {
   GetBillingProjectionUseCase,
   PROJECTION_MIN_COMPLETE_DAYS,
 } from './billing-series-protocols.js';
-import { monthWindowUtc } from '../../../domain/models/billing-period-model.js';
+import { monthWindowUtc } from '@khal/core/domain/models/billing-period-model.js';
 
 /**
  * US12/T8: documented linear run-rate for the CURRENT UTC month —

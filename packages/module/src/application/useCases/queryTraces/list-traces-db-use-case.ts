@@ -6,7 +6,7 @@ import {
   TraceListFilters,
   TraceQueryRepository,
 } from './query-traces-protocols.js';
-import { TraceModel } from '../../../domain/models/trace-model.js';
+import { TraceModel } from '@khal/core/domain/models/trace-model.js';
 import { withDerivedPendingPrice } from './derive-pending-price.js';
 
 export class ListTracesDbUseCase implements ListTracesUseCase {

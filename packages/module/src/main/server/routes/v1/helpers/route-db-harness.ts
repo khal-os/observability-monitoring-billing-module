@@ -1,23 +1,23 @@
-import { MongoDb } from '../../../../../infrastructure/database/mongodb/mongo-db.js';
+import { MongoDb } from '@khal/core/infrastructure/database/mongodb/mongo-db.js';
 import {
   MIGRATIONS_COLLECTION,
   runMigrations,
-} from '../../../../../infrastructure/database/mongodb/helpers/migration-runner.js';
-import { migrations } from '../../../../../infrastructure/database/mongodb/migrations/index.js';
-import { seedPocPrices } from '../../../../../infrastructure/database/mongodb/priceVersion/poc-price-seed.js';
-import { PRICE_VERSIONS_COLLECTION } from '../../../../../infrastructure/database/mongodb/priceVersion/mongodb-price-version-repository.js';
+} from '@khal/core/infrastructure/database/mongodb/helpers/migration-runner.js';
+import { migrations } from '@khal/core/infrastructure/database/mongodb/migrations/index.js';
+import { seedPocPrices } from '@khal/core/infrastructure/database/mongodb/priceVersion/poc-price-seed.js';
+import { PRICE_VERSIONS_COLLECTION } from '@khal/core/infrastructure/database/mongodb/priceVersion/mongodb-price-version-repository.js';
 import {
   SESSION_SUMMARIES_COLLECTION,
   TRACES_COLLECTION,
   TRACE_FILTER_COUNTERS_COLLECTION,
-} from '../../../../../infrastructure/database/mongodb/collections.js';
-import { BILLING_PERIODS_COLLECTION } from '../../../../../infrastructure/database/mongodb/billing/mongodb-billing-period-repository.js';
+} from '@khal/core/infrastructure/database/mongodb/collections.js';
+import { BILLING_PERIODS_COLLECTION } from '@khal/core/infrastructure/database/mongodb/billing/mongodb-billing-period-repository.js';
 import {
   BILLING_SNAPSHOTS_COLLECTION,
   BILLING_SNAPSHOT_USAGE_COLLECTION,
-} from '../../../../../infrastructure/database/mongodb/billing/mongodb-billing-snapshot-repository.js';
+} from '@khal/core/infrastructure/database/mongodb/billing/mongodb-billing-snapshot-repository.js';
 import { makeSyncTracesUseCase } from '../../../../factories/sync-factory.js';
-import { StampedTokenCost } from '../../../../../domain/models/trace-model.js';
+import { StampedTokenCost } from '@khal/core/domain/models/trace-model.js';
 
 /**
  * THE single storage-aware helper behind the route suites. The HTTP-level

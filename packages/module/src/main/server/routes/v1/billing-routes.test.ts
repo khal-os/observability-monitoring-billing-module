@@ -15,9 +15,9 @@ import {
   brlToMicrocents,
   formatBrlExactFromMicrocents,
   formatBrlFromMicrocents,
-} from '../../../../common/helpers/money/money.js';
-import { formatBrlDisplay } from '../../../../common/helpers/display/display.js';
-import { StampedTokenCost } from '../../../../domain/models/trace-model.js';
+} from '@khal/core/common/helpers/money/money.js';
+import { formatBrlDisplay } from '@khal/core/common/helpers/display/display.js';
+import { StampedTokenCost } from '@khal/core/domain/models/trace-model.js';
 
 const app = server.app;
 

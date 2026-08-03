@@ -3,45 +3,43 @@
  * real Mongo store, real price seed — including the two MANDATORY tests:
  * sync idempotency and price-stamp immutability (decision 25).
  */
-import { MongoDb } from './mongo-db.js';
+import { MongoDb } from '@khal/core/infrastructure/database/mongodb/mongo-db.js';
 import {
   MIGRATIONS_COLLECTION,
   runMigrations,
-} from './helpers/migration-runner.js';
-import { migrations } from './migrations/index.js';
+} from '@khal/core/infrastructure/database/mongodb/helpers/migration-runner.js';
+import { migrations } from '@khal/core/infrastructure/database/mongodb/migrations/index.js';
 import {
   MongoDbPriceVersionRepository,
   PRICE_VERSIONS_COLLECTION,
-} from './priceVersion/mongodb-price-version-repository.js';
-import { seedPocPrices } from './priceVersion/poc-price-seed.js';
-import { MongoDbTraceRepository } from './trace/mongodb-trace-repository.js';
-import { TRACES_COLLECTION } from './collections.js';
+} from '@khal/core/infrastructure/database/mongodb/priceVersion/mongodb-price-version-repository.js';
+import { seedPocPrices } from '@khal/core/infrastructure/database/mongodb/priceVersion/poc-price-seed.js';
+import { MongoDbTraceRepository } from '@khal/core/infrastructure/database/mongodb/trace/mongodb-trace-repository.js';
+import { TRACES_COLLECTION } from '@khal/core/infrastructure/database/mongodb/collections.js';
 import { FakeTraceSourceClient } from '../../traceSource/fake-trace-source-client.js';
 import { SyncTracesDbUseCase } from '../../../application/useCases/syncTraces/sync-traces-db-use-case.js';
-import { ReprocessPendingDbUseCase } from '../../../application/useCases/reprocessPending/reprocess-pending-db-use-case.js';
+import { ReprocessPendingDbUseCase } from '@khal/core/application/useCases/reprocessPending/reprocess-pending-db-use-case.js';
 import { CloseBillingPeriodDbUseCase } from '../../../application/useCases/billingLifecycle/close-billing-period-db-use-case.js';
 import { ReopenBillingPeriodDbUseCase } from '../../../application/useCases/billingLifecycle/reopen-billing-period-db-use-case.js';
 import { GetBillingSummaryDbUseCase } from '../../../application/useCases/billingSummary/get-billing-summary-db-use-case.js';
 import {
   BILLING_PERIODS_COLLECTION,
   MongoDbBillingPeriodRepository,
-} from './billing/mongodb-billing-period-repository.js';
+} from '@khal/core/infrastructure/database/mongodb/billing/mongodb-billing-period-repository.js';
 import {
   BILLING_SNAPSHOTS_COLLECTION,
   BILLING_SNAPSHOT_USAGE_COLLECTION,
   MongoDbBillingSnapshotRepository,
-} from './billing/mongodb-billing-snapshot-repository.js';
-import { MongoDbBillingQueryRepository } from './billing/mongodb-billing-query-repository.js';
-import {
-  INGEST_FAILURES_COLLECTION,
-  MongoDbIngestFailureRepository,
-} from './ingestFailures/mongodb-ingest-failure-repository.js';
+} from '@khal/core/infrastructure/database/mongodb/billing/mongodb-billing-snapshot-repository.js';
+import { MongoDbBillingQueryRepository } from '@khal/core/infrastructure/database/mongodb/billing/mongodb-billing-query-repository.js';
+import { INGEST_FAILURES_COLLECTION } from '@khal/core/infrastructure/database/mongodb/collections.js';
+import { MongoDbIngestFailureRepository } from './ingestFailures/mongodb-ingest-failure-repository.js';
 import { estimateBsonBytes } from './ingestFailures/bson-size-estimator.js';
 import { GetTraceDetailDbUseCase } from '../../../application/useCases/queryTraces/get-trace-detail-db-use-case.js';
-import { MongoDbTraceQueryRepository } from './trace/mongodb-trace-query-repository.js';
-import { brlToMicrocents } from '../../../common/helpers/money/money.js';
-import { StampedTokenCost } from '../../../domain/models/trace-model.js';
-import { closedMonthWindows } from '../../../domain/models/billing-period-model.js';
+import { MongoDbTraceQueryRepository } from '@khal/core/infrastructure/database/mongodb/trace/mongodb-trace-query-repository.js';
+import { brlToMicrocents } from '@khal/core/common/helpers/money/money.js';
+import { StampedTokenCost } from '@khal/core/domain/models/trace-model.js';
+import { closedMonthWindows } from '@khal/core/domain/models/billing-period-model.js';
 import { SourceTrace } from '../../../application/interfaces/trace-source-client.js';
 
 const WINDOW_1 = {

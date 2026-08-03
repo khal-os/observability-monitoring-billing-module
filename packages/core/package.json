@@ -1,0 +1,33 @@
+{
+  "name": "@khal/core",
+  "version": "1.0.0",
+  "description": "The store and its rules: domain models, price stamping, reprocess, MongoDB repositories. No HTTP, no trace sources.",
+  "type": "module",
+  "private": true,
+  "exports": {
+    "./package.json": "./package.json",
+    "./*": "./dist/*"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "test": "ENVIRONMENT=test jest --passWithNoTests --silent --noStackTrace --collectCoverage=false --runInBand",
+    "test:verbose": "ENVIRONMENT=test jest --passWithNoTests",
+    "test:unit": "npm test -- --watch --config=jest-unit.config.mjs",
+    "test:integration": "npm test -- --watch --config=jest-integration.config.mjs",
+    "test:ci": "ENVIRONMENT=test jest --passWithNoTests --silent --noStackTrace --runInBand --collectCoverage=true"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@shelf/jest-mongodb": "^6.0.2",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^25.6.0",
+    "jest": "^30.3.0",
+    "ts-jest": "^29.4.9",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "mongodb": "^7.2.0"
+  }
+}

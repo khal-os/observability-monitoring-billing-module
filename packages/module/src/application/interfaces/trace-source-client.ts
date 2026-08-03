@@ -4,7 +4,7 @@ import {
   ExecutionStatus,
   ExperimentRef,
   TokenCounts,
-} from '../../domain/models/trace-model.js';
+} from '@khal/core/domain/models/trace-model.js';
 
 /**
  * VENDOR-NEUTRAL port for the trace source connector. This shape IS the

@@ -1,16 +1,17 @@
-import { EffectivePrices } from '../../interfaces/price-version-repository.js';
-import { PriceVersionRepository } from '../../interfaces/price-version-repository.js';
-import { TraceRepository } from '../../interfaces/trace-repository.js';
+import { EffectivePrices } from '@khal/core/application/interfaces/price-version-repository.js';
+import { PriceVersionRepository } from '@khal/core/application/interfaces/price-version-repository.js';
+import { TraceRepository } from '@khal/core/application/interfaces/trace-repository.js';
 import {
   EstimateDocumentBytes,
   IngestFailureKind,
   IngestFailureRepository,
 } from '../../interfaces/ingest-failure-repository.js';
-import { BillingPeriodRepository } from '../../interfaces/billing-period-repository.js';
+import { BillingPeriodRepository } from '@khal/core/application/interfaces/billing-period-repository.js';
 import { SourceTrace } from '../../interfaces/trace-source-client.js';
-import { BillingPeriodModel } from '../../../domain/models/billing-period-model.js';
-import { modelKey } from '../../../domain/models/model-ref.js';
-import { stampTokens } from './price-stamper.js';
+import { BillingPeriodModel } from '@khal/core/domain/models/billing-period-model.js';
+import { modelKey } from '@khal/core/domain/models/model-ref.js';
+import { stampTokens } from '@khal/core/application/useCases/priceStamping/price-stamper.js';
+import { closedMonthKeys, monthKeyOf } from '@khal/core/domain/models/month-key.js';
 import { mapToTrace, sourceModelRef, sumTokens } from './trace-mapper.js';
 import {
   UnstorableTraceError,
@@ -43,45 +44,6 @@ export interface IngestDeps {
   estimateDocumentBytes: EstimateDocumentBytes;
 }
 
-/** Month key shared by the sync loops and the reprocess sweep — `${UTC year}-${UTC month}`. */
-export const monthKeyOf = (date: Date): string =>
-  `${date.getUTCFullYear()}-${date.getUTCMonth() + 1}`;
-
-/**
- * audit C-7.3: closed months are resolved ONCE per sync cycle (one
- * listAll) and passed into every ingest — the per-trace period lookup was
- * an N+1 on the hot path (1000 lookups per batch).
- *
- * re-audit 2026-08 (sync item 5): a set read at cycle start CAN go stale
- * (a close landing mid-cycle, or mid-backfill). What actually keeps that
- * honest is three layers, not one — the earlier "fully safe" claim
- * overstated it:
- *   1. ingest re-checks the period for the rare PAST-month trace (below),
- *      so a straggler dated in the month that just closed is flagged at
- *      write time;
- *   2. the close-side reconciliation (audit B-1 / decision 100) flags any
- *      straggler that still slipped through before the close committed;
- *   3. a crashed reconcile is repaired on the next close of that month —
- *      the already-closed retry path runs it again.
- * A current-month trace ingested while its own month is being closed is
- * layer 2's business; layer 1 deliberately does not pay a lookup for it.
- */
-export const closedMonthKeys = (periods: BillingPeriodModel[]): Set<string> =>
-  new Set(
-    periods
-      .filter((period) => period.status === 'closed')
-      .map((period) => `${period.year}-${period.month}`),
-  );
-
-/**
- * audit B-3: per-trace isolation must not mask a store outage. ONE
- * failing trace is poison — dead-lettered, the batch continues, the
- * cursor advances (ingest_failures is the recovery trail). But a
- * non-trivial batch where EVERY trace fails is what a store outage looks
- * like from here — advancing would burn the source's ~49-day retention
- * behind a wall of dead letters. Mirror of the source-side all-poison
- * breaker (decision 79): halt loudly, without advancing.
- */
 export const ALL_FAILED_BREAKER_MIN_TRACES = 10;
 
 export const assertNotAllFailed = (attempted: number, failed: number): void => {

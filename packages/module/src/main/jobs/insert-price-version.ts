@@ -4,9 +4,9 @@ import { makeRegisterPriceVersionUseCase } from '../factories/price-factory.js';
 import {
   TOKEN_TYPES,
   TokenType,
-} from '../../domain/models/price-version-model.js';
-import { brlToMicrocents } from '../../common/helpers/money/money.js';
-import { DuplicatePriceVersionError } from '../../domain/errors/duplicate-price-version-error.js';
+} from '@khal/core/domain/models/price-version-model.js';
+import { brlToMicrocents } from '@khal/core/common/helpers/money/money.js';
+import { DuplicatePriceVersionError } from '@khal/core/domain/errors/duplicate-price-version-error.js';
 import {
   RUNBOOK_DATE_FORMAT_HINT,
   parseRunbookDate,

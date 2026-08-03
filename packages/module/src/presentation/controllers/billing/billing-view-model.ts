@@ -2,40 +2,40 @@ import {
   BillingMonthComparison,
   BillingPeriodStatus,
   BillingSummary,
-} from '../../../domain/useCases/get-billing-summary-use-case.js';
-import { BillListItem } from '../../../domain/useCases/list-bills-use-case.js';
+} from '@khal/core/domain/useCases/get-billing-summary-use-case.js';
+import { BillListItem } from '@khal/core/domain/useCases/list-bills-use-case.js';
 import {
   BillingSeriesDay,
   BillingSeriesMonth,
-} from '../../../domain/useCases/get-billing-series-use-case.js';
+} from '@khal/core/domain/useCases/get-billing-series-use-case.js';
 import {
   BillingProjection,
   PROJECTION_MIN_COMPLETE_DAYS,
-} from '../../../domain/useCases/get-billing-projection-use-case.js';
+} from '@khal/core/domain/useCases/get-billing-projection-use-case.js';
 import {
   StatementAgentGroup,
   StatementAgentModelMix,
   StatementLine,
   StatementModelShare,
   StatementProjection,
-} from '../../../domain/models/billing-snapshot-model.js';
+} from '@khal/core/domain/models/billing-snapshot-model.js';
 import {
   TOKEN_TYPES,
   TokenType,
-} from '../../../domain/models/price-version-model.js';
+} from '@khal/core/domain/models/price-version-model.js';
 import {
   formatBrlExactFromMicrocents,
   formatBrlFromCents,
   formatBrlFromMicrocents,
   reconcileDisplayCents,
-} from '../../../common/helpers/money/money.js';
+} from '@khal/core/common/helpers/money/money.js';
 import {
   formatBrlDisplay,
   formatDateTimeDisplay,
   formatIntDisplay,
   formatMonthLabel,
   formatUtcDateDisplay,
-} from '../../../common/helpers/display/display.js';
+} from '@khal/core/common/helpers/display/display.js';
 import {
   BillListView,
   BillingProjectionView,

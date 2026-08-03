@@ -10,7 +10,7 @@ import {
   QuarantineReconcilerStub,
   StubBillingQueryRepository,
   usageRecord,
-} from '../billingStatement/billing-test-fakes.js';
+} from '@khal/core/application/testSupport/billing-test-fakes.js';
 import {
   STATEMENT_LOGIC_VERSION,
   buildStatement,
@@ -19,8 +19,8 @@ import {
 import {
   BillingSnapshotModel,
   BillingUsageRecord,
-} from '../../../domain/models/billing-snapshot-model.js';
-import { BillingPeriodAuditEntry } from '../../../domain/models/billing-period-model.js';
+} from '@khal/core/domain/models/billing-snapshot-model.js';
+import { BillingPeriodAuditEntry } from '@khal/core/domain/models/billing-period-model.js';
 
 const NOW = new Date('2026-07-15T10:00:00.000Z');
 

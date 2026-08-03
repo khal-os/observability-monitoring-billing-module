@@ -14,15 +14,15 @@ import {
   InvalidParamError,
   MissingParamError,
 } from '../../errors/index.js';
-import { DuplicatePriceVersionError } from '../../../domain/errors/duplicate-price-version-error.js';
+import { DuplicatePriceVersionError } from '@khal/core/domain/errors/duplicate-price-version-error.js';
 import {
   brlToMicrocents,
   formatBrlExactFromMicrocents,
-} from '../../../common/helpers/money/money.js';
+} from '@khal/core/common/helpers/money/money.js';
 import {
   formatBrlDisplay,
   formatUtcDateDisplay,
-} from '../../../common/helpers/display/display.js';
+} from '@khal/core/common/helpers/display/display.js';
 import {
   RegisterPriceVersionResponse,
   registerPriceVersionRequestSchema,

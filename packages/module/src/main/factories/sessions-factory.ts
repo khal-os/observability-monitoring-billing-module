@@ -4,7 +4,7 @@ import { ListSessionFilterOptionsController } from '../../presentation/controlle
 import { ListSessionsDbUseCase } from '../../application/useCases/querySessions/list-sessions-db-use-case.js';
 import { GetSessionDetailDbUseCase } from '../../application/useCases/querySessions/get-session-detail-db-use-case.js';
 import { ListSessionFilterOptionsDbUseCase } from '../../application/useCases/querySessions/list-session-filter-options-db-use-case.js';
-import { MongoDbSessionQueryRepository } from '../../infrastructure/database/mongodb/session/mongodb-session-query-repository.js';
+import { MongoDbSessionQueryRepository } from '@khal/core/infrastructure/database/mongodb/session/mongodb-session-query-repository.js';
 import { config } from '../../infrastructure/index.js';
 
 export const makeListSessionsController = (): ListSessionsController =>

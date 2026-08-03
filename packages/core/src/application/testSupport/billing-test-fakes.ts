@@ -2,23 +2,23 @@ import {
   BillingPeriodAuditEntry,
   BillingPeriodModel,
   monthWindowUtc,
-} from '../../../domain/models/billing-period-model.js';
+} from '../../domain/models/billing-period-model.js';
 import {
   BillingSnapshotModel,
   BillingUsageRecord,
-} from '../../../domain/models/billing-snapshot-model.js';
-import { BillingPeriodStateError } from '../../../domain/useCases/close-billing-period-use-case.js';
+} from '../../domain/models/billing-snapshot-model.js';
+import { BillingPeriodStateError } from '../../domain/useCases/close-billing-period-use-case.js';
 import {
   PendingPriceSummary,
-} from '../../../domain/useCases/get-billing-summary-use-case.js';
-import { BillingPeriodRepository } from '../../interfaces/billing-period-repository.js';
-import { BillingSnapshotRepository } from '../../interfaces/billing-snapshot-repository.js';
+} from '../../domain/useCases/get-billing-summary-use-case.js';
+import { BillingPeriodRepository } from '../interfaces/billing-period-repository.js';
+import { BillingSnapshotRepository } from '../interfaces/billing-snapshot-repository.js';
 import {
   BillRow,
   BillingQueryRepository,
   DailyRollupRow,
   MonthlyRollupRow,
-} from '../../interfaces/billing-query-repository.js';
+} from '../interfaces/billing-query-repository.js';
 
 /**
  * In-memory fakes shared by the billing specs — same contracts as the

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { tokenTypeSchema } from '../../helpers/docs-schemas.js';
-import { brlToMicrocents } from '../../../common/helpers/money/money.js';
+import { brlToMicrocents } from '@khal/core/common/helpers/money/money.js';
 
 const convertsToMicrocents = (value: string): boolean => {
   try {

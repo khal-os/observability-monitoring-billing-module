@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { TOKEN_TYPES } from '../../domain/models/price-version-model.js';
+import { TOKEN_TYPES } from '@khal/core/domain/models/price-version-model.js';
 
 /**
  * Shared response-contract schemas. Every response schema in the API is a

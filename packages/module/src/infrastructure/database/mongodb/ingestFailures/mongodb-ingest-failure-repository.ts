@@ -4,10 +4,10 @@ import {
   IngestFailureRepository,
   IngestTruncationRecord,
 } from '../../../../application/interfaces/ingest-failure-repository.js';
-import { MongoDb } from '../mongo-db.js';
-import { retryOnceOnDuplicateKey } from '../helpers/retry-once-on-duplicate-key.js';
+import { MongoDb } from '@khal/core/infrastructure/database/mongodb/mongo-db.js';
+import { retryOnceOnDuplicateKey } from '@khal/core/infrastructure/database/mongodb/helpers/retry-once-on-duplicate-key.js';
 
-export const INGEST_FAILURES_COLLECTION = 'ingest_failures';
+import { INGEST_FAILURES_COLLECTION } from '@khal/core/infrastructure/database/mongodb/collections.js';
 
 /**
  * Does this kind mean "the trace is NOT in the archive"? (countUnresolved).

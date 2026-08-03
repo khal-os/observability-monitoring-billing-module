@@ -6,7 +6,7 @@ import {
   ListSessionsUseCase,
 } from './sessions-protocols.js';
 import { buildSuccess, totalPages } from '../../helpers/http-helper.js';
-import { formatIntDisplay } from '../../../common/helpers/display/display.js';
+import { formatIntDisplay } from '@khal/core/common/helpers/display/display.js';
 import {
   exceedsPaginationDepth,
   invalidPeriod,

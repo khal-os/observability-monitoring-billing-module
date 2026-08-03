@@ -1,6 +1,8 @@
 import { Migration } from '../helpers/migration-runner.js';
-import { INGEST_FAILURES_COLLECTION } from '../ingestFailures/mongodb-ingest-failure-repository.js';
-import { POISON_ROWS_COLLECTION } from '../ingestFailures/mongodb-poison-row-repository.js';
+import {
+  INGEST_FAILURES_COLLECTION,
+  POISON_ROWS_COLLECTION,
+} from '../collections.js';
 
 /**
  * audit B-3/C-6.2 — the durable recovery trail of the sync:

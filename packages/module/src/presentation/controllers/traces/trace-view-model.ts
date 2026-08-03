@@ -1,9 +1,9 @@
-import { TraceModel } from '../../../domain/models/trace-model.js';
-import { SpanModel } from '../../../domain/models/span-model.js';
+import { TraceModel } from '@khal/core/domain/models/trace-model.js';
+import { SpanModel } from '@khal/core/domain/models/span-model.js';
 import {
   formatBrlExactFromMicrocents,
   formatBrlFromMicrocents,
-} from '../../../common/helpers/money/money.js';
+} from '@khal/core/common/helpers/money/money.js';
 import {
   contentToText,
   formatAgeDisplay,
@@ -12,8 +12,8 @@ import {
   formatDurationDisplay,
   formatIntDisplay,
   formatUtcDateDisplay,
-} from '../../../common/helpers/display/display.js';
-import { modelKey } from '../../../domain/models/model-ref.js';
+} from '@khal/core/common/helpers/display/display.js';
+import { modelKey } from '@khal/core/domain/models/model-ref.js';
 import { TraceDetailView, TraceListItemView } from './trace-view-schemas.js';
 
 /**

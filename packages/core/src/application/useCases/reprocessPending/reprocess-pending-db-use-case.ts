@@ -6,11 +6,11 @@ import {
 } from './reprocess-pending-protocols.js';
 import { BillingPeriodRepository } from '../../interfaces/billing-period-repository.js';
 import { modelKey } from '../../../domain/models/model-ref.js';
-import { stampTokens } from '../syncTraces/price-stamper.js';
+import { stampTokens } from '../priceStamping/price-stamper.js';
 import {
   closedMonthKeys,
   monthKeyOf,
-} from '../syncTraces/trace-ingestor.js';
+} from '../../../domain/models/month-key.js';
 
 /**
  * US3/T5: when the missing price is finally registered, pending traces get

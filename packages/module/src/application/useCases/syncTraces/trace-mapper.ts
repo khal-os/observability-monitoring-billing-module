@@ -1,32 +1,9 @@
 import { SourceTrace } from '../../interfaces/trace-source-client.js';
-import { TraceModel, UnclassifiedInfo } from '../../../domain/models/trace-model.js';
-import { ModelRef, parseModelRef } from '../../../domain/models/model-ref.js';
-import { SpanModel } from '../../../domain/models/span-model.js';
-import { StampOutcome } from './price-stamper.js';
-
-/**
- * THE single definition of the unclassified rule (T3): identity is the
- * agent id; version/instance are optional enrichment and never unclassify
- * a trace. Exported so repository adapters that recompute the flag after
- * an attribution merge use the exact same conditions and reason strings —
- * never a hand-copied duplicate.
- */
-export const deriveUnclassified = (args: {
-  agentId: string | undefined;
-  model: ModelRef | undefined;
-}): UnclassifiedInfo | undefined => {
-  const reasons: string[] = [];
-
-  if (!args.agentId) {
-    reasons.push('missing agentId');
-  }
-
-  if (!args.model) {
-    reasons.push('missing model');
-  }
-
-  return reasons.length > 0 ? { reasons } : undefined;
-};
+import { TraceModel, UnclassifiedInfo } from '@khal/core/domain/models/trace-model.js';
+import { ModelRef, parseModelRef } from '@khal/core/domain/models/model-ref.js';
+import { SpanModel } from '@khal/core/domain/models/span-model.js';
+import { StampOutcome } from '@khal/core/application/useCases/priceStamping/price-stamper.js';
+import { deriveUnclassified } from '@khal/core/domain/models/derive-unclassified.js';
 
 /**
  * Missing/invalid attribution never drops a trace — it is stored and

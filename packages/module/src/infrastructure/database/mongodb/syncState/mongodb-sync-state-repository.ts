@@ -1,6 +1,6 @@
 import { SyncCursor } from '../../../../application/interfaces/trace-batch-source.js';
 import { SyncStateRepository } from '../../../../application/interfaces/sync-state-repository.js';
-import { MongoDb } from '../mongo-db.js';
+import { MongoDb } from '@khal/core/infrastructure/database/mongodb/mongo-db.js';
 
 export const SYNC_STATE_COLLECTION = 'sync_state';
 

@@ -11,3 +11,10 @@ export const TRACES_COLLECTION = 'traces';
 export const TRACE_FILTER_COUNTERS_COLLECTION = 'trace_filter_counters';
 
 export const SESSION_SUMMARIES_COLLECTION = 'session_summaries';
+
+// Ingestion bookkeeping (dead-letter trail + poison rows): the repositories
+// live with the connector, but the index bootstrap (migration 018) lives
+// here with every other migration — so the names are shared across packages.
+export const INGEST_FAILURES_COLLECTION = 'ingest_failures';
+
+export const POISON_ROWS_COLLECTION = 'poison_rows';

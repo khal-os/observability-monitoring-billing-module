@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { HttpResponse } from '../interfaces/index.js';
 import { InvalidParamError, MissingParamError } from '../errors/index.js';
 import { buildBadRequest } from './http-helper.js';
-import { MAX_PAGINATION_SKIP } from '../../domain/models/pagination.js';
+import { MAX_PAGINATION_SKIP } from '@khal/core/domain/models/pagination.js';
 
 export const paginationSchema = {
   page: z.coerce.number().int().min(1).default(1),

@@ -9,10 +9,10 @@ import { GetBillingSeriesDbUseCase } from '../../application/useCases/billingSer
 import { GetBillingProjectionDbUseCase } from '../../application/useCases/billingSeries/get-billing-projection-db-use-case.js';
 import { CloseBillingPeriodDbUseCase } from '../../application/useCases/billingLifecycle/close-billing-period-db-use-case.js';
 import { ReopenBillingPeriodDbUseCase } from '../../application/useCases/billingLifecycle/reopen-billing-period-db-use-case.js';
-import { MongoDbBillingQueryRepository } from '../../infrastructure/database/mongodb/billing/mongodb-billing-query-repository.js';
-import { MongoDbBillingPeriodRepository } from '../../infrastructure/database/mongodb/billing/mongodb-billing-period-repository.js';
-import { MongoDbBillingSnapshotRepository } from '../../infrastructure/database/mongodb/billing/mongodb-billing-snapshot-repository.js';
-import { MongoDbTraceRepository } from '../../infrastructure/database/mongodb/trace/mongodb-trace-repository.js';
+import { MongoDbBillingQueryRepository } from '@khal/core/infrastructure/database/mongodb/billing/mongodb-billing-query-repository.js';
+import { MongoDbBillingPeriodRepository } from '@khal/core/infrastructure/database/mongodb/billing/mongodb-billing-period-repository.js';
+import { MongoDbBillingSnapshotRepository } from '@khal/core/infrastructure/database/mongodb/billing/mongodb-billing-snapshot-repository.js';
+import { MongoDbTraceRepository } from '@khal/core/infrastructure/database/mongodb/trace/mongodb-trace-repository.js';
 
 const makeGetBillingSummaryUseCase = (): GetBillingSummaryDbUseCase =>
   new GetBillingSummaryDbUseCase({

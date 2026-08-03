@@ -1,2 +1,2 @@
-export * from './database.js';
+export * from '@khal/core/infrastructure/interfaces/database.js';
 export * from './server.js';

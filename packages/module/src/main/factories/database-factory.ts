@@ -1,17 +1,17 @@
 import { config } from '../../infrastructure/index.js';
-import { MongoDb } from '../../infrastructure/database/index.js';
+import { MongoDb } from '@khal/core/infrastructure/database/index.js';
 import {
   Database,
   MigrationRunner,
 } from '../../infrastructure/interfaces/index.js';
-import { runMigrations } from '../../infrastructure/database/mongodb/helpers/migration-runner.js';
-import { migrations } from '../../infrastructure/database/mongodb/migrations/index.js';
+import { runMigrations } from '@khal/core/infrastructure/database/mongodb/helpers/migration-runner.js';
+import { migrations } from '@khal/core/infrastructure/database/mongodb/migrations/index.js';
 import {
   POC_PRICE_VERSIONS,
   seedPocPrices,
-} from '../../infrastructure/database/mongodb/priceVersion/poc-price-seed.js';
-import { MongoDbFilterCounterRepository } from '../../infrastructure/database/mongodb/filterCounter/mongodb-filter-counter-repository.js';
-import { MongoDbSessionSummaryRepository } from '../../infrastructure/database/mongodb/session/mongodb-session-summary-repository.js';
+} from '@khal/core/infrastructure/database/mongodb/priceVersion/poc-price-seed.js';
+import { MongoDbFilterCounterRepository } from '@khal/core/infrastructure/database/mongodb/filterCounter/mongodb-filter-counter-repository.js';
+import { MongoDbSessionSummaryRepository } from '@khal/core/infrastructure/database/mongodb/session/mongodb-session-summary-repository.js';
 
 /**
  * THE storage seam: the only place (besides this factory file) that names a

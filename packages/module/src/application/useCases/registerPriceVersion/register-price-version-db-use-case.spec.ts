@@ -5,8 +5,8 @@ import {
   ReprocessPendingUseCase,
   ReprocessReport,
 } from './register-price-version-protocols.js';
-import { PriceVersionModel } from '../../../domain/models/price-version-model.js';
-import { DuplicatePriceVersionError } from '../../../domain/errors/duplicate-price-version-error.js';
+import { PriceVersionModel } from '@khal/core/domain/models/price-version-model.js';
+import { DuplicatePriceVersionError } from '@khal/core/domain/errors/duplicate-price-version-error.js';
 
 const JUNE_1 = new Date('2026-06-01T00:00:00.000Z');
 

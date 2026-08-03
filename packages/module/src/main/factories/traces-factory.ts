@@ -4,9 +4,9 @@ import { GetTraceDetailController } from '../../presentation/controllers/traces/
 import { ListTracesDbUseCase } from '../../application/useCases/queryTraces/list-traces-db-use-case.js';
 import { ListTraceFilterOptionsDbUseCase } from '../../application/useCases/queryTraces/list-trace-filter-options-db-use-case.js';
 import { GetTraceDetailDbUseCase } from '../../application/useCases/queryTraces/get-trace-detail-db-use-case.js';
-import { MongoDbTraceQueryRepository } from '../../infrastructure/database/mongodb/trace/mongodb-trace-query-repository.js';
+import { MongoDbTraceQueryRepository } from '@khal/core/infrastructure/database/mongodb/trace/mongodb-trace-query-repository.js';
 import { config } from '../../infrastructure/index.js';
-import { MongoDbPriceVersionRepository } from '../../infrastructure/database/mongodb/priceVersion/mongodb-price-version-repository.js';
+import { MongoDbPriceVersionRepository } from '@khal/core/infrastructure/database/mongodb/priceVersion/mongodb-price-version-repository.js';
 
 // The price repository feeds the READ-TIME derivation of
 // pendingPrice.missingTokenTypes (see derive-pending-price.ts).

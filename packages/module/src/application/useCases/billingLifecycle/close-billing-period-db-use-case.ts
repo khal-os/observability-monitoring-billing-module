@@ -8,8 +8,8 @@ import {
   CloseBillingPeriodUseCase,
   TraceRepository,
 } from './billing-lifecycle-protocols.js';
-import { BillingSnapshotModel } from '../../../domain/models/billing-snapshot-model.js';
-import { monthWindowUtc } from '../../../domain/models/billing-period-model.js';
+import { BillingSnapshotModel } from '@khal/core/domain/models/billing-snapshot-model.js';
+import { monthWindowUtc } from '@khal/core/domain/models/billing-period-model.js';
 import {
   STATEMENT_LOGIC_VERSION,
   STATEMENT_ROUNDING_RULE,

@@ -8,7 +8,7 @@ import {
 } from './reprocess-pending-protocols.js';
 import { TraceAttribution } from '../../interfaces/trace-repository.js';
 import { ModelRef } from '../../../domain/models/model-ref.js';
-import { InMemoryBillingPeriodRepository } from '../billingStatement/billing-test-fakes.js';
+import { InMemoryBillingPeriodRepository } from '../../testSupport/billing-test-fakes.js';
 
 /**
  * audit M2: the reprocess sweep finally gets its own spec — the closed-

@@ -5,7 +5,7 @@ import {
   Pagination,
   TraceListFilters,
 } from './traces-protocols.js';
-import { TraceModel } from '../../../domain/models/trace-model.js';
+import { TraceModel } from '@khal/core/domain/models/trace-model.js';
 import { InvalidParamError } from '../../errors/index.js';
 
 const makeTrace = (overrides: Partial<TraceModel> = {}): TraceModel => ({

@@ -3,7 +3,7 @@ import {
   truncateOversizedContent,
 } from './content-size-guard.js';
 import { EstimateDocumentBytes } from '../../interfaces/ingest-failure-repository.js';
-import { TraceModel } from '../../../domain/models/trace-model.js';
+import { TraceModel } from '@khal/core/domain/models/trace-model.js';
 
 const makeTrace = (overrides: Partial<TraceModel> = {}): TraceModel => ({
   traceId: 'trace-001',

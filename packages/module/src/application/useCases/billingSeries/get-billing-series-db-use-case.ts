@@ -7,13 +7,13 @@ import {
   CostByTokenType,
   GetBillingSeriesUseCase,
 } from './billing-series-protocols.js';
-import { TokenType } from '../../../domain/models/price-version-model.js';
-import { StatementLine } from '../../../domain/models/billing-snapshot-model.js';
+import { TokenType } from '@khal/core/domain/models/price-version-model.js';
+import { StatementLine } from '@khal/core/domain/models/billing-snapshot-model.js';
 import {
   closedMonthWindows,
   firstOpenMonthStart,
   resolvePeriodStatus,
-} from '../../../domain/models/billing-period-model.js';
+} from '@khal/core/domain/models/billing-period-model.js';
 
 /** Months on a single integer axis so a continuous range is a simple loop. */
 const monthOrdinal = (year: number, month: number): number =>

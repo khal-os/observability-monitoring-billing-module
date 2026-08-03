@@ -6,16 +6,16 @@ import {
   BillingSummary,
   GetBillingSummaryUseCase,
 } from './billing-summary-protocols.js';
-import { BillingPeriodRepository } from '../../interfaces/billing-period-repository.js';
-import { BillingSnapshotRepository } from '../../interfaces/billing-snapshot-repository.js';
+import { BillingPeriodRepository } from '@khal/core/application/interfaces/billing-period-repository.js';
+import { BillingSnapshotRepository } from '@khal/core/application/interfaces/billing-snapshot-repository.js';
 import {
   BillingPeriodModel,
   monthWindowUtc,
   previousMonthOf,
   resolvePeriodStatus,
-} from '../../../domain/models/billing-period-model.js';
-import { StatementProjection } from '../../../domain/models/billing-snapshot-model.js';
-import { BillingPeriodStateError } from '../../../domain/useCases/close-billing-period-use-case.js';
+} from '@khal/core/domain/models/billing-period-model.js';
+import { StatementProjection } from '@khal/core/domain/models/billing-snapshot-model.js';
+import { BillingPeriodStateError } from '@khal/core/domain/useCases/close-billing-period-use-case.js';
 import {
   agentKey,
   buildStatement,

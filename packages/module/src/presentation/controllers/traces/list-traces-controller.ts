@@ -14,7 +14,7 @@ import {
   paginationSchema,
   parseQuery,
 } from '../../helpers/query-validation.js';
-import { formatIntDisplay } from '../../../common/helpers/display/display.js';
+import { formatIntDisplay } from '@khal/core/common/helpers/display/display.js';
 import { toTraceListItem } from './trace-view-model.js';
 import {
   toTraceListFilters,

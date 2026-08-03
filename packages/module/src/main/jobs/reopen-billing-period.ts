@@ -1,7 +1,7 @@
 import { parseArgs } from 'node:util';
 import { makeDatabase } from '../factories/database-factory.js';
 import { makeReopenBillingPeriodUseCase } from '../factories/billing-factory.js';
-import { BillingPeriodStateError } from '../../domain/useCases/close-billing-period-use-case.js';
+import { BillingPeriodStateError } from '@khal/core/domain/useCases/close-billing-period-use-case.js';
 
 /**
  * T6 runbook: audited reopen of a closed month — REASON is mandatory and

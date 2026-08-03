@@ -8,7 +8,7 @@ import {
 import {
   modelKey,
   parseModelRef,
-} from '../../../domain/models/model-ref.js';
+} from '@khal/core/domain/models/model-ref.js';
 
 /**
  * THE single registration path for a price version — the HTTP endpoint and

@@ -1,13 +1,13 @@
 import { GetBillingSummaryDbUseCase } from './get-billing-summary-db-use-case.js';
 import { CloseBillingPeriodDbUseCase } from '../billingLifecycle/close-billing-period-db-use-case.js';
-import { BillingPeriodStateError } from '../../../domain/useCases/close-billing-period-use-case.js';
+import { BillingPeriodStateError } from '@khal/core/domain/useCases/close-billing-period-use-case.js';
 import {
   InMemoryBillingPeriodRepository,
   InMemoryBillingSnapshotRepository,
   QuarantineReconcilerStub,
   StubBillingQueryRepository,
   usageRecord,
-} from '../billingStatement/billing-test-fakes.js';
+} from '@khal/core/application/testSupport/billing-test-fakes.js';
 
 const NOW = new Date('2026-07-19T12:00:00.000Z');
 

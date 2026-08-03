@@ -10,12 +10,12 @@ import {
 import { EstimateDocumentBytes } from '../../interfaces/ingest-failure-repository.js';
 import {
   assertNotAllFailed,
-  closedMonthKeys,
   ingestFailureKindOf,
   ingestSourceTrace,
   isSystemicStoreError,
 } from './trace-ingestor.js';
-import { BillingPeriodRepository } from '../../interfaces/billing-period-repository.js';
+import { closedMonthKeys } from '@khal/core/domain/models/month-key.js';
+import { BillingPeriodRepository } from '@khal/core/application/interfaces/billing-period-repository.js';
 
 export class SyncTracesDbUseCase implements SyncTracesUseCase {
   private readonly traceSourceClient: TraceSourceClient;

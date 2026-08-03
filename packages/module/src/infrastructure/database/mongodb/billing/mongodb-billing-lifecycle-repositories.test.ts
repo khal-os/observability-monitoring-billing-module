@@ -1,35 +1,35 @@
 import { ClientSession } from 'mongodb';
-import { MongoDb } from '../mongo-db.js';
+import { MongoDb } from '@khal/core/infrastructure/database/mongodb/mongo-db.js';
 import {
   BILLING_PERIODS_COLLECTION,
   MongoDbBillingPeriodRepository,
-} from './mongodb-billing-period-repository.js';
+} from '@khal/core/infrastructure/database/mongodb/billing/mongodb-billing-period-repository.js';
 import {
   BILLING_SNAPSHOTS_COLLECTION,
   BILLING_SNAPSHOT_USAGE_COLLECTION,
   MongoDbBillingSnapshotRepository,
-} from './mongodb-billing-snapshot-repository.js';
-import { MongoDbBillingQueryRepository } from './mongodb-billing-query-repository.js';
-import { MongoDbTraceRepository } from '../trace/mongodb-trace-repository.js';
-import { TRACES_COLLECTION } from '../collections.js';
-import { TraceModel } from '../../../../domain/models/trace-model.js';
+} from '@khal/core/infrastructure/database/mongodb/billing/mongodb-billing-snapshot-repository.js';
+import { MongoDbBillingQueryRepository } from '@khal/core/infrastructure/database/mongodb/billing/mongodb-billing-query-repository.js';
+import { MongoDbTraceRepository } from '@khal/core/infrastructure/database/mongodb/trace/mongodb-trace-repository.js';
+import { TRACES_COLLECTION } from '@khal/core/infrastructure/database/mongodb/collections.js';
+import { TraceModel } from '@khal/core/domain/models/trace-model.js';
 import {
   BillingSnapshotModel,
   BillingUsageRecord,
-} from '../../../../domain/models/billing-snapshot-model.js';
+} from '@khal/core/domain/models/billing-snapshot-model.js';
 import {
   BillingPeriodAuditEntry,
   closedMonthWindows,
   firstOpenMonthStart,
-} from '../../../../domain/models/billing-period-model.js';
-import { BillingPeriodStateError } from '../../../../domain/useCases/close-billing-period-use-case.js';
+} from '@khal/core/domain/models/billing-period-model.js';
+import { BillingPeriodStateError } from '@khal/core/domain/useCases/close-billing-period-use-case.js';
 import {
   buildStatement,
   collectAppliedPriceVersions,
 } from '../../../../application/useCases/billingStatement/statement-engine.js';
 import { CloseBillingPeriodDbUseCase } from '../../../../application/useCases/billingLifecycle/close-billing-period-db-use-case.js';
-import { usageRecord } from '../../../../application/useCases/billingStatement/billing-test-fakes.js';
-import { billingPeriodIndexes } from '../migrations/017-billing-period-indexes.js';
+import { usageRecord } from '@khal/core/application/testSupport/billing-test-fakes.js';
+import { billingPeriodIndexes } from '@khal/core/infrastructure/database/mongodb/migrations/017-billing-period-indexes.js';
 
 const makeTrace = (overrides: Partial<TraceModel> = {}): TraceModel => ({
   traceId: 'trace-b-001',

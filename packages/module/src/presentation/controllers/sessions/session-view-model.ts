@@ -1,6 +1,6 @@
-import { SessionSummaryModel } from '../../../domain/models/session-model.js';
-import { SessionDetail } from '../../../domain/useCases/get-session-detail-use-case.js';
-import { formatBrlFromMicrocents } from '../../../common/helpers/money/money.js';
+import { SessionSummaryModel } from '@khal/core/domain/models/session-model.js';
+import { SessionDetail } from '@khal/core/domain/useCases/get-session-detail-use-case.js';
+import { formatBrlFromMicrocents } from '@khal/core/common/helpers/money/money.js';
 import {
   contentToText,
   formatAgeDisplay,
@@ -8,7 +8,7 @@ import {
   formatDateTimeDisplay,
   formatDurationDisplay,
   formatIntDisplay,
-} from '../../../common/helpers/display/display.js';
+} from '@khal/core/common/helpers/display/display.js';
 import { toTraceListItem } from '../traces/trace-view-model.js';
 import {
   SessionDetailView,

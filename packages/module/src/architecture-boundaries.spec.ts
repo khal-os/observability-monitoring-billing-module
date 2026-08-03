@@ -1,35 +1,25 @@
 /**
- * Architecture fitness tests — these ENFORCE that swapping the trace
- * source vendor (LangWatch today) can never touch business rules:
+ * Architecture fitness tests for @khal/module — these ENFORCE that swapping
+ * the trace source vendor (LangWatch today) can never touch business rules:
  *
  * 1. The vendor name may only appear inside its adapter
  *    (infrastructure/traceSource/langwatch/), the environment wiring
  *    (infrastructure/configuration/) and the composition root
- *    (main/factories/sync-factory.ts). domain/application/presentation/common
+ *    (main/factories/sync-factory.ts). application/presentation/common
  *    are vendor-blind by test, not by convention.
- * 2. Dependency direction: domain depends on nothing outer; application only
- *    on domain; presentation only on domain (+ its own layer and common).
+ * 2. Dependency direction: application must not reach infrastructure,
+ *    presentation or main; presentation only domain (+ its own layer and
+ *    common). Cross-package imports count: '@khal/core/<layer>/...' is
+ *    treated as that layer — the package boundary must not launder a
+ *    forbidden dependency.
+ * 3. Storage backend containment (decision 56): storage now lives in
+ *    @khal/core/infrastructure/database (plus the ingestion bookkeeping
+ *    repos still local to this package); both count as "storage" here.
  */
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 
-const findSrcDir = (): string => {
-  const candidates = [
-    join(process.cwd(), 'src'),
-    join(process.cwd(), 'packages', 'module', 'src'),
-  ];
-  const srcDir = candidates.find((candidate) =>
-    existsSync(join(candidate, 'domain')),
-  );
-
-  if (!srcDir) {
-    throw new Error('architecture-boundaries: src directory not found');
-  }
-
-  return srcDir;
-};
-
-const SRC = findSrcDir();
+const SRC = join(process.cwd(), 'src');
 
 const walk = (dir: string): string[] =>
   readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -56,7 +46,17 @@ const importsOf = (file: string): string[] => {
   ].map((match) => match[1] as string);
 };
 
+/**
+ * Path of an import relative to a src tree — local relative imports AND
+ * workspace imports of @khal/core (whose src mirrors the same layer
+ * layout). Both must obey the same layer rules: '@khal/core/…' is not a
+ * loophole around them.
+ */
 const resolvedPathOf = (file: string, specifier: string): string | null => {
+  if (specifier.startsWith('@khal/core/')) {
+    return specifier.slice('@khal/core/'.length).replace(/\.js$/, '.ts');
+  }
+
   if (!specifier.startsWith('.')) return null;
 
   const resolved = resolve(dirname(file), specifier);
@@ -65,16 +65,8 @@ const resolvedPathOf = (file: string, specifier: string): string | null => {
   return relativeToSrc.startsWith('..') ? null : relativeToSrc;
 };
 
-const layerOfImport = (file: string, specifier: string): string | null => {
-  if (!specifier.startsWith('.')) return null;
-
-  const resolved = resolve(dirname(file), specifier);
-  const relativeToSrc = relative(SRC, resolved).split(/[\\/]/).join('/');
-
-  if (relativeToSrc.startsWith('..')) return null;
-
-  return relativeToSrc.split('/')[0] ?? null;
-};
+const layerOfImport = (file: string, specifier: string): string | null =>
+  resolvedPathOf(file, specifier)?.split('/')[0] ?? null;
 
 const VENDOR = /langwatch/i;
 
@@ -85,7 +77,7 @@ const VENDOR_ALLOWED_PREFIXES = [
   'architecture-boundaries.spec.ts',
 ];
 
-describe('Architecture boundaries', () => {
+describe('Architecture boundaries (@khal/module)', () => {
   it('MUST keep every layer outside the adapter vendor-blind (swap-safe)', () => {
     const offenders = allFiles
       .filter((file) => {
@@ -119,17 +111,6 @@ describe('Architecture boundaries', () => {
             .map((imported) => `${posixRelative(file)} -> ${imported}`),
         );
 
-    it('domain MUST NOT depend on any outer layer', () => {
-      expect(
-        violations('domain', [
-          'application',
-          'infrastructure',
-          'presentation',
-          'main',
-        ]),
-      ).toEqual([]);
-    });
-
     it('application MUST NOT depend on infrastructure, presentation or main', () => {
       expect(
         violations('application', ['infrastructure', 'presentation', 'main']),
@@ -146,18 +127,6 @@ describe('Architecture boundaries', () => {
       expect(violations('infrastructure', ['presentation', 'main'])).toEqual(
         [],
       );
-    });
-
-    it('common MUST stay dependency-free towards every layer', () => {
-      expect(
-        violations('common', [
-          'domain',
-          'application',
-          'infrastructure',
-          'presentation',
-          'main',
-        ]),
-      ).toEqual([]);
     });
   });
 
@@ -181,12 +150,12 @@ describe('Architecture boundaries', () => {
       expect(offenders).toEqual([]);
     });
 
-    it('MUST keep domain, application, presentation and common storage-blind — tests included', () => {
+    it('MUST keep application, presentation and common storage-blind — tests included', () => {
       const offenders = allFiles
         .filter((file) => {
           const path = posixRelative(file);
 
-          if (!/^(domain|application|presentation|common)\//.test(path)) return false;
+          if (!/^(application|presentation|common)\//.test(path)) return false;
 
           // main/ is forbidden too: importing anything from main (e.g. the
           // storage-aware route harness) would make a business layer
