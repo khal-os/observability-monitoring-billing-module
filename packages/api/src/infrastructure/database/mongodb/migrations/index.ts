@@ -9,6 +9,7 @@ import { billingPeriodIndexes } from './017-billing-period-indexes.js';
 import { ingestFailureIndexes } from './018-ingest-failure-indexes.js';
 import { lowercaseModelIds } from './019-lowercase-model-ids.js';
 import { sessionChainIndex } from './020-session-chain-index.js';
+import { quarantineIndex } from './021-quarantine-index.js';
 
 /**
  * Ordered list — the runner applies each exactly once, in this order.
@@ -36,4 +37,5 @@ export const migrations: Migration[] = [
   ingestFailureIndexes,
   lowercaseModelIds,
   sessionChainIndex,
+  quarantineIndex,
 ];
