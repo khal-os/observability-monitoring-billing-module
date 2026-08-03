@@ -52,8 +52,13 @@ export const langWatchApiTraceSchema = z.looseObject({
   metrics: z
     .looseObject({
       total_time_ms: z.number().nullable().optional(),
-      prompt_tokens: z.number().nullable().optional(),
-      completion_tokens: z.number().nullable().optional(),
+      // Trace-level counts must be whole and non-negative AT THE BOUNDARY,
+      // exactly like the raw-row schema: a fractional or negative count
+      // reaching the stamper either throws (assertNonNegativeInteger) or
+      // mints a stamp inconsistent with its own tokens. Failing here routes
+      // the detail through the nulls-and-reports salvage path below.
+      prompt_tokens: z.number().int().nonnegative().nullable().optional(),
+      completion_tokens: z.number().int().nonnegative().nullable().optional(),
     })
     .nullable()
     .optional(),
@@ -73,3 +78,76 @@ export const langWatchSearchResponseSchema = z.looseObject({
 
 export type LangWatchApiTrace = z.infer<typeof langWatchApiTraceSchema>;
 export type LangWatchApiSpan = z.infer<typeof apiSpanSchema>;
+
+/** The only fields the salvage rule may repair — never identity/timestamps. */
+export type SalvageableMetricField = 'prompt_tokens' | 'completion_tokens';
+
+export type ApiTraceParse =
+  | {
+      ok: true;
+      trace: LangWatchApiTrace;
+      nulledTokenFields: SalvageableMetricField[];
+    }
+  | { ok: false; error: string };
+
+const SALVAGEABLE_METRIC_PATHS = new Map<string, SalvageableMetricField>([
+  ['metrics.prompt_tokens', 'prompt_tokens'],
+  ['metrics.completion_tokens', 'completion_tokens'],
+]);
+
+/**
+ * Salvage rule at the detail boundary — HALF of it, the twin of
+ * `parseSummaryRow` on the raw-row path (re-audit iteration 2, invariant
+ * 2). A detail failing ONLY the trace-level token refinement (negative or
+ * fractional counts — an instrumentation defect, not schema drift) has the
+ * offending counts NULLED here and returns them in `nulledTokenFields`;
+ * content and identity are preserved. Nulling is what lets the mapper's
+ * `?? sumSpanMetric(...)` fallback fire at all — a PRESENT-but-invalid
+ * count would otherwise be consumed by the `??` and silently dropped.
+ *
+ * Whether the detail is then SALVAGED or stays POISON is deliberately NOT
+ * decided here: that is the shared invariant-2 gate (token-salvage-gate),
+ * which lets the trace through only when the span-level usage sums rebuilt
+ * every nulled count. Details failing structurally (missing id/timestamps,
+ * wrong shapes) remain poison regardless.
+ */
+export const parseApiTrace = (raw: unknown): ApiTraceParse => {
+  const parsed = langWatchApiTraceSchema.safeParse(raw);
+
+  if (parsed.success) {
+    return { ok: true, trace: parsed.data, nulledTokenFields: [] };
+  }
+
+  const offendingPaths = new Set(
+    parsed.error.issues.map((issue) => issue.path.join('.')),
+  );
+
+  const salvageable =
+    typeof raw === 'object' &&
+    raw !== null &&
+    [...offendingPaths].every((path) => SALVAGEABLE_METRIC_PATHS.has(path));
+
+  if (salvageable) {
+    const nulledTokenFields = [...offendingPaths].map(
+      (path) => SALVAGEABLE_METRIC_PATHS.get(path) as SalvageableMetricField,
+    );
+    const source = raw as { metrics?: Record<string, unknown> };
+    const retried = langWatchApiTraceSchema.safeParse({
+      ...(raw as Record<string, unknown>),
+      metrics: {
+        ...source.metrics,
+        ...Object.fromEntries(nulledTokenFields.map((field) => [field, null])),
+      },
+    });
+
+    if (retried.success) {
+      return {
+        ok: true,
+        trace: retried.data,
+        nulledTokenFields: nulledTokenFields.sort(),
+      };
+    }
+  }
+
+  return { ok: false, error: parsed.error.message };
+};

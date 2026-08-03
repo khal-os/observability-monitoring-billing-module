@@ -13,14 +13,62 @@ import { applyMarkClosed } from './mongodb-billing-period-repository.js';
 export const BILLING_SNAPSHOTS_COLLECTION = 'billing_snapshots';
 export const BILLING_SNAPSHOT_USAGE_COLLECTION = 'billing_snapshot_usage';
 
+/**
+ * Bounded batch for the usage-row write (re-audit): one insertMany per
+ * chunk, ~0.5 KB per record → ~0.5 MB per command, far below the 16MB
+ * command ceiling. The month's record count is unbounded (one per stamped
+ * trace), so the write MUST be chunked — see the two-phase note on
+ * insertWithPeriodClose.
+ */
+const USAGE_WRITE_CHUNK_SIZE = 1_000;
+
+/**
+ * MongoDB 388 — TransactionTooLargeForCache ("transaction is too large and
+ * will not fit in the storage engine cache"). It carries NO
+ * TransientTransactionError label, so withTransaction never retries it,
+ * and it is deterministic, so every retry of the close would fail
+ * identically. The two-phase write below keeps the close transaction at
+ * two documents, but the mapping stays so the runbook prints a clean,
+ * actionable message instead of a raw driver stack if it ever fires.
+ */
+const isTransactionTooLargeError = (error: unknown): boolean =>
+  (error as { code?: number } | null)?.code === 388;
+
+/** Twin of the trace repository's chunker — same 16MB-safe discipline. */
+const chunksOf = <T>(items: T[], size: number): T[][] => {
+  const chunks: T[][] = [];
+
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+
+  return chunks;
+};
+
 /** Natural key of a snapshot — also the usage records' parent reference. */
 const snapshotKey = (year: number, month: number, version: number): string =>
   `${year}-${String(month).padStart(2, '0')}-v${version}`;
 
-const stripId = <T>(document: T & { _id?: unknown }): T => {
-  const { _id, ...rest } = document;
+/**
+ * Staging key of ONE close attempt's usage rows: the snapshot key plus the
+ * attempt's write token. Attempt-scoped and not merely version-scoped
+ * because two concurrent closes of a never-closed month compute the SAME
+ * version — sharing a key would let one attempt's deletes/inserts mix into
+ * the other's rows under the winner's header. `#` (0x23) sorts before `$`
+ * (0x24), which gives the sweep a clean prefix range over the indexed
+ * `snapshotKey` field.
+ */
+const usageStagingKey = (key: string, writeToken: string): string =>
+  `${key}#${writeToken}`;
 
-  return rest as T;
+const toSnapshotModel = <T>(
+  document: T & { _id?: unknown; usageWriteToken?: string },
+): BillingSnapshotModel => {
+  // `usageWriteToken` is persistence-only (the header's pointer at the
+  // staging area it published) — it never crosses into the domain model.
+  const { _id, usageWriteToken, ...rest } = document;
+
+  return rest as unknown as BillingSnapshotModel;
 };
 
 /** Transaction-internal sentinel: aborts the close txn on a lost race. */
@@ -32,32 +80,89 @@ class PeriodFlipConflict extends Error {
 }
 
 export class MongoDbBillingSnapshotRepository implements BillingSnapshotRepository {
+  private readonly usageWriteChunkSize: number;
+
+  constructor(
+    // Parameterized (default: the bounded constant) so the chunking logic
+    // itself is testable with a tiny size — same seam as the trace
+    // repository's reconcileQuarantineAfterClose chunkSize.
+    usageWriteChunkSize: number = USAGE_WRITE_CHUNK_SIZE,
+  ) {
+    this.usageWriteChunkSize = usageWriteChunkSize;
+  }
+
   async insert(
     snapshot: BillingSnapshotModel,
     usageRecords: BillingUsageRecord[],
   ): Promise<void> {
     // Storage-only op (tests/tooling) — the close flow uses
-    // insertWithPeriodClose. Usage records FIRST, header LAST: readers
-    // treat the header as the commit mark.
-    await this.writeSnapshot(snapshot, usageRecords);
+    // insertWithPeriodClose. Same two-phase shape: staged usage rows
+    // FIRST, header LAST, because the header is the commit mark.
+    const key = snapshotKey(snapshot.year, snapshot.month, snapshot.version);
+    const writeToken = MongoDb.generateUUID();
+
+    await this.stageUsageRecords(key, writeToken, usageRecords);
+    await MongoDb.getCollection(BILLING_SNAPSHOTS_COLLECTION).insertOne({
+      ...snapshot,
+      usageWriteToken: writeToken,
+    });
+    await this.sweepSupersededStaging(key, writeToken);
   }
 
   /**
-   * audit B-2: inputs + header + period flip in ONE transaction (decision
-   * 81 infrastructure; compose and jest both run replica sets). Crash →
-   * nothing landed, the retry recomputes and closes cleanly. Concurrent
-   * close → exactly one winner; the loser's writes are rolled back
-   * (never its usage rows under the winner's header) and it surfaces as
-   * 'conflict' or a typed BillingPeriodStateError — never a raw E11000.
+   * audit B-2 / re-audit: THE close write, in TWO phases.
+   *
+   * Phase 1 stages the month's usage rows OUTSIDE any transaction, in
+   * bounded batches, under a key private to this attempt. Phase 2 commits
+   * the header + the period flip in ONE small transaction (two documents).
+   *
+   * The whole write used to ride a single transaction, which made the
+   * close UNREACHABLE at real volume: the usage set is one document per
+   * stamped trace and unbounded, so `insertMany` aborted with
+   * TransactionTooLargeForCache (388) — unlabelled, therefore never
+   * retried, and deterministic, therefore fatal for every retry.
+   *
+   * Atomicity is preserved where it is actually load-bearing, because the
+   * HEADER is the commit mark and it names the staging area it published:
+   * - a reader can never observe an incomplete snapshot — staged rows are
+   *   unreachable until a header points at them (findUsageRecords /
+   *   findUsageTraceIds resolve the key THROUGH the header), and the
+   *   header only exists once the committed transaction also flipped the
+   *   period;
+   * - a crash in phase 1, between the phases, or inside the phase-2
+   *   transaction leaves NO header and NO flip: the retry recomputes the
+   *   same version, stages a fresh area and commits, and its sweep drops
+   *   the dead one;
+   * - a concurrent double close stages into two distinct areas and is
+   *   decided by the unique (year, month, version) header index plus the
+   *   guarded period flip — exactly one winner, whose header names only
+   *   its OWN rows; the loser's are unreachable, then swept.
+   *
+   * Returns 'conflict' when the period is already closed (nothing
+   * published). A duplicate (year, month, version) header surfaces as a
+   * typed BillingPeriodStateError, never a raw driver error.
    */
   async insertWithPeriodClose(
     snapshot: BillingSnapshotModel,
     usageRecords: BillingUsageRecord[],
     close: { closedAt: Date; audit: BillingPeriodAuditEntry },
   ): Promise<'closed' | 'conflict'> {
+    const key = snapshotKey(snapshot.year, snapshot.month, snapshot.version);
+    const writeToken = MongoDb.generateUUID();
+
+    // PHASE 1 — stage the inputs. Nothing here is reachable by any reader.
+    await this.stageUsageRecords(key, writeToken, usageRecords);
+
     try {
+      // PHASE 2 — publish: header + period flip, atomically and bounded.
       await MongoDb.withTransaction(async (session) => {
-        await this.writeSnapshot(snapshot, usageRecords, session);
+        // The (year, month, version) unique index makes snapshots
+        // immutable: re-inserting an existing version is an error, never
+        // an overwrite.
+        await MongoDb.getCollection(BILLING_SNAPSHOTS_COLLECTION).insertOne(
+          { ...snapshot, usageWriteToken: writeToken },
+          { session },
+        );
 
         let outcome: 'closed' | 'conflict';
         try {
@@ -82,9 +187,8 @@ export class MongoDbBillingSnapshotRepository implements BillingSnapshotReposito
         }
 
         if (outcome === 'conflict') {
-          // Abort — the snapshot writes above must not survive a lost
-          // race (they would sit under a period that never flipped, or
-          // worse, replace a live version's inputs).
+          // Abort — the header above must not survive a lost race (it
+          // would sit under a period that never flipped).
           throw new PeriodFlipConflict();
         }
       });
@@ -98,13 +202,24 @@ export class MongoDbBillingSnapshotRepository implements BillingSnapshotReposito
       // won. Typed, so the runbook prints a clean 409-class message.
       if (isDuplicateKeyError(error)) {
         throw new BillingPeriodStateError(
-          `Snapshot ${snapshotKey(snapshot.year, snapshot.month, snapshot.version)} ` +
-            'já existe — fechamento concorrente detectado; nada foi sobrescrito.',
+          `Snapshot ${key} já existe — fechamento concorrente detectado; ` +
+            'nada foi sobrescrito.',
+        );
+      }
+
+      if (isTransactionTooLargeError(error)) {
+        throw new BillingPeriodStateError(
+          `Fechamento de ${snapshot.year}-${String(snapshot.month).padStart(2, '0')} ` +
+            'abortado: a transação de commit não coube no cache do WiredTiger ' +
+            '(TransactionTooLargeForCache). Aumente MONGO_MEMORY_LIMIT e ' +
+            'repita o fechamento — nada foi publicado.',
         );
       }
 
       throw error;
     }
+
+    await this.sweepSupersededStaging(key, writeToken);
 
     return 'closed';
   }
@@ -123,30 +238,101 @@ export class MongoDbBillingSnapshotRepository implements BillingSnapshotReposito
     return applyMarkClosed(args, session);
   }
 
-  private async writeSnapshot(
-    snapshot: BillingSnapshotModel,
+  /**
+   * Phase 1: the attempt's private staging area. No session on purpose —
+   * this is precisely the write that must NOT sit in the transaction — and
+   * no pre-delete, because a fresh write token means the area is empty by
+   * construction (which is also what keeps a concurrent attempt from
+   * deleting rows this attempt is about to publish).
+   */
+  private async stageUsageRecords(
+    key: string,
+    writeToken: string,
     usageRecords: BillingUsageRecord[],
-    session?: ClientSession,
   ): Promise<void> {
-    const snapshots = MongoDb.getCollection(BILLING_SNAPSHOTS_COLLECTION);
-    const usage = MongoDb.getCollection(BILLING_SNAPSHOT_USAGE_COLLECTION);
-    const key = snapshotKey(snapshot.year, snapshot.month, snapshot.version);
-
-    // The deleteMany clears orphan usage rows a pre-transaction version of
-    // this repository could have left; inside the close transaction it is
-    // all-or-nothing with the writes below.
-    await usage.deleteMany({ snapshotKey: key }, { session });
-
-    if (usageRecords.length > 0) {
-      await usage.insertMany(
-        usageRecords.map((record) => ({ snapshotKey: key, ...record })),
-        { ordered: true, session },
-      );
+    if (usageRecords.length === 0) {
+      return;
     }
 
-    // The (year, month, version) unique index makes snapshots immutable:
-    // re-inserting an existing version is an error, never an overwrite.
-    await snapshots.insertOne({ ...snapshot }, { session });
+    const stagingKey = usageStagingKey(key, writeToken);
+
+    for (const chunk of chunksOf(usageRecords, this.usageWriteChunkSize)) {
+      await this.insertUsageChunk(stagingKey, chunk);
+    }
+  }
+
+  /** Overridable seam for the chunked-staging test (re-audit). */
+  protected async insertUsageChunk(
+    stagingKey: string,
+    chunk: BillingUsageRecord[],
+  ): Promise<void> {
+    await MongoDb.getCollection(BILLING_SNAPSHOT_USAGE_COLLECTION).insertMany(
+      chunk.map((record) => ({ snapshotKey: stagingKey, ...record })),
+      { ordered: true },
+    );
+  }
+
+  /**
+   * Drops the staging areas of this version that this header did NOT
+   * publish — a crashed earlier attempt's rows, or a lost concurrent
+   * attempt's. Runs only AFTER the header is durable, so it can never
+   * delete rows a live header names. Best-effort: the close is already
+   * committed and the leftovers are unreachable by every reader, so a
+   * sweep failure must never turn a committed close into a failed one.
+   */
+  private async sweepSupersededStaging(
+    key: string,
+    writeToken: string,
+  ): Promise<void> {
+    try {
+      await MongoDb.getCollection(
+        BILLING_SNAPSHOT_USAGE_COLLECTION,
+      ).deleteMany({
+        // Prefix range over the indexed snapshotKey, minus the published
+        // area (`#` 0x23 < `$` 0x24 bounds every `${key}#<token>`).
+        snapshotKey: {
+          $gte: `${key}#`,
+          $lt: `${key}$`,
+          $ne: usageStagingKey(key, writeToken),
+        },
+      });
+    } catch (error) {
+      console.warn(
+        `Billing snapshot ${key}: staging sweep failed — the close IS durable ` +
+          'and the leftover rows are unreachable (no header names them):',
+        error,
+      );
+    }
+  }
+
+  /**
+   * The key of the usage rows a stored snapshot actually published, or
+   * null when no header exists for the version. The header is the commit
+   * mark: staged rows of a crashed or losing attempt live under a key no
+   * header names, so they are invisible here by construction.
+   */
+  private async publishedUsageKey(
+    year: number,
+    month: number,
+    version: number,
+  ): Promise<string | null> {
+    const header = await MongoDb.getCollection(
+      BILLING_SNAPSHOTS_COLLECTION,
+    ).findOne(
+      { year, month, version },
+      { projection: { _id: 0, usageWriteToken: 1 } },
+    );
+
+    if (!header) {
+      return null;
+    }
+
+    const key = snapshotKey(year, month, version);
+    const writeToken = header['usageWriteToken'] as string | undefined;
+
+    // Snapshots written before the two-phase write stored their rows
+    // under the bare snapshot key.
+    return writeToken ? usageStagingKey(key, writeToken) : key;
   }
 
   async findCurrent(
@@ -159,7 +345,7 @@ export class MongoDbBillingSnapshotRepository implements BillingSnapshotReposito
       .limit(1)
       .next();
 
-    return document ? (stripId(document) as unknown as BillingSnapshotModel) : null;
+    return document ? toSnapshotModel(document) : null;
   }
 
   async findVersion(
@@ -171,7 +357,7 @@ export class MongoDbBillingSnapshotRepository implements BillingSnapshotReposito
       BILLING_SNAPSHOTS_COLLECTION,
     ).findOne({ year, month, version });
 
-    return document ? (stripId(document) as unknown as BillingSnapshotModel) : null;
+    return document ? toSnapshotModel(document) : null;
   }
 
   async listVersions(
@@ -201,13 +387,16 @@ export class MongoDbBillingSnapshotRepository implements BillingSnapshotReposito
   ): Promise<string[]> {
     // Projected read of the durable inputs — the close's reconcile-repair
     // diet (re-audit): ids only, never the full records.
+    const publishedKey = await this.publishedUsageKey(year, month, version);
+
+    if (!publishedKey) {
+      return [];
+    }
+
     const documents = await MongoDb.getCollection(
       BILLING_SNAPSHOT_USAGE_COLLECTION,
     )
-      .find(
-        { snapshotKey: snapshotKey(year, month, version) },
-        { projection: { _id: 0, traceId: 1 } },
-      )
+      .find({ snapshotKey: publishedKey }, { projection: { _id: 0, traceId: 1 } })
       .toArray();
 
     return documents.map((document) => document['traceId'] as string);
@@ -218,10 +407,16 @@ export class MongoDbBillingSnapshotRepository implements BillingSnapshotReposito
     month: number,
     version: number,
   ): Promise<BillingUsageRecord[]> {
+    const publishedKey = await this.publishedUsageKey(year, month, version);
+
+    if (!publishedKey) {
+      return [];
+    }
+
     const documents = await MongoDb.getCollection(
       BILLING_SNAPSHOT_USAGE_COLLECTION,
     )
-      .find({ snapshotKey: snapshotKey(year, month, version) })
+      .find({ snapshotKey: publishedKey })
       .sort({ traceId: 1 })
       .toArray();
 

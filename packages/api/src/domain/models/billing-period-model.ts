@@ -102,15 +102,24 @@ export const closedMonthWindows = (
  * snapshots, so scanning its full-content trace documents on every read
  * was pure waste at archive scale.
  *
- * Derivation: walk forward from the EARLIEST closed month; the first
- * non-closed month (a gap, or a reopened month) is the bound. No closed
- * month ⇒ null (unbounded — today's behavior). Assumes the runbook's
- * oldest-first close discipline: a never-closed month OLDER than the
- * earliest closed one would fall outside the scan. That assumption is
- * SAFE because the close use case ENFORCES it (re-audit close-order
- * guard): a month can only close once every older month with traces is
- * closed, so a trace-bearing month older than the earliest closed one
- * cannot exist.
+ * Derivation — TWO halves, and the bound is the EARLIER of them:
+ * (a) walk forward from the EARLIEST closed month; the first non-closed
+ *     month (a gap, or a month reopened inside the run) ends the walk;
+ * (b) the earliest NON-closed period document. A period document exists
+ *     only after a lifecycle action, so `status: 'open'` on one means the
+ *     month was closed and then REOPENED.
+ *
+ * No closed month ⇒ null (unbounded — today's behavior).
+ *
+ * Half (b) is not redundant (re-audit iteration 2): reopening the
+ * EARLIEST closed month moves the walk's anchor forward past the very
+ * month that must be scanned, and its money then vanished from /bills and
+ * charted as R$ 0,00 in the monthly series while the summary still billed
+ * it. The close-order guard (assertOlderMonthsClosed, decision 112) makes
+ * a NEVER-closed trace-bearing month before the earliest closed one
+ * impossible — necessary, but NOT sufficient: the audited reopen
+ * (decision 89) has no ordering guard by design, so half (b) reads the
+ * reopened months straight off the period documents.
  */
 export const firstOpenMonthStart = (
   periods: BillingPeriodModel[],
@@ -137,5 +146,11 @@ export const firstOpenMonthStart = (
     }
   }
 
-  return new Date(Date.UTC(year, month - 1, 1));
+  const reopenedStarts = periods
+    .filter((period) => period.status !== 'closed')
+    .map((period) => Date.UTC(period.year, period.month - 1, 1));
+
+  // Math.min over an empty spread is Infinity, so the walk still decides
+  // when every period document is closed.
+  return new Date(Math.min(Date.UTC(year, month - 1, 1), ...reopenedStarts));
 };

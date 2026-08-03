@@ -35,16 +35,19 @@ export interface BillRow {
   totalCostMicrocents: number;
   stampedTraceCount: number;
   /**
-   * Pending traces with UNRESOLVED quarantine excluded (decision 100):
-   * a quarantined pending trace is outside the bill's scope and is
-   * surfaced via the quarantine count, not here — same rule as
-   * pendingPriceSummary, so the two endpoints can never disagree.
+   * Pending traces with UNRESOLVED quarantine excluded ONLY inside CLOSED
+   * months (decision 100, scoped by re-audit iteration 2): in a frozen
+   * month the straggler is outside the bill and countQuarantined carries
+   * it; in an open or REOPENED month the live statement bills that month,
+   * so its pending traces count here. Same lens as `pendingPriceSummary`
+   * and the close guard — that is what keeps /bills, /billing/summary and
+   * `make billing-close` from ever disagreeing about one month.
    */
   pendingTraceCount: number;
   /**
    * audit B-10.4: stamped + pending tokens (the live "month volume so
-   * far" meaning). Excludes only tokens of pending traces with unresolved
-   * quarantine (outside the bill's scope, decision 100).
+   * far" meaning). Excludes only tokens of pending traces excluded from
+   * `pendingTraceCount` above, by the very same lens.
    */
   tokens: number;
   /** audit B-10.4: tokens of STAMPED traces only — the billed volume. */
@@ -56,14 +59,22 @@ export interface BillingQueryRepository {
    * Pending-price rollup of the month window [monthStart, monthEnd) —
    * counted APART from the total, never inside it (invariant 2).
    *
-   * EXCLUDES pending traces with UNRESOLVED quarantine (decision 100):
-   * a quarantined trace is outside the close's scope, so it must not
-   * block the close's pending guard — it is surfaced by countQuarantined
-   * instead, and only the audited reopen flow brings it back into play.
+   * `excludeUnresolvedQuarantine` is the CLOSED-month lens, and the caller
+   * MUST state it — same scoping decision 113 gave `dailyRollup`, applied
+   * to the pending question (re-audit iteration 2):
+   * - inside a FROZEN month a pending straggler is outside the bill by
+   *   construction (decision 100) — countQuarantined carries it;
+   * - anywhere else (never-closed, in-progress and above all REOPENED
+   *   months) the live statement bills every stamped trace of the month,
+   *   so a pending one is an OPEN cost of that same live bill: it counts,
+   *   it blocks the close, and pricing it is exactly decision 89's
+   *   correction flow. Exempting it there froze a bill that silently
+   *   omitted its cost while reporting zero pending.
    */
   pendingPriceSummary(
     monthStart: Date,
     monthEnd: Date,
+    opts: { excludeUnresolvedQuarantine: boolean },
   ): Promise<PendingPriceSummary>;
 
   /**
@@ -73,10 +84,21 @@ export interface BillingQueryRepository {
    *
    * audit C-7.1: `sinceInclusive` bounds the scan to open months
    * (startedAt >= bound) — closed months are served from their period
-   * docs + snapshots by the caller, never from this live scan. Omitted or
-   * null = unbounded (no month ever closed).
+   * docs + snapshots by the caller, never from this live scan. Null =
+   * unbounded (no month ever closed).
+   *
+   * `closedMonthWindows` scopes the unresolved-quarantine exclusion of
+   * `pendingTraceCount`/`tokens` to frozen months, exactly as it does for
+   * `dailyRollup` (decision 113) and as the required lens does for
+   * `pendingPriceSummary` (re-audit iteration 2). The caller MUST state
+   * it: a REOPENED month inside the scan whose stragglers were exempted
+   * here reported `0 pending` on /bills while /billing/summary counted
+   * them and `make billing-close` refused on them.
    */
-  listBills(sinceInclusive?: Date | null): Promise<BillRow[]>;
+  listBills(
+    sinceInclusive: Date | null | undefined,
+    closedMonthWindows: { start: Date; end: Date }[],
+  ): Promise<BillRow[]>;
 
   /**
    * The statement engine's diet for one month: one record per STAMPED

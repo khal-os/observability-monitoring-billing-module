@@ -245,6 +245,160 @@ describe('CloseBillingPeriodDbUseCase (T6)', () => {
     });
   });
 
+  describe('re-audit decision 112: months close OLDEST-FIRST', () => {
+    const MAY = [
+      usageRecord({
+        traceId: 'may-1',
+        startedAt: new Date('2026-05-10T12:00:00.000Z'),
+      }),
+    ];
+
+    it('MUST block closing JUNE while a trace-bearing MAY was never closed, naming May', async () => {
+      const {
+        sut,
+        billingQueryRepository,
+        billingPeriodRepository,
+        billingSnapshotRepository,
+        traceRepository,
+      } = makeSut();
+      billingQueryRepository.usageByMonth.set('2026-5', MAY);
+      billingQueryRepository.usageByMonth.set('2026-6', JUNE);
+
+      const error = await sut.close(2026, 6).catch((thrown) => thrown);
+
+      expect(error).toBeInstanceOf(BillingCloseBlockedError);
+      // The runbook prints this verbatim — it must name the month to
+      // close first (out-of-order closes hid the skipped month's money
+      // behind the C-7.1 live-scan bound).
+      expect((error as Error).message).toContain('2026-05');
+      // Nothing half-done: no period flip, no snapshot, no adjudication.
+      expect(await billingPeriodRepository.find(2026, 6)).toBeNull();
+      expect(await billingSnapshotRepository.findCurrent(2026, 6)).toBeNull();
+      expect(traceRepository.calls).toEqual([]);
+    });
+
+    it('closing in order — May then June — is never blocked', async () => {
+      const { sut, billingQueryRepository } = makeSut();
+      billingQueryRepository.usageByMonth.set('2026-5', MAY);
+      billingQueryRepository.usageByMonth.set('2026-6', JUNE);
+
+      await expect(sut.close(2026, 5)).resolves.toMatchObject({
+        snapshotVersion: 1,
+      });
+      await expect(sut.close(2026, 6)).resolves.toMatchObject({
+        snapshotVersion: 1,
+      });
+    });
+
+    it('a genuinely trace-free older month does NOT block — a no-traffic gap passes', async () => {
+      const { sut, billingQueryRepository } = makeSut();
+      billingQueryRepository.usageByMonth.set('2026-4', [
+        usageRecord({
+          traceId: 'apr-1',
+          startedAt: new Date('2026-04-10T12:00:00.000Z'),
+        }),
+      ]);
+      billingQueryRepository.usageByMonth.set('2026-6', JUNE);
+
+      await sut.close(2026, 4);
+
+      // May has no trace at all and therefore no lifecycle document — the
+      // guard must let it pass instead of demanding a close for a month
+      // that never existed.
+      await expect(sut.close(2026, 6)).resolves.toMatchObject({
+        snapshotVersion: 1,
+      });
+    });
+  });
+
+  describe('re-audit decision 112: the already-closed retry REPAIRS the reconciliation', () => {
+    it('re-runs the reconciliation from the CURRENT snapshot ids, then still refuses', async () => {
+      const { sut, billingQueryRepository, traceRepository } = makeSut();
+      billingQueryRepository.usageByMonth.set('2026-6', JUNE);
+
+      await sut.close(2026, 6);
+
+      expect(traceRepository.calls).toHaveLength(1);
+
+      // The live store drifted after the close (a straggler arrived): the
+      // repair must reconcile from the DURABLE snapshot usage ids, never
+      // from a fresh live read.
+      billingQueryRepository.usageByMonth.set('2026-6', [
+        ...JUNE,
+        usageRecord({ traceId: 't3-straggler' }),
+      ]);
+
+      const error = await sut.close(2026, 6).catch((thrown) => thrown);
+
+      // Exit semantics unchanged: the runbook still sees already-closed.
+      expect(error).toBeInstanceOf(BillingPeriodStateError);
+      expect((error as Error).message).toMatch(/já está fechado/);
+      expect((error as Error).message).toMatch(
+        /Reconciliação de quarentena reverificada/,
+      );
+      // ...but the idempotent reconciliation ran a SECOND time first — the
+      // recovery for a close that crashed between the committed
+      // transaction and the reconciliation.
+      expect(traceRepository.calls).toHaveLength(2);
+      expect(traceRepository.calls[1]).toEqual({
+        monthStart: new Date('2026-06-01T00:00:00.000Z'),
+        monthEnd: new Date('2026-07-01T00:00:00.000Z'),
+        snapshotTraceIds: ['t1', 't2'],
+        snapshotVersion: 1,
+      });
+    });
+
+    it('a closed period doc with NO snapshot version has nothing durable to repair from — plain refusal', async () => {
+      const { sut, billingPeriodRepository, traceRepository } = makeSut();
+      billingPeriodRepository.periods.set('2026-6', {
+        year: 2026,
+        month: 6,
+        status: 'closed',
+        closedAt: NOW,
+        audit: [],
+      });
+
+      await expect(sut.close(2026, 6)).rejects.toThrow(BillingPeriodStateError);
+      expect(traceRepository.calls).toEqual([]);
+    });
+  });
+
+  describe('re-audit: the pending guard is the LIVE-month lens (decisions 89/100/113)', () => {
+    it('MUST block the RE-close of a reopened month holding a quarantined pending_price trace', async () => {
+      const { sut, reopen, billingQueryRepository, billingSnapshotRepository } =
+        makeSut();
+      billingQueryRepository.usageByMonth.set('2026-6', JUNE);
+
+      await sut.close(2026, 6);
+
+      // A June straggler arrives after the close and lands quarantined —
+      // and pending, because its model has no registered price.
+      billingQueryRepository.quarantinedPendingByMonth.set('2026-6', {
+        traceCount: 1,
+        tokens: { input: 500_000 },
+        models: ['openai/gpt-9'],
+      });
+
+      // While June stays CLOSED the straggler is outside the frozen bill
+      // (decision 100): the refusal is about the state, not the pending.
+      await expect(sut.close(2026, 6)).rejects.toThrow(BillingPeriodStateError);
+
+      await reopen.reopen(2026, 6, 'faturar retardatários de junho');
+
+      // Reopened ⇒ the month is billed LIVE again, so the straggler is an
+      // OPEN cost: v2 must not freeze without it (decision 89 IS this
+      // correction flow — register the price, reprocess, then close).
+      const error = await sut.close(2026, 6).catch((thrown) => thrown);
+
+      expect(error).toBeInstanceOf(BillingCloseBlockedError);
+      expect((error as BillingCloseBlockedError).pendingTraceCount).toBe(1);
+      expect((error as Error).message).toContain('openai/gpt-9');
+      expect(
+        (await billingSnapshotRepository.findCurrent(2026, 6))?.version,
+      ).toBe(1);
+    });
+  });
+
   describe('audit B-2 (M8): the close is one atomic write', () => {
     it('CRASH between snapshot writes and the period flip: NOTHING lands, the retry closes cleanly and reproduces', async () => {
       const {

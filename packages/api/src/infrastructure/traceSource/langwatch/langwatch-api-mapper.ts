@@ -6,7 +6,12 @@ import {
   SourceTrace,
   TokenCounts,
 } from '../../../application/interfaces/trace-source-client.js';
-import { LangWatchApiSpan, LangWatchApiTrace } from './langwatch-api-schema.js';
+import { CorruptTokenCount } from '../token-salvage-gate.js';
+import {
+  LangWatchApiSpan,
+  LangWatchApiTrace,
+  SalvageableMetricField,
+} from './langwatch-api-schema.js';
 
 // QA14 — mapeamento do payload real para o contrato T1. Convenções de
 // metadata (a formalizar com os times de agentes e do omni); os fallbacks
@@ -87,6 +92,11 @@ const cleanTokens = (tokens: TokenCounts): TokenCounts => {
     // Whole and positive only: a fractional count would deterministically
     // throw in the stamper (assertNonNegativeInteger) and stall the sync
     // on the same trace forever; a negative one corrupts tokensTotal.
+    // Dropping a TRACE-level count here is never the whole rule: the
+    // boundary (parseApiTrace) nulls those before mapping and reports
+    // them, and the shared invariant-2 gate refuses the trace unless the
+    // span sums rebuilt them — an absent count must never be read as zero
+    // usage and stamped R$ 0,00.
     if (typeof count === 'number' && Number.isSafeInteger(count) && count > 0) {
       cleaned[tokenType as keyof TokenCounts] = count;
     }
@@ -94,6 +104,29 @@ const cleanTokens = (tokens: TokenCounts): TokenCounts => {
 
   return cleaned;
 };
+
+/**
+ * The SourceTrace token type each salvageable trace-level metric feeds —
+ * the translation the shared invariant-2 gate needs (token-salvage-gate.ts).
+ */
+const SALVAGED_TOKEN_TYPE: Record<SalvageableMetricField, keyof TokenCounts> = {
+  prompt_tokens: 'input',
+  completion_tokens: 'output',
+};
+
+/**
+ * The counts `parseApiTrace` nulled, in the vendor-neutral shape the
+ * shared gate consumes. Only the translation lives here — the RULE is one
+ * gate every source adapter crosses (re-audit iteration 2), never a
+ * per-adapter copy.
+ */
+export const corruptMetricCounts = (
+  nulledTokenFields: SalvageableMetricField[],
+): CorruptTokenCount[] =>
+  nulledTokenFields.map((field) => ({
+    field: `metrics.${field}`,
+    tokenType: SALVAGED_TOKEN_TYPE[field],
+  }));
 
 /**
  * The trace-level model: the SINGLE distinct model of the llm spans.

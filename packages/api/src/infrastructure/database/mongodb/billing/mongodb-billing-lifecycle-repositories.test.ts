@@ -271,6 +271,103 @@ describe('Billing lifecycle repositories (integration)', () => {
       ).toEqual(['a1']);
     });
 
+    it('stages the usage rows in BOUNDED chunks, under an ATTEMPT-scoped key, and publishes every one', async () => {
+      // The month's usage set is one record per stamped trace and
+      // unbounded — it used to ride the close transaction in a single
+      // insertMany and abort with TransactionTooLargeForCache. It is now
+      // staged outside the transaction, chunk by chunk, under a key
+      // private to this attempt (two concurrent closes compute the SAME
+      // version, so the key cannot be version-scoped alone).
+      class ChunkCountingRepository extends MongoDbBillingSnapshotRepository {
+        readonly chunkSizes: number[] = [];
+
+        protected override async insertUsageChunk(
+          stagingKey: string,
+          chunk: BillingUsageRecord[],
+        ): Promise<void> {
+          this.chunkSizes.push(chunk.length);
+
+          return super.insertUsageChunk(stagingKey, chunk);
+        }
+      }
+
+      const sut = new ChunkCountingRepository(2);
+      const records = ['r1', 'r2', 'r3', 'r4', 'r5'].map((traceId) =>
+        usageRecord({ traceId }),
+      );
+
+      expect(
+        await sut.insertWithPeriodClose(
+          makeSnapshot(1, records),
+          records,
+          closeArgs(1),
+        ),
+      ).toBe('closed');
+
+      expect(sut.chunkSizes).toEqual([2, 2, 1]);
+
+      const rawRows = await MongoDb.getCollection(
+        BILLING_SNAPSHOT_USAGE_COLLECTION,
+      )
+        .find({})
+        .toArray();
+
+      expect(rawRows).toHaveLength(5);
+      expect([...new Set(rawRows.map((row) => row['snapshotKey']))]).toEqual([
+        expect.stringMatching(/^2026-06-v1#.+/),
+      ]);
+
+      const storedInputs = await sut.findUsageRecords(2026, 6, 1);
+      const stored = await sut.findCurrent(2026, 6);
+
+      expect(storedInputs.map((record) => record.traceId)).toEqual([
+        'r1',
+        'r2',
+        'r3',
+        'r4',
+        'r5',
+      ]);
+      expect(storedInputs).toHaveLength(stored?.usageRecordCount as number);
+      expect(await sut.findUsageTraceIds(2026, 6, 1)).toHaveLength(5);
+      expect(JSON.parse(JSON.stringify(buildStatement(storedInputs)))).toEqual(
+        JSON.parse(JSON.stringify(stored?.statement)),
+      );
+    });
+
+    it('TransactionTooLargeForCache (388) surfaces as a TYPED state error naming MONGO_MEMORY_LIMIT', async () => {
+      // The two-phase write keeps the commit transaction at two documents,
+      // but 388 carries no TransientTransactionError label and is
+      // deterministic — if it ever fires, the runbook must print an
+      // actionable message, never a raw driver stack.
+      class CacheBoundSnapshotRepository extends MongoDbBillingSnapshotRepository {
+        protected override async flipPeriodClosed(): Promise<
+          'closed' | 'conflict'
+        > {
+          throw Object.assign(
+            new Error(
+              'transaction is too large and will not fit in the storage engine cache',
+            ),
+            { code: 388 },
+          );
+        }
+      }
+
+      const sut = new CacheBoundSnapshotRepository();
+      const periods = new MongoDbBillingPeriodRepository();
+      const records = [usageRecord({ traceId: 'big-1' })];
+
+      const error = await sut
+        .insertWithPeriodClose(makeSnapshot(1, records), records, closeArgs(1))
+        .then(() => null)
+        .catch((thrown: unknown) => thrown);
+
+      expect(error).toBeInstanceOf(BillingPeriodStateError);
+      expect((error as Error).message).toContain('MONGO_MEMORY_LIMIT');
+      // Nothing published: no header, no flip.
+      expect(await periods.find(2026, 6)).toBeNull();
+      expect(await sut.findCurrent(2026, 6)).toBeNull();
+    });
+
     it('CRASH between the snapshot writes and the flip aborts EVERYTHING — the retry closes cleanly and reproduces', async () => {
       class CrashingSnapshotRepository extends MongoDbBillingSnapshotRepository {
         crashes = 1;
@@ -302,17 +399,26 @@ describe('Billing lifecycle repositories (integration)', () => {
         sut.insertWithPeriodClose(makeSnapshot(1, records), records, closeArgs(1)),
       ).rejects.toThrow('simulated crash before the flip');
 
-      // The transaction rolled back: no orphan header, no orphan inputs,
-      // period untouched — the exact opposite of the pre-fix wedge.
+      // The commit transaction rolled back: no orphan header, period
+      // untouched — the exact opposite of the pre-fix wedge.
       expect(
         await MongoDb.getCollection(BILLING_SNAPSHOTS_COLLECTION).countDocuments({}),
       ).toBe(0);
+      expect(await periods.find(2026, 6)).toBeNull();
+
+      // The STAGED usage row survives the abort — it is written outside
+      // the bounded commit transaction on purpose (re-audit: the month's
+      // usage set is unbounded and used to blow the WiredTiger
+      // transaction cache). What the invariant actually requires is that
+      // no reader can reach it: the header is the commit mark, and the
+      // staging key it would name does not exist.
       expect(
         await MongoDb.getCollection(
           BILLING_SNAPSHOT_USAGE_COLLECTION,
         ).countDocuments({}),
-      ).toBe(0);
-      expect(await periods.find(2026, 6)).toBeNull();
+      ).toBe(1);
+      expect(await sut.findUsageRecords(2026, 6, 1)).toEqual([]);
+      expect(await sut.findUsageTraceIds(2026, 6, 1)).toEqual([]);
 
       // The retry (same version — nothing advanced) succeeds and the
       // stored inputs reproduce the stored statement.
@@ -327,9 +433,17 @@ describe('Billing lifecycle repositories (integration)', () => {
       const storedInputs = await sut.findUsageRecords(2026, 6, 1);
       const stored = await sut.findCurrent(2026, 6);
 
+      expect(storedInputs.map((record) => record.traceId)).toEqual(['c1']);
       expect(JSON.parse(JSON.stringify(buildStatement(storedInputs)))).toEqual(
         JSON.parse(JSON.stringify(stored?.statement)),
       );
+      // The retry's own commit swept the crashed attempt's staging area:
+      // exactly the published rows remain.
+      expect(
+        await MongoDb.getCollection(
+          BILLING_SNAPSHOT_USAGE_COLLECTION,
+        ).countDocuments({}),
+      ).toBe(1);
     });
 
     it('an already-closed period answers conflict and writes NOTHING', async () => {
@@ -396,8 +510,10 @@ describe('Billing lifecycle repositories (integration)', () => {
       const storedInputs = await sut.findUsageRecords(2026, 6, 1);
 
       // The invariant B-2 exists for: the stored inputs are EXACTLY the
-      // winner's — no cross-contamination from the loser's rolled-back
-      // writes — and they reproduce the winning statement.
+      // winner's — no cross-contamination from the loser's writes, which
+      // sit in their own staging area (both attempts compute the SAME
+      // version, so a merely version-scoped key would mix them) — and
+      // they reproduce the winning statement.
       expect(storedInputs.map((record) => record.traceId).sort()).toEqual(
         winnerRecords.map((record: BillingUsageRecord) => record.traceId).sort(),
       );
@@ -549,7 +665,7 @@ describe('Billing lifecycle repositories (integration)', () => {
       expect(await sut.countQuarantined(JUNE_START, JULY_START)).toBe(1);
     });
 
-    it('pendingPriceSummary counts pending APART — and unresolved-quarantined pending is OUTSIDE the close guard (M6, decision 100)', async () => {
+    it('pendingPriceSummary counts pending APART — unresolved-quarantined pending is outside the CLOSED-month lens ONLY (M6, decision 100, scoped by the re-audit)', async () => {
       const traces = new MongoDbTraceRepository();
       const pending = (overrides: Partial<TraceModel>) =>
         makeTrace({
@@ -564,9 +680,11 @@ describe('Billing lifecycle repositories (integration)', () => {
 
       await traces.insertIfAbsent(makeTrace({ traceId: 'stamped-1' }));
       await traces.insertIfAbsent(pending({ traceId: 'pending-normal' }));
-      // Post-close straggler, still pending: the close of the REOPENED
-      // month must not be blocked by it — it is outside the close's scope
-      // (surfaced by countQuarantined; recovered only via the reopen flow).
+      // Post-close straggler, still pending. Inside a FROZEN month it is
+      // outside the bill by construction (countQuarantined carries it) —
+      // but the moment the month is REOPENED the live statement bills that
+      // month, so it becomes an open cost that must block the re-close
+      // (re-audit iteration 2). One trace, two lenses, both asserted.
       await traces.insertIfAbsent(
         pending({
           traceId: 'pending-quarantined',
@@ -579,17 +697,34 @@ describe('Billing lifecycle repositories (integration)', () => {
       );
 
       const sut = new MongoDbBillingQueryRepository();
-      const summary = await sut.pendingPriceSummary(JUNE_START, JULY_START);
+      const frozen = await sut.pendingPriceSummary(JUNE_START, JULY_START, {
+        excludeUnresolvedQuarantine: true,
+      });
 
-      expect(summary.traceCount).toBe(1);
-      expect(summary.tokens).toEqual({
+      expect(frozen.traceCount).toBe(1);
+      expect(frozen.tokens).toEqual({
         input: 500,
         output: 100,
         cache_read: 0,
         cache_write: 0,
       });
-      // Only the in-scope pending trace's model blocks the close.
-      expect(summary.models).toEqual(['meta/llama-4-scout']);
+      // Under the frozen lens only the in-scope pending trace's model shows.
+      expect(frozen.models).toEqual(['meta/llama-4-scout']);
+
+      // The live lens — what a REOPENED month reads, what the close guard
+      // asks, and what blocks the re-close until the straggler is priced.
+      const live = await sut.pendingPriceSummary(JUNE_START, JULY_START, {
+        excludeUnresolvedQuarantine: false,
+      });
+
+      expect(live.traceCount).toBe(2);
+      expect(live.tokens).toEqual({
+        input: 1_000,
+        output: 200,
+        cache_read: 0,
+        cache_write: 0,
+      });
+      expect(live.models).toEqual(['amazon/nova-2', 'meta/llama-4-scout']);
     });
 
     it('listBills (M6): per-month counts, the B-10.4 token pair, and decision-100 pending semantics', async () => {
@@ -607,8 +742,9 @@ describe('Billing lifecycle repositories (integration)', () => {
           tokensTotal: 300,
         }),
       );
-      // Unresolved-quarantined pending: outside the bill — not in the
-      // pending count, its tokens not in the live volume.
+      // Unresolved-quarantined pending: outside the bill ONLY while June
+      // is frozen. Reopen June (drop it from the closed windows) and it is
+      // an open cost of the live bill again — asserted both ways below.
       await traces.insertIfAbsent(
         makeTrace({
           traceId: 'jun-pending-quarantined',
@@ -633,7 +769,8 @@ describe('Billing lifecycle repositories (integration)', () => {
       );
 
       const sut = new MongoDbBillingQueryRepository();
-      const rows = await sut.listBills();
+      const juneWindow = { start: JUNE_START, end: JULY_START };
+      const rows = await sut.listBills(null, [juneWindow]);
 
       expect(rows.map((row) => [row.year, row.month])).toEqual([
         [2026, 7],
@@ -644,14 +781,33 @@ describe('Billing lifecycle repositories (integration)', () => {
         month: 6,
         totalCostMicrocents: 2_500_000_000,
         stampedTraceCount: 1,
-        pendingTraceCount: 1, // the quarantined pending one is NOT here
+        pendingTraceCount: 1, // June is CLOSED: the quarantined one is out
         tokens: 1_000_000 + 300, // stamped + in-scope pending volume
         stampedTokens: 1_000_000, // billed volume only (B-10.4)
       });
       expect(rows[0]).toMatchObject({ tokens: 2_500, stampedTokens: 2_500 });
 
+      // Re-audit iteration 2 — REOPEN June (no closed window covers it):
+      // the straggler is an open cost of the live bill again, so /bills
+      // must report exactly what pendingPriceSummary reports to
+      // /billing/summary and to the close guard. Anything else is one
+      // month with two pending numbers.
+      const reopened = await sut.listBills(null, []);
+      const livePending = await sut.pendingPriceSummary(
+        JUNE_START,
+        JULY_START,
+        { excludeUnresolvedQuarantine: false },
+      );
+
+      expect(reopened[1]).toMatchObject({
+        month: 6,
+        pendingTraceCount: 2,
+        tokens: 1_000_000 + 300 + 7,
+      });
+      expect(reopened[1]?.pendingTraceCount).toBe(livePending.traceCount);
+
       // audit C-7.1: the bound cuts closed history out of the scan.
-      const bounded = await sut.listBills(JULY_START);
+      const bounded = await sut.listBills(JULY_START, [juneWindow]);
 
       expect(bounded.map((row) => row.month)).toEqual([7]);
     });

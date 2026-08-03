@@ -271,6 +271,147 @@ describe('HttpLangWatchClient', () => {
     warn.mockRestore();
   });
 
+  it('MUST refuse a detail whose corrupt token counts NOTHING rebuilds — an unknown cost is never stamped R$ 0,00 (invariant 2)', async () => {
+    const poisonRepo = new PoisonRowRepositoryStub();
+    const corrupt = {
+      ...makeDetail('trace-corrupt', IN_WINDOW_MS),
+      // The instrumentation defect the raw-row source already refused:
+      // present-but-invalid counts. The spans carry no usage at all, so
+      // the real usage is UNKNOWN — ingesting the trace would stamp it at
+      // R$ 0,00 immutably, unreachable by any reprocess.
+      metrics: { total_time_ms: 1000, prompt_tokens: -3, completion_tokens: 100.5 },
+      spans: [
+        {
+          span_id: 'trace-corrupt-span',
+          type: 'llm',
+          model: 'anthropic/claude-sonnet-4-5',
+          timestamps: { started_at: IN_WINDOW_MS, finished_at: IN_WINDOW_MS + 900 },
+        },
+      ],
+    };
+    const { fetchFn } = makeFetchStub(
+      [[{ trace_id: 'trace-a' }, { trace_id: 'trace-corrupt' }]],
+      2,
+      { detailOverrides: { 'trace-corrupt': corrupt } },
+    );
+    const sut = new HttpLangWatchClient({
+      endpoint: 'https://langwatch.example.com',
+      apiKey: 'sk-lw-test',
+      poisonRowRepository: poisonRepo,
+      fetchFn,
+    });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const traces = await fetchAll(sut, WINDOW);
+
+    expect(traces.map((trace) => trace.traceId)).toEqual(['trace-a']);
+    // Skipped AND durably recorded — a poison record beats a wrong
+    // immutable stamp (the raw-row source's rule, same gate).
+    expect(poisonRepo.records).toEqual([
+      expect.objectContaining({
+        kind: 'http-detail',
+        id: 'trace-corrupt',
+        context: `window=[${WINDOW.from.toISOString()}, ${WINDOW.to.toISOString()})`,
+        error: expect.stringContaining('R$ 0,00'),
+        rawRow: corrupt,
+      }),
+    ]);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('poison trace detail skipped'),
+    );
+
+    warn.mockRestore();
+  });
+
+  it('MUST salvage a detail whose corrupt counts the SPAN usage rebuilds — and record the salvage durably', async () => {
+    const poisonRepo = new PoisonRowRepositoryStub();
+    const salvageable = {
+      ...makeDetail('trace-salvage', IN_WINDOW_MS),
+      metrics: { total_time_ms: 1000, prompt_tokens: -3, completion_tokens: 100.5 },
+      spans: [
+        {
+          span_id: 'trace-salvage-span',
+          type: 'llm',
+          model: 'anthropic/claude-sonnet-4-5',
+          timestamps: { started_at: IN_WINDOW_MS, finished_at: IN_WINDOW_MS + 900 },
+          metrics: { prompt_tokens: 120_000, completion_tokens: 8_000 },
+        },
+      ],
+    };
+    const { fetchFn } = makeFetchStub([[{ trace_id: 'trace-salvage' }]], 1, {
+      detailOverrides: { 'trace-salvage': salvageable },
+    });
+    const sut = new HttpLangWatchClient({
+      endpoint: 'https://langwatch.example.com',
+      apiKey: 'sk-lw-test',
+      poisonRowRepository: poisonRepo,
+      fetchFn,
+    });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const traces = await fetchAll(sut, WINDOW);
+
+    // Ingested with the MEASURED usage, never with the corrupt counts
+    // dropped into a silent zero.
+    expect(traces.map((trace) => trace.traceId)).toEqual(['trace-salvage']);
+    expect(traces[0]?.tokens).toMatchObject({ input: 120_000, output: 8_000 });
+    // A console.warn is not a trail (C-6.2): the salvage is durable, and
+    // distinguishable from a skip by its own kind.
+    expect(poisonRepo.records).toEqual([
+      expect.objectContaining({
+        kind: 'http-detail_salvaged',
+        id: 'trace-salvage',
+        error: expect.stringContaining('metrics.prompt_tokens'),
+        rawRow: salvageable,
+      }),
+    ]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('salvaged'));
+
+    warn.mockRestore();
+  });
+
+  it('MUST keep a PARTIALLY corrupt detail poison when the spans rebuild only the other count — no type is silently priced at zero', async () => {
+    const poisonRepo = new PoisonRowRepositoryStub();
+    const partial = {
+      ...makeDetail('trace-partial', IN_WINDOW_MS),
+      // Only the prompt count is corrupt; the spans carry output usage
+      // only, so the input usage stays unknown and would be billed at zero.
+      metrics: { total_time_ms: 1000, prompt_tokens: -3, completion_tokens: 8_000 },
+      spans: [
+        {
+          span_id: 'trace-partial-span',
+          type: 'llm',
+          model: 'anthropic/claude-sonnet-4-5',
+          timestamps: { started_at: IN_WINDOW_MS, finished_at: IN_WINDOW_MS + 900 },
+          metrics: { completion_tokens: 8_000 },
+        },
+      ],
+    };
+    const { fetchFn } = makeFetchStub([[{ trace_id: 'trace-partial' }]], 1, {
+      detailOverrides: { 'trace-partial': partial },
+    });
+    const sut = new HttpLangWatchClient({
+      endpoint: 'https://langwatch.example.com',
+      apiKey: 'sk-lw-test',
+      poisonRowRepository: poisonRepo,
+      fetchFn,
+    });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const traces = await fetchAll(sut, WINDOW);
+
+    expect(traces).toEqual([]);
+    expect(poisonRepo.records).toEqual([
+      expect.objectContaining({
+        kind: 'http-detail',
+        id: 'trace-partial',
+        error: expect.stringContaining('metrics.prompt_tokens'),
+      }),
+    ]);
+
+    warn.mockRestore();
+  });
+
   it('MUST throw when EVERY detail of a non-trivial page is poison — API drift, not isolated bad rows (decision 79 mirror)', async () => {
     const poisonRepo = new PoisonRowRepositoryStub();
     const ids = Array.from({ length: 10 }, (_, index) => `trace-bad-${index}`);

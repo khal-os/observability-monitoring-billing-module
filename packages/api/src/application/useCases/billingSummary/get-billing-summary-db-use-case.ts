@@ -65,9 +65,16 @@ export class GetBillingSummaryDbUseCase implements GetBillingSummaryUseCase {
 
     const monthData = await this.monthStatement(year, month, periodStatus);
 
+    // Re-audit: the unresolved-quarantine exemption is the CLOSED-month
+    // lens only. A closed month's straggler is outside the frozen bill
+    // (decision 100) and is reported by quarantinedTraceCount; a reopened
+    // month is billed LIVE, so its pending straggler is an open cost of
+    // the statement above and must show — the same number the close guard
+    // will block on.
     const pendingPrice = await this.billingQueryRepository.pendingPriceSummary(
       start,
       end,
+      { excludeUnresolvedQuarantine: periodStatus === 'closed' },
     );
     const quarantinedTraceCount =
       await this.billingQueryRepository.countQuarantined(start, end);

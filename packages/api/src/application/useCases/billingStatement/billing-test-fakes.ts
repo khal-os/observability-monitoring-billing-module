@@ -1,6 +1,7 @@
 import {
   BillingPeriodAuditEntry,
   BillingPeriodModel,
+  monthWindowUtc,
 } from '../../../domain/models/billing-period-model.js';
 import {
   BillingSnapshotModel,
@@ -232,10 +233,34 @@ const EMPTY_PENDING: PendingPriceSummary = {
   models: [],
 };
 
+const mergePending = (
+  a: PendingPriceSummary,
+  b: PendingPriceSummary,
+): PendingPriceSummary => {
+  const tokens: PendingPriceSummary['tokens'] = { ...a.tokens };
+
+  for (const [tokenType, count] of Object.entries(b.tokens)) {
+    const key = tokenType as keyof PendingPriceSummary['tokens'];
+    tokens[key] = (tokens[key] ?? 0) + (count ?? 0);
+  }
+
+  return {
+    traceCount: a.traceCount + b.traceCount,
+    tokens,
+    models: [...new Set([...a.models, ...b.models])].sort(),
+  };
+};
+
 /** Configurable per-month data source for the query side. */
 export class StubBillingQueryRepository implements BillingQueryRepository {
   usageByMonth = new Map<string, BillingUsageRecord[]>();
   pendingByMonth = new Map<string, PendingPriceSummary>();
+  /**
+   * Pending traces whose quarantine is UNRESOLVED (post-close stragglers,
+   * decision 100) — kept apart so the specs can exercise BOTH lenses of
+   * pendingPriceSummary the way the Mongo pipeline separates them.
+   */
+  quarantinedPendingByMonth = new Map<string, PendingPriceSummary>();
   watermarkByMonth = new Map<string, Date>();
   quarantinedByMonth = new Map<string, number>();
   billRows: BillRow[] = [];
@@ -247,27 +272,80 @@ export class StubBillingQueryRepository implements BillingQueryRepository {
     return `${monthStart.getUTCFullYear()}-${monthStart.getUTCMonth() + 1}`;
   }
 
-  async pendingPriceSummary(monthStart: Date): Promise<PendingPriceSummary> {
-    return this.pendingByMonth.get(this.monthKey(monthStart)) ?? EMPTY_PENDING;
+  async pendingPriceSummary(
+    monthStart: Date,
+    _monthEnd: Date,
+    opts: { excludeUnresolvedQuarantine: boolean },
+  ): Promise<PendingPriceSummary> {
+    const key = this.monthKey(monthStart);
+    const inScope = this.pendingByMonth.get(key) ?? EMPTY_PENDING;
+    const quarantined = this.quarantinedPendingByMonth.get(key);
+
+    return quarantined && !opts.excludeUnresolvedQuarantine
+      ? mergePending(inScope, quarantined)
+      : inScope;
   }
 
-  async listBills(sinceInclusive?: Date | null): Promise<BillRow[]> {
+  async listBills(
+    sinceInclusive: Date | null | undefined,
+    closedMonthWindows: { start: Date; end: Date }[],
+  ): Promise<BillRow[]> {
     // Honest bound (audit C-7.1): rows before the open-month bound are
     // closed history — the real scan never sees them.
-    if (!sinceInclusive) return this.billRows;
+    const inScope = sinceInclusive
+      ? this.billRows.filter(
+          (row) =>
+            Date.UTC(row.year, row.month - 1, 1) >= sinceInclusive.getTime(),
+        )
+      : this.billRows;
 
-    return this.billRows.filter(
-      (row) =>
-        Date.UTC(row.year, row.month - 1, 1) >= sinceInclusive.getTime(),
-    );
+    // Honest lens (re-audit iteration 2): `billRows` are fixtures under
+    // the FROZEN-month reading, so the unresolved-quarantined pending
+    // traces this stub also feeds pendingPriceSummary are added back on
+    // every month that is NOT inside a closed window — exactly what the
+    // Mongo pipeline's `pendingInScope` expression now computes. Both
+    // readers derive from ONE source here, so a spec can assert /bills and
+    // /billing/summary agree instead of asserting two fixtures.
+    return inScope.map((row) => {
+      const { start } = monthWindowUtc(row.year, row.month);
+      const isClosedMonth = closedMonthWindows.some(
+        (window) => start >= window.start && start < window.end,
+      );
+      const quarantined = this.quarantinedPendingByMonth.get(
+        this.monthKey(start),
+      );
+
+      if (isClosedMonth || !quarantined) return row;
+
+      return {
+        ...row,
+        pendingTraceCount: row.pendingTraceCount + quarantined.traceCount,
+        tokens:
+          row.tokens +
+          Object.values(quarantined.tokens).reduce(
+            (sum, count) => sum + (count ?? 0),
+            0,
+          ),
+      };
+    });
   }
 
   async fetchUsageRecords(monthStart: Date): Promise<BillingUsageRecord[]> {
     return this.usageByMonth.get(this.monthKey(monthStart)) ?? [];
   }
 
-  async monthlyRollup(): Promise<MonthlyRollupRow[]> {
-    return this.rollupRows;
+  async monthlyRollup(
+    sinceInclusive?: Date | null,
+  ): Promise<MonthlyRollupRow[]> {
+    // Honest bound (audit C-7.1), same rule listBills applies: the real
+    // pipeline matches `startedAt >= bound`, so a month before the bound
+    // never reaches the caller.
+    if (!sinceInclusive) return this.rollupRows;
+
+    return this.rollupRows.filter(
+      (row) =>
+        Date.UTC(row.year, row.month - 1, 1) >= sinceInclusive.getTime(),
+    );
   }
 
   async dailyRollup(
@@ -295,6 +373,15 @@ export class StubBillingQueryRepository implements BillingQueryRepository {
     return this.accrued;
   }
 
+  /** Any trace at all in the month — stamped, pending, quarantined alike. */
+  private monthHasTraces(key: string): boolean {
+    return (
+      (this.usageByMonth.get(key)?.length ?? 0) > 0 ||
+      (this.pendingByMonth.get(key)?.traceCount ?? 0) > 0 ||
+      (this.quarantinedPendingByMonth.get(key)?.traceCount ?? 0) > 0
+    );
+  }
+
   /**
    * Close-order guard inputs (re-audit): derived from the configured
    * per-month data, so lifecycle specs exercise the guard with the same
@@ -302,18 +389,18 @@ export class StubBillingQueryRepository implements BillingQueryRepository {
    */
   async earliestTraceAt(): Promise<Date | null> {
     const monthStarts = [
-      ...new Set(
-        [...this.usageByMonth.keys(), ...this.pendingByMonth.keys()].filter(
-          (key) =>
-            (this.usageByMonth.get(key)?.length ?? 0) > 0 ||
-            (this.pendingByMonth.get(key)?.traceCount ?? 0) > 0,
-        ),
-      ),
-    ].map((key) => {
-      const [year, month] = key.split('-').map(Number);
+      ...new Set([
+        ...this.usageByMonth.keys(),
+        ...this.pendingByMonth.keys(),
+        ...this.quarantinedPendingByMonth.keys(),
+      ]),
+    ]
+      .filter((key) => this.monthHasTraces(key))
+      .map((key) => {
+        const [year, month] = key.split('-').map(Number);
 
-      return Date.UTC(year as number, (month as number) - 1, 1);
-    });
+        return Date.UTC(year as number, (month as number) - 1, 1);
+      });
 
     return monthStarts.length === 0
       ? null
@@ -321,12 +408,7 @@ export class StubBillingQueryRepository implements BillingQueryRepository {
   }
 
   async hasTraces(monthStart: Date): Promise<boolean> {
-    const key = this.monthKey(monthStart);
-
-    return (
-      (this.usageByMonth.get(key)?.length ?? 0) > 0 ||
-      (this.pendingByMonth.get(key)?.traceCount ?? 0) > 0
-    );
+    return this.monthHasTraces(this.monthKey(monthStart));
   }
 }
 

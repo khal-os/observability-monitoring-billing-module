@@ -78,14 +78,43 @@ describe('App error shape', () => {
       });
     });
 
-    it('MUST answer POST /api/v1/traces as 405 with Allow: GET', async () => {
+    it('MUST answer POST /api/v1/traces as 405 with Allow: GET, HEAD', async () => {
       const response = await request(app).post('/api/v1/traces').expect(405);
 
-      expect(response.headers.allow).toBe('GET');
+      // HEAD is derived by Express from the GET route and IS served —
+      // omitting it told a client the resource has no HEAD (re-audit
+      // iteration 2).
+      expect(response.headers.allow).toBe('GET, HEAD');
       expect(response.body).toEqual({
         name: 'MethodNotAllowedError',
         msg: 'Method not allowed: POST /api/v1/traces',
       });
+    });
+
+    it('MUST report the SAME method set as OPTIONS on the same path — one resource, one answer', async () => {
+      const methodSet = (allow: string | undefined): string[] =>
+        (allow ?? '')
+          .split(',')
+          .map((method) => method.trim())
+          .filter((method) => method.length > 0)
+          .sort();
+
+      const notAllowed = await request(app).delete('/api/v1/traces').expect(405);
+      const options = await request(app).options('/api/v1/traces').expect(200);
+
+      expect(methodSet(notAllowed.headers.allow)).toEqual(['GET', 'HEAD']);
+      expect(methodSet(notAllowed.headers.allow)).toEqual(
+        methodSet(options.headers.allow),
+      );
+    });
+
+    it('MUST NOT answer 405 to the HEAD it advertises — the method genuinely reaches the route', async () => {
+      const response = await request(app).head('/api/v1/traces');
+
+      // Whatever the controller answers without a DB behind it, the one
+      // thing HEAD must never be is "method not allowed" while the Allow
+      // header lists it.
+      expect(response.status).not.toBe(405);
     });
 
     it('MUST keep answering an unknown path as plain 404 (GET /api/v1/nope)', async () => {
@@ -103,7 +132,7 @@ describe('App error shape', () => {
         .expect(405)
         .expect('Content-Type', /json/);
 
-      expect(response.headers.allow).toBe('GET');
+      expect(response.headers.allow).toBe('GET, HEAD');
       expect(response.body).toEqual({
         name: 'MethodNotAllowedError',
         msg: 'Method not allowed: POST /API/V1/TRACES',

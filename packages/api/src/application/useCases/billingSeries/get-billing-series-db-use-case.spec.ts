@@ -1,6 +1,7 @@
 import { GetBillingSeriesDbUseCase } from './get-billing-series-db-use-case.js';
 import { GetBillingProjectionDbUseCase } from './get-billing-projection-db-use-case.js';
 import { CloseBillingPeriodDbUseCase } from '../billingLifecycle/close-billing-period-db-use-case.js';
+import { ReopenBillingPeriodDbUseCase } from '../billingLifecycle/reopen-billing-period-db-use-case.js';
 import {
   InMemoryBillingPeriodRepository,
   InMemoryBillingSnapshotRepository,
@@ -33,7 +34,18 @@ const makeSut = (now = NOW) => {
     now: () => now,
   });
 
-  return { sut, close, billingQueryRepository, billingSnapshotRepository };
+  const reopen = new ReopenBillingPeriodDbUseCase({
+    billingPeriodRepository,
+    now: () => now,
+  });
+
+  return {
+    sut,
+    close,
+    reopen,
+    billingQueryRepository,
+    billingSnapshotRepository,
+  };
 };
 
 describe('GetBillingSeriesDbUseCase (T8)', () => {
@@ -208,6 +220,52 @@ describe('GetBillingSeriesDbUseCase (T8)', () => {
     ]);
     expect(findCurrent).toHaveBeenCalledTimes(1);
     expect(findCurrent).toHaveBeenCalledWith(2026, 6);
+  });
+
+  it('re-audit: a REOPENED EARLIEST month charts its LIVE cost, never a R$ 0,00 bar', async () => {
+    const { sut, close, reopen, billingQueryRepository } = makeSut();
+    billingQueryRepository.usageByMonth.set('2026-5', [
+      usageRecord({
+        traceId: 'may-1',
+        startedAt: new Date('2026-05-10T12:00:00.000Z'),
+      }),
+    ]);
+    billingQueryRepository.usageByMonth.set('2026-6', [
+      usageRecord({ traceId: 'jun-1' }),
+    ]);
+
+    await close.close(2026, 5);
+    await close.close(2026, 6);
+    // The C-7.1 bound used to walk forward from the earliest STILL closed
+    // month (June), leaving reopened May behind the rollup's scan: the bar
+    // charted R$ 0,00 while /billing/summary billed the month in full.
+    await reopen.reopen(2026, 5, 'corrigir atribuição de maio');
+
+    billingQueryRepository.rollupRows = [
+      {
+        year: 2026,
+        month: 5,
+        totalCostMicrocents: 9_999_000_000,
+        byTokenType: [
+          { tokenType: 'input' as const, costMicrocents: 9_999_000_000 },
+        ],
+        byAgent: [],
+        byModel: [],
+      },
+    ];
+
+    const months = await sut.list(12);
+    const may = months.find((month) => month.month === 5);
+
+    expect(may?.periodStatus).toBe('open');
+    expect(may?.totalCostMicrocents).toBe(9_999_000_000);
+    expect(may?.byTokenType).toEqual([
+      { tokenType: 'input', costMicrocents: 9_999_000_000 },
+    ]);
+    // June stays frozen at its snapshot total.
+    expect(
+      months.find((month) => month.month === 6)?.totalCostMicrocents,
+    ).toBe(2_500_000_000);
   });
 
   it('an empty store charts nothing', async () => {

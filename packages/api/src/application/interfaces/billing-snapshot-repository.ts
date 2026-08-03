@@ -20,14 +20,15 @@ export interface BillingSnapshotRepository {
   ): Promise<void>;
 
   /**
-   * audit B-2: THE close write — snapshot inputs + header + the period
-   * flip to 'closed' land ATOMICALLY (one transaction in the Mongo
-   * adapter, decision 81). A crash can no longer leave an orphan snapshot
-   * whose retry wedges on the unique index, and a retry can no longer
-   * silently rewrite the stored inputs of an existing version.
+   * audit B-2 (re-audit): THE close write — snapshot inputs + header + the
+   * period flip to 'closed' become visible ATOMICALLY. The adapter is free
+   * to stage the (unbounded) inputs outside the transaction, as long as
+   * the header stays the commit mark: a reader must never observe a
+   * snapshot whose inputs are incomplete, and a crash at any point must
+   * leave nothing published, so the retry recomputes and closes cleanly.
    *
    * Returns 'conflict' when the period is already closed (the loser of a
-   * concurrent double close — nothing written). A duplicate
+   * concurrent double close — nothing published). A duplicate
    * (year, month, version) header surfaces as a typed
    * BillingPeriodStateError, never a raw driver error.
    */

@@ -1,7 +1,13 @@
-import { SpanRow, SummaryRow } from './clickhouse-row-schema.js';
+import { SourceTrace } from '../../../../application/interfaces/trace-source-client.js';
+import { unreconstructedTokenCounts } from '../../token-salvage-gate.js';
 import {
+  SalvageableTokenField,
+  SpanRow,
+  SummaryRow,
+} from './clickhouse-row-schema.js';
+import {
+  corruptTokenCounts,
   mapSummaryTrace,
-  unreconstructedTokenFields,
 } from './clickhouse-row-mapper.js';
 
 // Shapes taken from REAL rows of the live 3.5.0 instance (decision 59):
@@ -370,7 +376,17 @@ describe('mapSummaryTrace', () => {
   });
 });
 
-describe('unreconstructedTokenFields — the salvage half of the rule', () => {
+describe('the salvage half of the rule — nulled counts through the SHARED gate', () => {
+  // The rule itself lives in token-salvage-gate.ts (one gate for every
+  // source adapter); this mapper only translates its own field names.
+  const unreconstructed = (
+    trace: SourceTrace,
+    fields: SalvageableTokenField[],
+  ): string[] =>
+    unreconstructedTokenCounts(trace, corruptTokenCounts(fields)).map(
+      (count) => count.field,
+    );
+
   const spanless = () =>
     mapSummaryTrace(
       makeSummary({
@@ -392,7 +408,7 @@ describe('unreconstructedTokenFields — the salvage half of the rule', () => {
 
     expect(trace.tokens).toMatchObject({ input: 313, output: 9 });
     expect(
-      unreconstructedTokenFields(trace, ['completionTokens', 'promptTokens']),
+      unreconstructed(trace, ['completionTokens', 'promptTokens']),
     ).toEqual([]);
   });
 
@@ -401,7 +417,7 @@ describe('unreconstructedTokenFields — the salvage half of the rule', () => {
 
     expect(trace.tokens).toEqual({});
     expect(
-      unreconstructedTokenFields(trace, ['completionTokens', 'promptTokens']),
+      unreconstructed(trace, ['completionTokens', 'promptTokens']),
     ).toEqual(['completionTokens', 'promptTokens']);
   });
 
@@ -423,7 +439,7 @@ describe('unreconstructedTokenFields — the salvage half of the rule', () => {
     // The healthy count is irrelevant here — only promptTokens was nulled,
     // and nothing rebuilt it.
     expect(trace.tokens.input).toBeUndefined();
-    expect(unreconstructedTokenFields(trace, ['promptTokens'])).toEqual([
+    expect(unreconstructed(trace, ['promptTokens'])).toEqual([
       'promptTokens',
     ]);
   });
@@ -444,9 +460,9 @@ describe('unreconstructedTokenFields — the salvage half of the rule', () => {
       ],
     );
 
-    expect(unreconstructedTokenFields(trace, ['promptTokens'])).toEqual([
+    expect(unreconstructed(trace, ['promptTokens'])).toEqual([
       'promptTokens',
     ]);
-    expect(unreconstructedTokenFields(trace, ['completionTokens'])).toEqual([]);
+    expect(unreconstructed(trace, ['completionTokens'])).toEqual([]);
   });
 });

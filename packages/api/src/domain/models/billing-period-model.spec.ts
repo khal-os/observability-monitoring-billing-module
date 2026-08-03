@@ -97,4 +97,37 @@ describe('firstOpenMonthStart() (audit C-7.1)', () => {
       ]),
     ).toEqual(new Date('2026-05-01T00:00:00.000Z'));
   });
+
+  it('re-audit: reopening the EARLIEST closed month pulls the bound back to it', () => {
+    // The forward walk anchors on the earliest STILL-closed month (June),
+    // which would put the bound at 2026-07-01 and drop reopened May out of
+    // /bills and the monthly series while /billing/summary still bills it.
+    expect(
+      firstOpenMonthStart([
+        period(2026, 5, 'open'), // reopened, and the oldest month there is
+        period(2026, 6, 'closed'),
+      ]),
+    ).toEqual(new Date('2026-05-01T00:00:00.000Z'));
+  });
+
+  it('re-audit: a reopened month crossing the year boundary still bounds the scan', () => {
+    expect(
+      firstOpenMonthStart([
+        period(2025, 12, 'open'), // reopened
+        period(2026, 1, 'closed'),
+        period(2026, 2, 'closed'),
+      ]),
+    ).toEqual(new Date('2025-12-01T00:00:00.000Z'));
+  });
+
+  it('a reopened month AFTER the closed run never pushes the bound forward', () => {
+    // April closed, May never closed (no doc), June closed then reopened:
+    // the walk (May) still wins over the reopened June.
+    expect(
+      firstOpenMonthStart([
+        period(2026, 4, 'closed'),
+        period(2026, 6, 'open'), // reopened
+      ]),
+    ).toEqual(new Date('2026-05-01T00:00:00.000Z'));
+  });
 });

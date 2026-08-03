@@ -7,16 +7,31 @@
  * persisted at skip time, upserted by row id, in the same durable store
  * as the archive itself.
  */
+/**
+ * Boundaries whose row may be ACCEPTED under repair instead of skipped:
+ * corrupt token counts nulled at the boundary and rebuilt from span-level
+ * usage. Every one of them records the repair under `${kind}_salvaged` —
+ * the rule itself is ONE shared gate (re-audit iteration 2), so its
+ * durable trail follows one naming rule too.
+ */
+export type SalvageablePoisonKind = 'summary' | 'http-detail';
+
+export type PoisonRowKind =
+  | 'summary'
+  | 'span'
+  | 'http-detail'
+  | `${SalvageablePoisonKind}_salvaged`;
+
 export interface PoisonRowRecord {
   /**
-   * Which boundary rejected the row — or, for `summary_salvaged`, ACCEPTED
-   * it under repair: a summary whose corrupt token counts were nulled and
+   * Which boundary rejected the row — or, for a `*_salvaged` kind, ACCEPTED
+   * it under repair: a row whose corrupt token counts were nulled and
    * rebuilt from span-level usage (audit iteration 1). A salvage is not a
    * skip, but it is a boundary defect that reached the permanent archive,
-   * so it belongs in the same durable trail: `summary_salvaged` records
-   * are the only ones whose trace WAS ingested.
+   * so it belongs in the same durable trail: `*_salvaged` records are the
+   * only ones whose trace WAS ingested.
    */
-  kind: 'summary' | 'span' | 'http-detail' | 'summary_salvaged';
+  kind: PoisonRowKind;
   /** The row's own id (traceId for summaries/details, spanId for spans). */
   id: string;
   /** Cursor/window position of the sync when the row was seen. */

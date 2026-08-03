@@ -6,6 +6,7 @@ import {
   SourceTrace,
   TokenCounts,
 } from '../../../../application/interfaces/trace-source-client.js';
+import { CorruptTokenCount } from '../../token-salvage-gate.js';
 import {
   SalvageableTokenField,
   SpanRow,
@@ -244,7 +245,7 @@ export const mapSummaryTrace = (
   // The span fallback is also what decides the C-6.2 salvage: a count the
   // schema nulled (corrupt at the source) is only safe to proceed with
   // when THIS `?? sumSpanTokens(...)` rebuilds a real number for it —
-  // see unreconstructedTokenFields below.
+  // see unreconstructedTokenCounts in token-salvage-gate.ts.
   const tokens = cleanTokens({
     input: summary.promptTokens ?? sumSpanTokens(spans, 'input'),
     output: summary.completionTokens ?? sumSpanTokens(spans, 'output'),
@@ -307,23 +308,15 @@ const SALVAGED_TOKEN_TYPE: Record<SalvageableTokenField, keyof TokenCounts> = {
 };
 
 /**
- * Which of the counts the schema nulled (parseSummaryRow) the span
- * fallback did NOT rebuild — the mapped trace carries no real number for
- * that token type, so its usage is UNKNOWN, not zero.
- *
- * // QA19: this is the salvage half of the stamping rule. A non-empty
- * result means the row must stay POISON: with the corrupt type absent
- * from `tokens`, the stamper sees it as unused, finds no missing price
- * for it and mints an IMMUTABLE stamp that prices it at zero (R$ 0,00
- * outright when NO type survives) — exactly what invariant 2 forbids, and
- * unreachable by any later reprocess. Empty means every nulled count came
- * back from the span-level `gen_ai.usage.*` sums and the trace is priced
- * on measured usage.
+ * The counts `parseSummaryRow` nulled, in the vendor-neutral shape the
+ * shared invariant-2 gate consumes (token-salvage-gate.ts). Only the
+ * translation lives here — the RULE is one gate every source adapter
+ * crosses (re-audit iteration 2), never a per-adapter copy.
  */
-export const unreconstructedTokenFields = (
-  trace: SourceTrace,
+export const corruptTokenCounts = (
   nulledTokenFields: SalvageableTokenField[],
-): SalvageableTokenField[] =>
-  nulledTokenFields.filter(
-    (field) => (trace.tokens[SALVAGED_TOKEN_TYPE[field]] ?? 0) <= 0,
-  );
+): CorruptTokenCount[] =>
+  nulledTokenFields.map((field) => ({
+    field,
+    tokenType: SALVAGED_TOKEN_TYPE[field],
+  }));

@@ -9,6 +9,8 @@ import {
 import { BillingPeriodRepository } from '../../interfaces/billing-period-repository.js';
 import { BillingSnapshotRepository } from '../../interfaces/billing-snapshot-repository.js';
 import {
+  BillingPeriodModel,
+  closedMonthWindows,
   firstOpenMonthStart,
   monthWindowUtc,
   resolvePeriodStatus,
@@ -16,10 +18,10 @@ import {
 
 /**
  * The months list (T7 feed for US6/US7's selector): every OPEN month with
- * any trace in the live scan, PLUS every closed month's lifecycle
- * document. Closed months report the SNAPSHOT numbers verbatim (US6: the
- * list shows exactly what the frozen statement shows, forever); open
- * months report the live stamp sums.
+ * any trace in the live scan, PLUS every lifecycle document. Closed months
+ * report the SNAPSHOT numbers verbatim (US6: the list shows exactly what
+ * the frozen statement shows, forever); open months report the live stamp
+ * sums.
  *
  * audit C-7.1: the live scan is bounded to open months
  * (firstOpenMonthStart) — closed history is served from period docs +
@@ -45,8 +47,12 @@ export class ListBillsDbUseCase implements ListBillsUseCase {
 
   async list(): Promise<BillListItem[]> {
     const periods = await this.billingPeriodRepository.listAll();
+    // The closed windows scope the unresolved-quarantine exclusion of the
+    // pending numbers to FROZEN months only — the same lens
+    // /billing/summary and the close guard apply (re-audit iteration 2).
     const rows = await this.billingQueryRepository.listBills(
       firstOpenMonthStart(periods),
+      closedMonthWindows(periods),
     );
     const now = this.now();
 
@@ -80,22 +86,69 @@ export class ListBillsDbUseCase implements ListBillsUseCase {
       }),
     );
 
-    // Closed months outside the live scan bound (the normal case for all
-    // closed history) or with no traces left in the store at all.
-    const closedLeftovers = await Promise.all(
-      [...periodByMonth.values()]
-        .filter((period) => period.status === 'closed')
-        .map((period) =>
-          this.closedItem(period.year, period.month, {
-            closedAt: period.closedAt,
-            pendingTraceCount: 0,
-          }),
-        ),
+    // Every period document the live scan did not already answer for:
+    // closed months outside the bound (the normal case for all closed
+    // history) or with no traces left in the store at all — and, as
+    // defence in depth, the NON-closed ones too (re-audit iteration 2: a
+    // reopened month used to be filtered out here, so a bound that failed
+    // to account for it deleted the month from the list entirely).
+    const leftovers = await Promise.all(
+      [...periodByMonth.values()].map((period) =>
+        period.status === 'closed'
+          ? this.closedItem(period.year, period.month, {
+              closedAt: period.closedAt,
+              pendingTraceCount: 0,
+            })
+          : this.reopenedLeftoverItem(period, now),
+      ),
     );
 
-    return [...items, ...closedLeftovers].sort(
+    return [...items, ...leftovers].sort(
       (a, b) => b.year - a.year || b.month - a.month,
     );
+  }
+
+  /**
+   * A NON-closed period document (i.e. a REOPENED month — documents exist
+   * only after a lifecycle action) that the bounded live scan produced no
+   * row for. With a correct bound (firstOpenMonthStart accounts for
+   * reopened months) that means one thing only: the month has no trace
+   * left in the store, so an honest all-zero live bill keeps it in the
+   * selector the admin needs to finish the correction.
+   *
+   * If the store DOES hold traces for it, the bound dropped a month with
+   * money — answer loudly, exactly like the missing-snapshot branch: a
+   * month must never silently vanish from the list, and it must never be
+   * charted as R$ 0,00 while /billing/summary bills it (invariant 3).
+   */
+  private async reopenedLeftoverItem(
+    period: BillingPeriodModel,
+    now: Date,
+  ): Promise<BillListItem> {
+    const { start, end } = monthWindowUtc(period.year, period.month);
+    const [hasTraces, quarantinedTraceCount] = await Promise.all([
+      this.billingQueryRepository.hasTraces(start, end),
+      this.billingQueryRepository.countQuarantined(start, end),
+    ]);
+
+    if (hasTraces) {
+      throw new Error(
+        `Billing period ${period.year}-${period.month} is not closed but ` +
+          'fell outside the live scan bound while the store still holds its traces',
+      );
+    }
+
+    return {
+      year: period.year,
+      month: period.month,
+      periodStatus: resolvePeriodStatus(period.year, period.month, period, now),
+      totalCostMicrocents: 0,
+      stampedTraceCount: 0,
+      pendingTraceCount: 0,
+      tokens: 0,
+      stampedTokens: 0,
+      quarantinedTraceCount,
+    };
   }
 
   private openItem(

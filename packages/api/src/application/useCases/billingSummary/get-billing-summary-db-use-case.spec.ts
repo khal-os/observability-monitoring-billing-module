@@ -199,6 +199,38 @@ describe('GetBillingSummaryDbUseCase (T7)', () => {
     expect(summary.quarantinedTraceCount).toBe(2);
   });
 
+  it('re-audit: the unresolved-quarantine exemption on pending is the CLOSED-month lens only', async () => {
+    const { sut, close, reopenPeriod, billingQueryRepository } = makeSut();
+    billingQueryRepository.usageByMonth.set('2026-6', [
+      usageRecord({ traceId: 't1' }),
+    ]);
+
+    await close.close(2026, 6);
+
+    // A June straggler arrives after the close: quarantined, and pending
+    // because its model has no registered price.
+    billingQueryRepository.quarantinedPendingByMonth.set('2026-6', {
+      traceCount: 1,
+      tokens: { input: 500_000 },
+      models: ['openai/gpt-9'],
+    });
+
+    // CLOSED: outside the frozen bill (decision 100) — countQuarantined
+    // carries it, the pending panel does not.
+    expect((await sut.get(2026, 6)).pendingPrice.traceCount).toBe(0);
+
+    await reopenPeriod(2026, 6);
+
+    // REOPENED: the month is served LIVE, so the straggler is an OPEN cost
+    // of the very statement above — the same number the close guard blocks
+    // on (decision 113's scope, applied to the pending question).
+    const reopened = await sut.get(2026, 6);
+
+    expect(reopened.periodStatus).toBe('open');
+    expect(reopened.pendingPrice.traceCount).toBe(1);
+    expect(reopened.pendingPrice.models).toEqual(['openai/gpt-9']);
+  });
+
   it('surfaces reopen audit notes with the statement (US5)', async () => {
     const { sut, close, billingQueryRepository, billingPeriodRepository } =
       makeSut();

@@ -124,7 +124,14 @@ export class MongoDbTraceQueryRepository implements TraceQueryRepository {
         : traces.countDocuments(filter, { limit: TOTAL_CAP + 1 }),
     ]);
 
-    const totalCapped = !unfiltered && rawTotal > TOTAL_CAP;
+    // The cap applies to BOTH branches — the unfiltered count is cheap, but
+    // the horizon is shared with the depth guard (decision 79), and the
+    // controller derives total_pages from this total. Reporting the true
+    // 50.000 on an unfiltered archive (invariant 6: it grows past the cap
+    // by design) advertised 2.500 pages of which the API served 500: page
+    // 501 answered 400 and the UI's "Próxima" painted an outage that was
+    // not happening. Same rule the sessions repository already applies.
+    const totalCapped = rawTotal > TOTAL_CAP;
 
     return {
       items: items as unknown as TraceModel[],

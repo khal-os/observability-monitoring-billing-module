@@ -40,13 +40,38 @@ const NOT_UNRESOLVED_QUARANTINE_MATCH = {
 };
 
 /**
+ * Expression form: does this trace start inside any CLOSED month? The
+ * unresolved-quarantine exclusion is the FROZEN-month lens only (decision
+ * 100 scoped by decision 113 and re-audit iteration 2), and listBills
+ * groups every month of the scan in one pass — so the scope has to be a
+ * per-document expression, not a $match stage.
+ */
+const startedInClosedMonthExpr = (
+  closedMonthWindows: { start: Date; end: Date }[],
+): Document | boolean =>
+  closedMonthWindows.length === 0
+    ? false
+    : {
+        $or: closedMonthWindows.map((window) => ({
+          $and: [
+            { $gte: ['$startedAt', window.start] },
+            { $lt: ['$startedAt', window.end] },
+          ],
+        })),
+      };
+
+/**
  * Billing reads the SAME traces collection the tabs read and sums the SAME
  * ingestion-time stamps (invariants 1 and 3). µ¢ sums stay exact: integers
  * below 2^53 are exact under Mongo's $sum.
  */
 export class MongoDbBillingQueryRepository implements BillingQueryRepository {
-  async listBills(sinceInclusive?: Date | null): Promise<BillRow[]> {
+  async listBills(
+    sinceInclusive: Date | null | undefined,
+    closedMonthWindows: { start: Date; end: Date }[],
+  ): Promise<BillRow[]> {
     const traces = MongoDb.getCollection(TRACES_COLLECTION);
+    const inClosedMonth = startedInClosedMonthExpr(closedMonthWindows);
 
     const documents = (await traces
       .aggregate([
@@ -71,14 +96,21 @@ export class MongoDbBillingQueryRepository implements BillingQueryRepository {
                 { $ifNull: ['$tokens.cache_write', 0] },
               ],
             },
-            // Decision 100: a pending trace with UNRESOLVED quarantine is
-            // outside the bill's scope — it counts in the quarantine
-            // number, not in the pending panel (same rule as
-            // pendingPriceSummary, so the endpoints agree).
+            // Decision 100, scoped to CLOSED months by re-audit iteration
+            // 2: a pending trace with UNRESOLVED quarantine is outside a
+            // FROZEN bill (the quarantine count carries it there), but in
+            // an open or REOPENED month the live statement bills that
+            // month, so its pending traces belong in the pending panel —
+            // the same lens pendingPriceSummary and the close guard use,
+            // so the endpoints agree for every period status.
             pendingInScope: {
               $and: [
                 { $eq: ['$pricingStatus', 'pending_price'] },
-                { $not: UNRESOLVED_QUARANTINE_EXPR },
+                {
+                  $not: {
+                    $and: [UNRESOLVED_QUARANTINE_EXPR, inClosedMonth],
+                  },
+                },
               ],
             },
           },
@@ -203,6 +235,10 @@ export class MongoDbBillingQueryRepository implements BillingQueryRepository {
   async pendingPriceSummary(
     monthStart: Date,
     monthEnd: Date,
+    // Required, exactly as on the port: a default here would restore the
+    // very thing the required lens exists to prevent — a reader silently
+    // inheriting the frozen-month reading on a live month.
+    opts: { excludeUnresolvedQuarantine: boolean },
   ): Promise<PendingPriceSummary> {
     const [pendingDocument] = (await MongoDb.getCollection(TRACES_COLLECTION)
       .aggregate([
@@ -210,11 +246,16 @@ export class MongoDbBillingQueryRepository implements BillingQueryRepository {
           $match: {
             startedAt: { $gte: monthStart, $lt: monthEnd },
             pricingStatus: 'pending_price',
-            // Decision 100: a pending trace with UNRESOLVED quarantine is
-            // outside the close's scope — it must not block the close's
-            // pending guard (countQuarantined carries its visibility; the
-            // audited reopen flow brings it back into play).
-            ...NOT_UNRESOLVED_QUARANTINE_MATCH,
+            // Decision 100, scoped to CLOSED months by the re-audit (same
+            // rule decision 113 gave dailyRollup): inside a frozen month a
+            // pending trace with UNRESOLVED quarantine is outside the
+            // bill, and countQuarantined carries its visibility. In an
+            // open or REOPENED month the live statement bills that same
+            // month, so its pending traces are open costs — counted here,
+            // blocking the close until they are priced (decision 89).
+            ...(opts.excludeUnresolvedQuarantine
+              ? NOT_UNRESOLVED_QUARANTINE_MATCH
+              : {}),
           },
         },
         {

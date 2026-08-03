@@ -18,9 +18,10 @@ import {
   spanRowSchema,
 } from './clickhouse-row-schema.js';
 import {
+  corruptTokenCounts,
   mapSummaryTrace,
-  unreconstructedTokenFields,
 } from './clickhouse-row-mapper.js';
+import { tokenSalvageIsSafe } from '../../token-salvage-gate.js';
 import {
   DEFAULT_QUIET_PERIOD_MS,
   clampWindowToQuietPeriod,
@@ -394,9 +395,24 @@ export class ClickHouseLangWatchClient
         continue;
       }
 
+      // The second half of the C-6.2 salvage rule (audit iteration 1,
+      // invariant 2) — the schema nulled the corrupt counts, the SHARED
+      // gate decides whether the span-level `gen_ai.usage.*` sums rebuilt
+      // them (re-audit iteration 2: one rule for every source adapter, so
+      // a sibling adapter cannot ingest what this one refuses). Refused or
+      // salvaged, the outcome is recorded durably; a refused row is
+      // skipped and the cursor advances past it like any other poison row
+      // (decision 62).
       if (
         nulledTokenFields.length > 0 &&
-        !(await this.salvageIsSafe(trace, nulledTokenFields, raw, context))
+        !(await tokenSalvageIsSafe({
+          trace,
+          corrupt: corruptTokenCounts(nulledTokenFields),
+          kind: 'summary',
+          context,
+          rawRow: raw,
+          poisonRowRepository: this.poisonRowRepository,
+        }))
       ) {
         continue;
       }
@@ -405,69 +421,6 @@ export class ClickHouseLangWatchClient
     }
 
     return traces;
-  }
-
-  /**
-   * The second half of the C-6.2 salvage rule (audit iteration 1,
-   * invariant 2). The schema nulled the corrupt counts; the trace may only
-   * proceed if the span-level `gen_ai.usage.*` sums rebuilt EVERY one of
-   * them. Otherwise the usage behind those counts is unknown and letting
-   * the trace through stamps it — immutably — as if that usage were zero
-   * (R$ 0,00 outright when nothing survives, a silently zero-priced type
-   * on partial corruption), which no reprocess can ever undo.
-   *
-   * Either way the outcome is recorded durably at decision time: a safe
-   * salvage as `summary_salvaged` (a console.warn is not a trail — C-6.2),
-   * a refused one as ordinary poison. The row is then skipped and the
-   * cursor advances past it like any other poison row (decision 62).
-   */
-  private async salvageIsSafe(
-    trace: SourceTrace,
-    nulledTokenFields: SalvageableTokenField[],
-    raw: unknown,
-    context: string,
-  ): Promise<boolean> {
-    const nulled = nulledTokenFields.join(', ');
-    const unreconstructed = unreconstructedTokenFields(trace, nulledTokenFields);
-
-    if (unreconstructed.length > 0) {
-      const error =
-        `invalid token counts (${nulled}) with no span-level usage to ` +
-        `rebuild ${unreconstructed.join(', ')} — the real usage is unknown, ` +
-        'so the trace is NOT salvaged: ingesting it would stamp that usage ' +
-        'at R$ 0,00 immutably (invariant 2).';
-
-      console.warn(
-        `Sync: poison summary row skipped (traceId=${trace.traceId}): ${error}`,
-      );
-      await this.poisonRowRepository?.record({
-        kind: 'summary',
-        id: trace.traceId,
-        context,
-        error,
-        seenAt: new Date(),
-        rawRow: raw,
-      });
-
-      return false;
-    }
-
-    const note =
-      `invalid token counts nulled (${nulled}) and rebuilt from the ` +
-      'span-level usage sums; the trace proceeds with content preserved ' +
-      '(audit C-6.2).';
-
-    console.warn(`Sync: summary row salvaged (traceId=${trace.traceId}): ${note}`);
-    await this.poisonRowRepository?.record({
-      kind: 'summary_salvaged',
-      id: trace.traceId,
-      context,
-      error: note,
-      seenAt: new Date(),
-      rawRow: raw,
-    });
-
-    return true;
   }
 
   private async fetchSpans(

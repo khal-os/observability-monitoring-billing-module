@@ -1,5 +1,7 @@
 import { ListBillsDbUseCase } from './list-bills-db-use-case.js';
+import { GetBillingSummaryDbUseCase } from './get-billing-summary-db-use-case.js';
 import { CloseBillingPeriodDbUseCase } from '../billingLifecycle/close-billing-period-db-use-case.js';
+import { ReopenBillingPeriodDbUseCase } from '../billingLifecycle/reopen-billing-period-db-use-case.js';
 import {
   InMemoryBillingPeriodRepository,
   InMemoryBillingSnapshotRepository,
@@ -33,7 +35,28 @@ const makeSut = (now = NOW) => {
     now: () => now,
   });
 
-  return { sut, close, billingQueryRepository, billingPeriodRepository };
+  const reopen = new ReopenBillingPeriodDbUseCase({
+    billingPeriodRepository,
+    now: () => now,
+  });
+
+  // The same store, read through the OTHER endpoint — the two must never
+  // disagree about a month's money (invariant 3).
+  const summary = new GetBillingSummaryDbUseCase({
+    billingQueryRepository,
+    billingPeriodRepository,
+    billingSnapshotRepository,
+    now: () => now,
+  });
+
+  return {
+    sut,
+    close,
+    reopen,
+    summary,
+    billingQueryRepository,
+    billingPeriodRepository,
+  };
 };
 
 const seedRows = (billingQueryRepository: StubBillingQueryRepository) => {
@@ -226,6 +249,148 @@ describe('ListBillsDbUseCase (T7)', () => {
     });
   });
 
+  describe('re-audit: REOPENING the EARLIEST closed month must not hide it', () => {
+    const seedMayAndJune = (
+      billingQueryRepository: StubBillingQueryRepository,
+    ) => {
+      billingQueryRepository.usageByMonth.set('2026-5', [
+        usageRecord({
+          traceId: 'may-1',
+          startedAt: new Date('2026-05-10T12:00:00.000Z'),
+        }),
+        usageRecord({
+          traceId: 'may-2',
+          startedAt: new Date('2026-05-12T12:00:00.000Z'),
+        }),
+      ]);
+      billingQueryRepository.usageByMonth.set('2026-6', [
+        usageRecord({ traceId: 'jun-1' }),
+      ]);
+      billingQueryRepository.billRows = [
+        billRow({
+          year: 2026,
+          month: 6,
+          totalCostMicrocents: 2_500_000_000,
+          stampedTraceCount: 1,
+          tokens: 1_000_000,
+          stampedTokens: 1_000_000,
+        }),
+        billRow({
+          year: 2026,
+          month: 5,
+          totalCostMicrocents: 5_000_000_000,
+          stampedTraceCount: 2,
+          tokens: 2_000_000,
+          stampedTokens: 2_000_000,
+        }),
+      ];
+    };
+
+    it('the reopened month stays in the list with its LIVE total, and the summary agrees', async () => {
+      const { sut, close, reopen, summary, billingQueryRepository } = makeSut();
+      seedMayAndJune(billingQueryRepository);
+
+      await close.close(2026, 5);
+      await close.close(2026, 6);
+      // The audited correction flow (decision 89) on the OLDEST closed
+      // month: the C-7.1 bound walked forward from the earliest STILL
+      // closed month (June), so May fell behind the scan and vanished.
+      await reopen.reopen(2026, 5, 'corrigir atribuição de maio');
+
+      const bills = await sut.list();
+      const may = bills.find((bill) => bill.month === 5);
+
+      expect(bills.map((bill) => [bill.month, bill.periodStatus])).toEqual([
+        [6, 'closed'],
+        [5, 'open'],
+      ]);
+      expect(may?.totalCostMicrocents).toBe(5_000_000_000);
+      expect(may?.stampedTraceCount).toBe(2);
+      // Invariant 3: the two endpoints of the same truth agree.
+      expect((await summary.get(2026, 5)).statement.totalCostMicrocents).toBe(
+        may?.totalCostMicrocents,
+      );
+    });
+
+    it('the reopened month reports the SAME pending count on /bills, /billing/summary and the close guard', async () => {
+      const { sut, close, reopen, summary, billingQueryRepository } = makeSut();
+      seedMayAndJune(billingQueryRepository);
+
+      await close.close(2026, 5);
+      await close.close(2026, 6);
+
+      // A post-close straggler lands in May, still unpriced: quarantined
+      // and unresolved. While May is FROZEN it is outside the bill
+      // (decision 100) — countQuarantined carries it.
+      billingQueryRepository.quarantinedPendingByMonth.set('2026-5', {
+        traceCount: 1,
+        tokens: { input: 40 },
+        models: ['openai/gpt-9'],
+      });
+
+      const frozen = await sut.list();
+
+      expect(frozen.find((bill) => bill.month === 5)?.pendingTraceCount).toBe(0);
+      expect((await summary.get(2026, 5)).pendingPrice.traceCount).toBe(0);
+
+      // Reopened, the live statement bills May again — so the straggler is
+      // an OPEN cost of that same live bill. All three readers of the one
+      // truth must say so (invariant 3): the list, the statement, and the
+      // guard that refuses the re-close until it is priced.
+      await reopen.reopen(2026, 5, 'corrigir atribuição de maio');
+
+      const bills = await sut.list();
+      const may = bills.find((bill) => bill.month === 5);
+      const live = await summary.get(2026, 5);
+
+      expect(may?.pendingTraceCount).toBe(1);
+      expect(live.pendingPrice.traceCount).toBe(1);
+      expect(may?.pendingTraceCount).toBe(live.pendingPrice.traceCount);
+      await expect(close.close(2026, 5)).rejects.toMatchObject({
+        pendingTraceCount: 1,
+      });
+    });
+
+    it('defence in depth: a NON-closed period doc outside the scan is LOUD, never a silent drop', async () => {
+      const { sut, close, reopen, billingQueryRepository } = makeSut();
+      seedMayAndJune(billingQueryRepository);
+
+      await close.close(2026, 5);
+      await reopen.reopen(2026, 5, 'corrigir atribuição de maio');
+
+      // The shape a bound regression takes: the store still holds May's
+      // traces, but the bounded scan answers no row for it.
+      billingQueryRepository.billRows = [];
+
+      await expect(sut.list()).rejects.toThrow(/outside the live scan bound/);
+    });
+
+    it('a reopened month with no traces LEFT in the store lists as an honest zero', async () => {
+      const { sut, close, reopen, billingQueryRepository } = makeSut();
+      billingQueryRepository.billRows = [];
+      billingQueryRepository.usageByMonth.set('2026-5', [
+        usageRecord({ traceId: 'may-1' }),
+      ]);
+
+      await close.close(2026, 5);
+      await reopen.reopen(2026, 5, 'corrigir atribuição de maio');
+      billingQueryRepository.usageByMonth.delete('2026-5');
+      billingQueryRepository.quarantinedByMonth.set('2026-5', 2);
+
+      const bills = await sut.list();
+
+      expect(bills).toHaveLength(1);
+      expect(bills[0]).toMatchObject({
+        year: 2026,
+        month: 5,
+        periodStatus: 'open',
+        totalCostMicrocents: 0,
+        stampedTraceCount: 0,
+        quarantinedTraceCount: 2,
+      });
+    });
+  });
+
   it('audit C-7.1: the live scan is bounded to the first open month', async () => {
     const { sut, close, billingQueryRepository } = makeSut();
     seedRows(billingQueryRepository);
@@ -239,7 +404,15 @@ describe('ListBillsDbUseCase (T7)', () => {
     await sut.list();
 
     // June closed ⇒ the scan starts at July 1 — closed history is served
-    // from period docs + snapshots, never re-scanned.
-    expect(spy).toHaveBeenLastCalledWith(new Date('2026-07-01T00:00:00.000Z'));
+    // from period docs + snapshots, never re-scanned. The second argument
+    // is the frozen-month scope of the pending lens (re-audit iteration
+    // 2): it must name exactly the CLOSED months, so an open or reopened
+    // month never inherits the frozen reading of its stragglers.
+    expect(spy).toHaveBeenLastCalledWith(new Date('2026-07-01T00:00:00.000Z'), [
+      {
+        start: new Date('2026-06-01T00:00:00.000Z'),
+        end: new Date('2026-07-01T00:00:00.000Z'),
+      },
+    ]);
   });
 });

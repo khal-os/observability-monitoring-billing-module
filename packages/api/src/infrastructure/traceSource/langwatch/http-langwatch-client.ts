@@ -5,10 +5,11 @@ import {
 } from '../../../application/interfaces/trace-source-client.js';
 import { PoisonRowRepository } from '../../../application/interfaces/poison-row-repository.js';
 import {
-  langWatchApiTraceSchema,
   langWatchSearchResponseSchema,
+  parseApiTrace,
 } from './langwatch-api-schema.js';
-import { mapApiTrace } from './langwatch-api-mapper.js';
+import { corruptMetricCounts, mapApiTrace } from './langwatch-api-mapper.js';
+import { tokenSalvageIsSafe } from '../token-salvage-gate.js';
 import {
   DEFAULT_QUIET_PERIOD_MS,
   clampWindowToQuietPeriod,
@@ -195,18 +196,21 @@ export class HttpLangWatchClient implements TraceSourceClient {
 
       // audit C-6.1: one malformed N+1 detail must not throw away the
       // whole run — skip, log, and record (decision 62, durable per C-6.2).
-      const detail = langWatchApiTraceSchema.safeParse(raw);
+      // Details whose ONLY defect is a corrupt trace-level token count are
+      // nulled-and-reported instead (parseApiTrace) and decided by the
+      // shared invariant-2 gate below.
+      const detail = parseApiTrace(raw);
 
-      if (!detail.success) {
+      if (!detail.ok) {
         poisonDetails += 1;
         console.warn(
-          `Sync: poison trace detail skipped (traceId=${item.trace_id}): ${detail.error.message}`,
+          `Sync: poison trace detail skipped (traceId=${item.trace_id}): ${detail.error}`,
         );
         await this.poisonRowRepository?.record({
           kind: 'http-detail',
           id: item.trace_id,
           context,
-          error: detail.error.message,
+          error: detail.error,
           seenAt: new Date(),
           rawRow: raw,
         });
@@ -214,7 +218,7 @@ export class HttpLangWatchClient implements TraceSourceClient {
       }
 
       try {
-        const mapped = mapApiTrace(detail.data);
+        const mapped = mapApiTrace(detail.trace);
 
         if (mapped.startedAt < window.from || mapped.startedAt >= window.to) {
           continue;
@@ -229,6 +233,29 @@ export class HttpLangWatchClient implements TraceSourceClient {
               `observable activity ${activity.toISOString()} falls inside ` +
               'the quiet period (audit B-4).',
           );
+          continue;
+        }
+
+        // Same rule as the raw-row source, from the SAME gate (re-audit
+        // iteration 2): a corrupt count the span-level usage did not
+        // rebuild leaves the real usage UNKNOWN, and ingesting the trace
+        // would stamp it at R$ 0,00 immutably (invariant 2). Refused
+        // details count as poison here exactly as refused salvages do on
+        // the raw-row path (decision 110's known consequence: a whole
+        // page of refusals reads as an instrumentation defect and trips
+        // the breaker below).
+        if (
+          detail.nulledTokenFields.length > 0 &&
+          !(await tokenSalvageIsSafe({
+            trace: mapped,
+            corrupt: corruptMetricCounts(detail.nulledTokenFields),
+            kind: 'http-detail',
+            context,
+            rawRow: raw,
+            poisonRowRepository: this.poisonRowRepository,
+          }))
+        ) {
+          poisonDetails += 1;
           continue;
         }
 

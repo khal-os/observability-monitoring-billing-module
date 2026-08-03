@@ -1,5 +1,5 @@
-import { mapApiTrace } from './langwatch-api-mapper.js';
-import { LangWatchApiTrace } from './langwatch-api-schema.js';
+import { corruptMetricCounts, mapApiTrace } from './langwatch-api-mapper.js';
+import { LangWatchApiTrace, parseApiTrace } from './langwatch-api-schema.js';
 
 const makeApiTrace = (
   overrides: Partial<LangWatchApiTrace> = {},
@@ -88,6 +88,46 @@ describe('mapApiTrace()', () => {
 
     expect(mapped.tokens.input).toBeUndefined();
     expect(mapped.tokens.output).toBeUndefined();
+  });
+
+  it('MUST rebuild a count the boundary NULLED from the span usage — the `??` must reach sumSpanMetric (invariant 2)', () => {
+    // What parseApiTrace hands the mapper for a detail whose trace-level
+    // counts were corrupt: nulled, so the span fallback can rescue them.
+    // Before the salvage rule the raw -3/100.5 were consumed by the `??`,
+    // the span sums were never read, and the trace was stamped R$ 0,00.
+    const parsed = parseApiTrace(
+      makeApiTrace({
+        metrics: {
+          total_time_ms: 4000,
+          prompt_tokens: -3,
+          completion_tokens: 100.5,
+        },
+        spans: [
+          {
+            span_id: 'span-1',
+            type: 'llm',
+            model: 'anthropic/claude-sonnet-4-5',
+            timestamps: { started_at: 1, finished_at: 2 },
+            metrics: { prompt_tokens: 120_000, completion_tokens: 8_000 },
+          },
+        ],
+      }),
+    );
+
+    expect(parsed.ok).toBe(true);
+
+    const mapped = mapApiTrace(
+      (parsed as { ok: true; trace: LangWatchApiTrace }).trace,
+    );
+
+    expect(mapped.tokens).toMatchObject({ input: 120_000, output: 8_000 });
+  });
+
+  it('MUST translate the nulled metric fields into the token types the shared gate checks', () => {
+    expect(corruptMetricCounts(['completion_tokens', 'prompt_tokens'])).toEqual([
+      { field: 'metrics.completion_tokens', tokenType: 'output' },
+      { field: 'metrics.prompt_tokens', tokenType: 'input' },
+    ]);
   });
 
   it('MUST fall back to summing span metrics when trace metrics are absent', () => {

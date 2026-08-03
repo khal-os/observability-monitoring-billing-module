@@ -222,6 +222,60 @@ describe('MongoDbTraceRepository', () => {
       });
     });
 
+    it('CHUNKS both passes — every straggler is flagged and every billed trace absorbed across chunk boundaries', async () => {
+      // The chunk size is an ADAPTER-level seam, not part of the shared
+      // TraceRepository port — so this case drives the concrete class.
+      const repository = new MongoDbTraceRepository();
+
+      // 5 stragglers and 5 billed traces against chunkSize 2 — an uneven
+      // split (2 + 2 + 1) on BOTH passes, so a loop that dropped the tail
+      // chunk or overwrote its accumulator instead of adding to it shows
+      // up as a short count. The parameter exists precisely so the
+      // chunking is testable below the 16MB constant (re-audit: it had no
+      // test at all, and the production default of 10 000 means a real
+      // month would never reach a second chunk in a test).
+      const billed = ['b1', 'b2', 'b3', 'b4', 'b5'];
+
+      for (const traceId of [...billed, 's1', 's2', 's3', 's4', 's5']) {
+        await repository.insertIfAbsent(
+          makeContractTrace({
+            traceId,
+            billingQuarantine: billed.includes(traceId)
+              ? {
+                  reason: 'period_closed',
+                  quarantinedAt: new Date('2026-07-02T10:00:00.000Z'),
+                }
+              : undefined,
+          }),
+        );
+      }
+
+      const result = await repository.reconcileQuarantineAfterClose(
+        JUNE_START,
+        JULY_START,
+        billed,
+        7,
+        2,
+      );
+
+      expect(result).toEqual({ flaggedStragglers: 5, absorbed: 5 });
+
+      for (const traceId of billed) {
+        expect(await readQuarantine(traceId)).toMatchObject({
+          absorbedInSnapshotVersion: 7,
+        });
+      }
+
+      for (const traceId of ['s1', 's2', 's3', 's4', 's5']) {
+        expect(await readQuarantine(traceId)).toMatchObject({
+          reason: 'period_closed',
+        });
+        expect(await readQuarantine(traceId)).not.toHaveProperty(
+          'absorbedInSnapshotVersion',
+        );
+      }
+    });
+
     it('a pending straggler is flagged too — it slipped past the close, only the reopen flow recovers it', async () => {
       const harness = makeHarness();
 

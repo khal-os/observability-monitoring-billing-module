@@ -42,13 +42,32 @@ const ROUTE_MATCHERS = KNOWN_ROUTES.map((route) => ({
   matcher: toMatcher(route.path),
 }));
 
-const allowedMethods = (path: string): string[] => [
-  ...new Set(
+/**
+ * What the server ACTUALLY serves on this path — the table plus the HEAD
+ * Express derives from every GET route (re-audit iteration 2). The table
+ * lists only the methods registered by hand, so echoing it verbatim
+ * answered `Allow: GET` while OPTIONS on the same path answered
+ * `Allow: GET,HEAD` and HEAD genuinely reached the controller: two
+ * discovery paths on one resource contradicting each other, and a client
+ * caching the 405's list would never poll with HEAD. RFC 7231 §6.5.5 asks
+ * for the methods the target resource supports, so the derived HEAD
+ * belongs here. OPTIONS is deliberately NOT added: Express's own OPTIONS
+ * handler does not list itself, and the two answers must report the SAME
+ * method set (pinned by app-error-shape.test.ts).
+ */
+const allowedMethods = (path: string): string[] => {
+  const methods = new Set(
     ROUTE_MATCHERS.filter((route) => route.matcher.test(path)).map(
       (route) => route.method,
     ),
-  ),
-];
+  );
+
+  if (methods.has('GET')) {
+    methods.add('HEAD');
+  }
+
+  return [...methods];
+};
 
 /**
  * Catch-all registered AFTER every route: an unknown path answers 404; a

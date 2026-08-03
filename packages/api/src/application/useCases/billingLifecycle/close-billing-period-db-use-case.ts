@@ -84,9 +84,17 @@ export class CloseBillingPeriodDbUseCase implements CloseBillingPeriodUseCase {
     // trace up to M-1 must be closed or trace-free BEFORE M closes.
     await this.assertOlderMonthsClosed(year, month);
 
+    // Re-audit: the month is provably NOT closed here (the already-closed
+    // branch above always throws), so the closed-month exemption for
+    // unresolved-quarantined pending traces MUST NOT apply — a REOPENED
+    // month's straggler is precisely the case decision 89's correction
+    // flow exists to resolve, and freezing it out would produce a v+1
+    // bill that omits its cost while reporting zero pending. Every
+    // pending_price trace in the window blocks the close (T6).
     const pending = await this.billingQueryRepository.pendingPriceSummary(
       start,
       end,
+      { excludeUnresolvedQuarantine: false },
     );
 
     if (pending.traceCount > 0) {
@@ -132,11 +140,14 @@ export class CloseBillingPeriodDbUseCase implements CloseBillingPeriodUseCase {
       usageRecordCount: records.length,
     };
 
-    // audit B-2: snapshot inputs + header + period flip land ATOMICALLY
-    // (one transaction inside the adapter, decision 81). A crash leaves
-    // NOTHING — the retry recomputes and closes cleanly; a concurrent
-    // close loses whole, its half-written records rolled back, never left
-    // under the winner's header.
+    // audit B-2: the close publishes ATOMICALLY (decision 81 + re-audit).
+    // The adapter stages the unbounded inputs OUTSIDE the transaction, in
+    // bounded chunks under a key private to this attempt, then commits
+    // header + period flip together — the header is the commit mark, and
+    // no reader can resolve rows without one. A crash leaves NOTHING
+    // readable — the retry recomputes and closes cleanly; a concurrent
+    // close loses whole, its staged records unreachable, never left under
+    // the winner's header.
     const outcome = await this.billingSnapshotRepository.insertWithPeriodClose(
       snapshot,
       records,
