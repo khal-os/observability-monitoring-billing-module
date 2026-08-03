@@ -4,8 +4,7 @@ import {
   TraceListFilters,
   TraceQueryRepository,
 } from './query-traces-protocols.js';
-
-const MAX_CACHE_ENTRIES = 100;
+import { TtlCache } from '../../helpers/ttl-cache.js';
 
 /**
  * Facet options with a short in-memory TTL (decision 77): dropdown counts
@@ -18,40 +17,29 @@ export class ListTraceFilterOptionsDbUseCase
   implements ListTraceFilterOptionsUseCase
 {
   private readonly traceQueryRepository: TraceQueryRepository;
-  private readonly cacheTtlMs: number;
-  private readonly cache = new Map<
-    string,
-    { at: number; value: TraceFilterOptions }
-  >();
+  private readonly cache: TtlCache<TraceFilterOptions>;
 
   constructor(args: {
     traceQueryRepository: TraceQueryRepository;
     cacheTtlMs?: number;
   }) {
     this.traceQueryRepository = args.traceQueryRepository;
-    this.cacheTtlMs = args.cacheTtlMs ?? 0;
+    this.cache = new TtlCache({ ttlMs: args.cacheTtlMs ?? 0 });
   }
 
   async list(filters: TraceListFilters): Promise<TraceFilterOptions> {
-    if (this.cacheTtlMs <= 0) {
+    if (!this.cache.enabled) {
       return this.traceQueryRepository.findFilterOptions(filters);
     }
 
     const key = JSON.stringify(filters);
     const cached = this.cache.get(key);
 
-    if (cached && Date.now() - cached.at < this.cacheTtlMs) {
-      return cached.value;
-    }
+    if (cached) return cached;
 
     const value = await this.traceQueryRepository.findFilterOptions(filters);
 
-    if (this.cache.size >= MAX_CACHE_ENTRIES) {
-      // Oldest-in first out — plenty for a dropdown bar's combo space.
-      const oldest = this.cache.keys().next().value;
-      if (oldest !== undefined) this.cache.delete(oldest);
-    }
-    this.cache.set(key, { at: Date.now(), value });
+    this.cache.set(key, value);
 
     return value;
   }
