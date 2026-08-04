@@ -68,6 +68,8 @@ const FUTURE_MONTH_MESSAGE =
   'O mês 2099-01 está no futuro — não há nada a faturar.';
 
 class GetBillingSummaryStub implements GetBillingSummaryUseCase {
+  summary: BillingSummary | null = null;
+
   async get(year: number, _month: number): Promise<BillingSummary> {
     // Reproduces the use case's own period-state rejection so the
     // controller's HTTP mapping is exercised against the REAL error type.
@@ -75,7 +77,7 @@ class GetBillingSummaryStub implements GetBillingSummaryUseCase {
       throw new BillingPeriodStateError(FUTURE_MONTH_MESSAGE);
     }
 
-    return makeSummary();
+    return this.summary ?? makeSummary();
   }
 }
 
@@ -198,4 +200,34 @@ describe('GetBillingSummaryController', () => {
       );
     });
   });
+
+  describe('cache directives (audit D-7 — the one provably cacheable response)', () => {
+    it('MUST NOT override no-store for an OPEN month', async () => {
+      const { sut } = makeSut();
+
+      const response = await sut.handle({ query: { year: '2026', month: '6' } });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers).toBeUndefined();
+    });
+
+    it('MUST mark a CLOSED month immutable with an ETag carrying the snapshot version', async () => {
+      const { sut, getBillingSummaryStub } = makeSut();
+      const closed = makeSummary();
+      closed.periodStatus = 'closed';
+      closed.snapshotVersion = 2;
+      getBillingSummaryStub.summary = closed;
+
+      const response = await sut.handle({ query: { year: '2026', month: '6' } });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers).toEqual({
+        'cache-control': 'private, max-age=86400, immutable',
+        // The version in the ETag makes a reopen -> re-close (which bumps
+        // it) a natural cache invalidation.
+        etag: '"billing-2026-6-v2"',
+      });
+    });
+  });
+
 });

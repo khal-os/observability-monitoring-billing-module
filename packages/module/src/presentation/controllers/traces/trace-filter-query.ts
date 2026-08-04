@@ -24,6 +24,8 @@ export const traceFilterQueryShape = {
   domain: stringListParam,
   subdomain: stringListParam,
   search: z.string().min(1).optional(),
+  // audit D-9: the bill's quarantined_trace_count finally links to rows.
+  quarantined: z.enum(['true', 'false']).optional(),
 };
 
 const traceFilterQuerySchema = z.strictObject(traceFilterQueryShape);
@@ -42,4 +44,6 @@ export const toTraceListFilters = (
   domains: query.domain,
   subdomains: query.subdomain,
   search: query.search,
+  quarantined:
+    query.quarantined === undefined ? undefined : query.quarantined === 'true',
 });

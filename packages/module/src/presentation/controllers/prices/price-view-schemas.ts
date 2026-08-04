@@ -67,6 +67,8 @@ export const registerPriceVersionResponseSchema = z.strictObject({
     failed: z.number().int(),
     /** T6: pending traces of CLOSED months — untouched until an audited reopen. */
     blocked_closed_month: z.number().int(),
+    /** audit B-5: the HTTP run is capped — what the worker's sweep still owes. */
+    pending_remaining: z.number().int(),
   }),
 });
 
@@ -76,3 +78,18 @@ export type RegisterPriceVersionRequest = z.infer<
 export type RegisterPriceVersionResponse = z.infer<
   typeof registerPriceVersionResponseSchema
 >;
+
+/** GET /prices (US4 / audit D-3) — R$-only by construction (invariant 4). */
+export const listPriceVersionsResponseSchema = z.strictObject({
+  items: z.array(
+    z.strictObject({
+      model: z.string(),
+      token_type: tokenTypeSchema,
+      pricing_type: z.literal('fixed_brl'),
+      price_brl_per_million: z.string(),
+      price_display: z.string(),
+      effective_from: z.string(),
+      effective_from_display: z.string(),
+    }),
+  ),
+});

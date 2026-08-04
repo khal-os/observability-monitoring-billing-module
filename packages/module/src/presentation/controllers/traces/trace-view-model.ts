@@ -195,6 +195,23 @@ export const toTraceDetail = (trace: TraceModel, now: Date): TraceDetailView => 
     return dates.length === 1 ? (dates[0] as string) : null;
   })(),
   spans: trace.spans.map((span) => toSpanItem(span, trace.durationMs)),
+  // audit D-8: the size guard's clip (decision 101 — invariant 6's one
+  // sanctioned dent) was written by ingestion and surfaced by NOWHERE:
+  // the UI printed the raw {"truncated":true,...} marker as if the agent
+  // had said it, and the only trail was the ingest_failures collection
+  // over mongosh. The flag rides the wire; the UI renders a notice.
+  content_truncated: trace.contentTruncated === true,
+  // audit D-9: the reopen decision ("are these stragglers worth reopening
+  // a frozen month for?") needs to SEE the trace's quarantine state — the
+  // bill only carried a count.
+  billing_quarantine: trace.billingQuarantine
+    ? {
+        reason: trace.billingQuarantine.reason,
+        quarantined_at: trace.billingQuarantine.quarantinedAt.toISOString(),
+        absorbed_in_snapshot_version:
+          trace.billingQuarantine.absorbedInSnapshotVersion ?? null,
+      }
+    : null,
   content: {
     input: trace.input ?? null,
     output: trace.output ?? null,

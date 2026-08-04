@@ -21,8 +21,8 @@ const makeAppWithAuth = () => {
   // then the 404/error boundary.
   setupDocs(app);
   app.use(buildAuthMiddleware(rejectEverything));
-  setupV1Routes(app);
-  setupErrorHandling(app);
+  const routes = setupV1Routes(app);
+  setupErrorHandling(app, routes);
   return app;
 };
 

@@ -19,6 +19,12 @@ export interface TraceListFilters {
   subdomains?: string[];
   /** Exact match on trace id OR session id. */
   search?: string;
+  /**
+   * audit D-9: UNRESOLVED billing quarantine (decision 100 lens — flagged
+   * and not yet absorbed by a snapshot). true = only the stragglers the
+   * bill's quarantined_trace_count points at; false = everything else.
+   */
+  quarantined?: boolean;
 }
 
 export interface ListTracesUseCase {

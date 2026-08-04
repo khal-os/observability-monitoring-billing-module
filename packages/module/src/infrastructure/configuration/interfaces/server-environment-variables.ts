@@ -15,6 +15,8 @@ export interface ServerEnvironmentVariables {
    * tenant). Unset → API open (PoC behavior).
    */
   authSystemUrl?: string;
+  /** audit D-1: exact origins allowed cross-origin (comma-separated); unset = same-origin only. */
+  corsAllowedOrigins?: string;
   /**
    * This module's own M2M credential — the Auth System's /introspect is a
    * protected endpoint (RFC 7662): the module must authenticate itself

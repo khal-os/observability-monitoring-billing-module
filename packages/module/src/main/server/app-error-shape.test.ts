@@ -64,18 +64,37 @@ describe('App error shape', () => {
     });
   });
 
+  it('MUST answer a NON-JSON body as 415 naming the media type — never "Missing parameter" about a payload that is present (audit D-2)', async () => {
+    // curl's default for -d is x-www-form-urlencoded; body-parser used to
+    // turn it into {} BEFORE its type check, and the controller then
+    // blamed the payload ("Missing parameter: model") — the operator
+    // debugged the wrong thing while pending_price blocked the close.
+    const response = await request(app)
+      .post('/api/v1/prices')
+      .set('content-type', 'text/plain')
+      .send(
+        '{"model":"anthropic/claude-sonnet-5","token_type":"input","price_brl_per_million":"2.75","effective_from":"2026-07-01"}',
+      )
+      .expect(415);
+
+    expect(response.body).toEqual({
+      name: 'UnsupportedMediaTypeError',
+      msg: expect.stringContaining('text/plain'),
+    });
+  });
+
   describe('405 for a known path with the wrong method (C-5.2)', () => {
-    it('MUST answer DELETE /api/v1/prices as 405 with Allow: POST', async () => {
+    it('MUST answer DELETE /api/v1/prices as 405 with the DERIVED Allow set (audit D-4)', async () => {
+      // The old hand-maintained table would still say "Allow: POST" here:
+      // GET /prices (audit D-3) landed in the router, and nothing forced
+      // the table line. Deriving from the router is what makes this
+      // header incapable of lying about a served route.
       const response = await request(app)
         .delete('/api/v1/prices')
         .expect(405)
         .expect('Content-Type', /json/);
 
-      expect(response.headers.allow).toBe('POST');
-      expect(response.body).toEqual({
-        name: 'MethodNotAllowedError',
-        msg: 'Method not allowed: DELETE /api/v1/prices',
-      });
+      expect(response.headers.allow).toBe('GET, POST, HEAD');
     });
 
     it('MUST answer POST /api/v1/traces as 405 with Allow: GET, HEAD', async () => {

@@ -42,6 +42,9 @@ const envSchema = z
       .regex(/^\d+$/, 'SERVER_PORT must be a valid integer string'),
     CLIENT_NAME: z.string().optional(),
     AUTH_SYSTEM_URL: optionalNonEmptyString,
+    // audit D-1: cross-origin is an explicit operator act — exact origins,
+    // comma-separated; unset/empty = same-origin only (no CORS headers).
+    CORS_ALLOWED_ORIGINS: optionalNonEmptyString,
     AUTH_SYSTEM_CLIENT_ID: optionalNonEmptyString,
     AUTH_SYSTEM_CLIENT_SECRET: optionalNonEmptyString,
     MONGO_DB_PORT: z
@@ -94,6 +97,7 @@ export const environment: EnvironmentVariables = {
   clientName: safeEnvironment.CLIENT_NAME || undefined,
   // '' → undefined already guaranteed by optionalNonEmptyString above.
   authSystemUrl: safeEnvironment.AUTH_SYSTEM_URL,
+  corsAllowedOrigins: safeEnvironment.CORS_ALLOWED_ORIGINS,
   authSystemClientId: safeEnvironment.AUTH_SYSTEM_CLIENT_ID,
   authSystemClientSecret: safeEnvironment.AUTH_SYSTEM_CLIENT_SECRET,
   mongoDbAtlas: safeEnvironment.MONGO_DB_ATLAS,

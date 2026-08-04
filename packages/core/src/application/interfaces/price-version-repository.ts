@@ -20,4 +20,17 @@ export interface PriceVersionRepository {
    * unique-constraint violation into the typed error).
    */
   insertVersion(version: PriceVersionModel): Promise<void>;
+
+  /**
+   * The registered price table, optionally filtered (audit D-3 / US4):
+   * the pending_price diagnostic question is "which (model, token_type,
+   * effective_from) rows exist?", and until this read the only answer was
+   * mongosh into the archive — while GET /prices answered 405, asserting
+   * a resource that exists is unreadable. Ordered for reading: model,
+   * tokenType, effectiveFrom desc (newest version first).
+   */
+  listAllVersions(filter?: {
+    model?: string;
+    tokenType?: TokenType;
+  }): Promise<PriceVersionModel[]>;
 }

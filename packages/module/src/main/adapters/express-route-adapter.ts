@@ -15,8 +15,11 @@ export const adaptRoute = (controller: Controller) => {
       const httpResponse: HttpResponse = await controller.handle(httpRequest);
 
       if (httpResponse.headers) {
-        res.status(httpResponse.statusCode).set(httpResponse.headers);
-        res.send(httpResponse.body);
+        res.set(httpResponse.headers);
+      }
+
+      if (httpResponse.raw) {
+        res.status(httpResponse.statusCode).send(httpResponse.body);
         return;
       }
 

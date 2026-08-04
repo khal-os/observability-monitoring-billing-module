@@ -49,6 +49,25 @@ const buildFilter = (filters: TraceListFilters): Filter<Document> => {
     ];
   }
 
+  // audit D-9: the UNRESOLVED-quarantine lens (decision 100/115) — the
+  // same predicate countQuarantined uses, so the bill's count and this
+  // list can never disagree about which traces it means. Rides migration
+  // 021's partial index on the true branch.
+  if (filters.quarantined === true) {
+    filter['billingQuarantine.reason'] = { $exists: true };
+    filter['billingQuarantine.absorbedInSnapshotVersion'] = { $exists: false };
+  } else if (filters.quarantined === false) {
+    filter['$and'] = [
+      ...((filter['$and'] as Filter<Document>[] | undefined) ?? []),
+      {
+        $or: [
+          { 'billingQuarantine.reason': { $exists: false } },
+          { 'billingQuarantine.absorbedInSnapshotVersion': { $exists: true } },
+        ],
+      },
+    ];
+  }
+
   return filter;
 };
 

@@ -5,9 +5,22 @@ import { InvalidParamError, MissingParamError } from '../errors/index.js';
 import { buildBadRequest } from './http-helper.js';
 import { MAX_PAGINATION_SKIP } from '@observability/core/domain/models/pagination.js';
 
+/**
+ * Strict decimal integer for query strings (audit D-6): z.coerce.number()
+ * delegates to Number(), which accepts hex ('0x10' → 16), exponents
+ * ('1e2' → 100) and padded whitespace — spellings no JSON-Schema validator
+ * accepts, so a gateway or generated client validating against the
+ * published doc rejects requests the server silently honours. Digits only,
+ * then the numeric bounds.
+ */
+export const strictIntParam = z
+  .string()
+  .regex(/^\d+$/, 'expected a decimal integer')
+  .transform(Number);
+
 export const paginationSchema = {
-  page: z.coerce.number().int().min(1).default(1),
-  page_size: z.coerce.number().int().min(1).max(100).default(20),
+  page: strictIntParam.pipe(z.number().int().min(1)).optional().transform((v) => v ?? 1),
+  page_size: strictIntParam.pipe(z.number().int().min(1).max(100)).optional().transform((v) => v ?? 20),
 };
 
 /**
@@ -29,8 +42,8 @@ export const isoDateParam = isoDateRule;
  * silently ignored — the same policy the traces/sessions layer states.
  */
 export const yearMonthQueryShape = {
-  year: z.coerce.number().int().min(1970).max(9999),
-  month: z.coerce.number().int().min(1).max(12),
+  year: strictIntParam.pipe(z.number().int().min(1970).max(9999)),
+  month: strictIntParam.pipe(z.number().int().min(1).max(12)),
 };
 
 /**

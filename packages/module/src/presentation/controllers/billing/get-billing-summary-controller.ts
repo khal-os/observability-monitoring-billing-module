@@ -35,7 +35,24 @@ export class GetBillingSummaryController implements Controller {
         parsed.value.month,
       );
 
-      return buildSuccess(toBillingSummaryView(summary));
+      const view = toBillingSummaryView(summary);
+
+      // audit D-7: a CLOSED month is immutable (invariant 8 — served from
+      // its frozen snapshot) and is the one response that may say so. The
+      // ETag carries the snapshot version, so a reopen → re-close (which
+      // bumps it) naturally invalidates caches. Open/current months keep
+      // the middleware's no-store default.
+      if (view.final && view.snapshot_version !== null) {
+        return {
+          ...buildSuccess(view),
+          headers: {
+            'cache-control': 'private, max-age=86400, immutable',
+            etag: `"billing-${view.year}-${view.month}-v${view.snapshot_version}"`,
+          },
+        };
+      }
+
+      return buildSuccess(view);
     } catch (error) {
       // audit B-10.3: a period-state rejection (e.g. a FUTURE month —
       // nothing legitimate queries the future) is the caller's mistake:

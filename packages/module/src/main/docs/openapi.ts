@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { TOKEN_TYPES } from '@observability/core/domain/models/price-version-model.js';
 import path from 'node:path';
 import { z } from 'zod';
 import { apiErrorSchema } from '../../presentation/helpers/docs-schemas.js';
@@ -19,6 +20,7 @@ import {
   billingSummaryResponseSchema,
 } from '../../presentation/controllers/billing/billing-view-schemas.js';
 import {
+  listPriceVersionsResponseSchema,
   registerPriceVersionRequestSchema,
   registerPriceVersionResponseSchema,
 } from '../../presentation/controllers/prices/price-view-schemas.js';
@@ -47,6 +49,29 @@ const packageVersion = (): string =>
       readFileSync(path.resolve(process.cwd(), 'package.json'), 'utf8'),
     ) as { version: string }
   ).version;
+
+/**
+ * ONE spelling of the calendar-month address (audit D-5): the statement
+ * documented bare integers while /billing/summary documented the bounds —
+ * the same params, two stories, in the same file. Mirrors
+ * yearMonthQueryShape (1970-9999 / 1-12), which is what the controllers
+ * actually enforce.
+ */
+const yearParam = (required = true) => ({
+  name: 'year',
+  in: 'query',
+  required,
+  schema: { type: 'integer', minimum: 1970, maximum: 9999 },
+  description: 'Calendar year (UTC).',
+});
+
+const monthParam = (required = true) => ({
+  name: 'month',
+  in: 'query',
+  required,
+  schema: { type: 'integer', minimum: 1, maximum: 12 },
+  description: 'Calendar month (1-12).',
+});
 
 const errorResponse = (description: string) => ({
   description,
@@ -141,6 +166,13 @@ const traceFilterParams = [
   queryParam('search', 'Busca exata por id de trace OU de sessão.', {
     type: 'string',
   }),
+  queryParam(
+    'quarantined',
+    'Quarentena NÃO resolvida (decisão 100 — audit D-9): true = só os ' +
+      'stragglers que o quarantined_trace_count da fatura aponta; false = ' +
+      'todo o resto.',
+    { type: 'string', enum: ['true', 'false'] },
+  ),
 ];
 
 /** Shared by GET /sessions and GET /sessions/filters. */
@@ -345,18 +377,7 @@ export const buildOpenApiDocument = (clientName?: string) => ({
           'remainder); % por agente reconciliada a 100%. Inclui mix de ' +
           'modelos (US15), economia de cache (T9/QA7), comparação com o mês ' +
           'anterior (US10), watermark (US2/US6) e notas de reabertura (US5).',
-        parameters: [
-          queryParam('year', 'Calendar year (UTC), e.g. 2026.', {
-            type: 'integer',
-            minimum: 1970,
-            maximum: 9999,
-          }, true),
-          queryParam('month', 'Calendar month (1-12, UTC).', {
-            type: 'integer',
-            minimum: 1,
-            maximum: 12,
-          }, true),
-        ],
+        parameters: [yearParam(), monthParam()],
         responses: {
           '200': okResponse('Extrato do mês.', billingSummaryResponseSchema),
           '400': errorResponse('Ano/mês ausentes, malformados ou parâmetro desconhecido.'),
@@ -434,15 +455,24 @@ export const buildOpenApiDocument = (clientName?: string) => ({
           'imprimível (Ctrl+P → PDF). Mês fechado exporta o snapshot ' +
           'verbatim; mês corrente carrega a marca PARCIAL (QA13).',
         parameters: [
-          queryParam('year', 'Calendar year (UTC).', { type: 'integer' }, true),
-          queryParam('month', 'Calendar month (1-12).', { type: 'integer' }, true),
-          queryParam('format', "'csv' (default) ou 'html'.", {
+          yearParam(),
+          monthParam(),
+          queryParam('format', "'csv' (default) ou 'html'. AUTORITATIVO: o header Accept é ignorado (audit D-5).", {
             type: 'string',
             enum: ['csv', 'html'],
           }),
         ],
         responses: {
-          '200': { description: 'text/csv (attachment) ou text/html imprimível.' },
+          '200': {
+            description:
+              'A representação escolhida por ?format — text/csv (attachment, ' +
+              'UTF-8 com BOM) ou text/html imprimível. O header Accept é ' +
+              'ignorado; format decide (audit D-5).',
+            content: {
+              'text/csv': { schema: { type: 'string' } },
+              'text/html': { schema: { type: 'string' } },
+            },
+          },
           '400': errorResponse('Ano/mês/format ausentes, malformados ou parâmetro desconhecido.'),
           '401': unauthorizedResponse(),
           '500': errorResponse('Erro interno.'),
@@ -450,6 +480,44 @@ export const buildOpenApiDocument = (clientName?: string) => ({
       },
     },
     '/api/v1/prices': {
+      get: {
+        tags: ['Prices'],
+        summary: 'Tabela de preços registrada (US4 — leitura, R$ apenas)',
+        description:
+          'A tabela versionada que o carimbo consulta (invariante 9), ' +
+          'legível para conferir a fatura contra o contrato e diagnosticar ' +
+          'pending_price ("quais (model, token_type, effective_from) ' +
+          'existem?" — audit D-3). Filtros exatos opcionais; ordenada por ' +
+          'model, token_type, effective_from desc.',
+        parameters: [
+          {
+            name: 'model',
+            in: 'query',
+            required: false,
+            schema: { type: 'string' },
+            description: 'Filtro exato pela chave canônica provider/id.',
+          },
+          {
+            name: 'token_type',
+            in: 'query',
+            required: false,
+            schema: { type: 'string', enum: [...TOKEN_TYPES] },
+          },
+        ],
+        responses: {
+          '200': {
+            description: 'Versões registradas (imutáveis).',
+            content: {
+              'application/json': {
+                schema: toSchema(listPriceVersionsResponseSchema),
+              },
+            },
+          },
+          '400': errorResponse('Parâmetro de consulta inválido.'),
+          '401': unauthorizedResponse(),
+          '500': errorResponse('Erro interno.'),
+        },
+      },
       post: {
         tags: ['Prices'],
         summary: 'Registra uma NOVA versão de preço (nunca um update)',
@@ -480,6 +548,9 @@ export const buildOpenApiDocument = (clientName?: string) => ({
           '401': unauthorizedResponse(),
           '409': errorResponse(
             'Versão já existe para (model, token_type, effective_from) — registre um novo effective_from.',
+          ),
+          '415': errorResponse(
+            'Content-Type não é application/json — a API só aceita JSON (audit D-2).',
           ),
           '500': errorResponse('Erro interno.'),
         },

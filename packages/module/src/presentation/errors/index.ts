@@ -7,3 +7,4 @@ export * from './not-found-error.js';
 export * from './payload-too-large-error.js';
 export * from './server-error.js';
 export * from './unauthorized-error.js';
+export * from './unsupported-media-type-error.js';

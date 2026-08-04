@@ -118,6 +118,10 @@ class PriceVersionRepositoryStub implements PriceVersionRepository {
   }
 
   async insertVersion(): Promise<void> {}
+
+  async listAllVersions(): Promise<PriceVersionModel[]> {
+    return [];
+  }
 }
 
 class TraceRepositoryStub implements TraceRepository {

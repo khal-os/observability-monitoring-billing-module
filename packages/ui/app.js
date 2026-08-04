@@ -432,6 +432,22 @@ const renderCosts = (trace) => {
 
 const renderContent = (trace) => {
   if (!trace.content) return '';
+  /* audit D-8: a clipped trace (decision 101 — the archive kept the trace,
+     not the oversized payload) used to print the raw {"truncated":true,...}
+     marker as if the agent had said it. The flag renders a notice and the
+     marker JSON is suppressed. */
+  if (trace.content_truncated) {
+    return `
+      <section class="panel-section">
+        <h3 class="section-title">Conteúdo</h3>
+        <div class="content-block content-truncated-notice">
+          ⚠ Conteúdo TRUNCADO na ingestão: o documento excederia o limite de
+          16MB do armazenamento, então o payload foi clipado (decisão 101).
+          Tokens e custos não são afetados — vêm das contagens, não do
+          conteúdo. O registro da ocorrência está em ingest_failures.
+        </div>
+      </section>`;
+  }
   return `
     ${trace.content.input_text != null ? `
       <section class="panel-section">

@@ -20,6 +20,10 @@ class PriceVersionRepositoryStub implements PriceVersionRepository {
   async insertVersion(version: PriceVersionModel): Promise<void> {
     this.inserted.push(version);
   }
+
+  async listAllVersions(): Promise<PriceVersionModel[]> {
+    return [];
+  }
 }
 
 class ReprocessPendingStub implements ReprocessPendingUseCase {

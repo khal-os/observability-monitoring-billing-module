@@ -8,10 +8,16 @@ export interface HttpResponse {
   statusCode: StatusCode;
   body: Body;
   /**
-   * When set, the adapter sends the body RAW (res.send) with these
-   * headers instead of JSON — file downloads and print views (US17).
+   * Extra response headers, applied whenever present (audit D-7: cache
+   * directives ride JSON responses too — a CLOSED month is immutable and
+   * may say so). Middleware defaults (no-store) are overridden here.
    */
   headers?: Record<string, string>;
+  /**
+   * True → the adapter sends the body RAW (res.send) — file downloads and
+   * print views (US17). Default: JSON.
+   */
+  raw?: boolean;
 }
 
 export interface HttpRequest {

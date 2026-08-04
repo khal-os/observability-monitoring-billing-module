@@ -90,6 +90,9 @@ export class RegisterPriceVersionController implements Controller {
           still_pending: registered.reprocess.stillPending,
           failed: registered.reprocess.failed,
           blocked_closed_month: registered.reprocess.blockedClosedMonth,
+          // audit B-5: the run is CAPPED — this is what the worker's
+          // periodic sweep still owes (decision 57's backstop).
+          pending_remaining: registered.reprocess.pendingRemaining,
         },
       };
 

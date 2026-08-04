@@ -12,8 +12,9 @@ const server = new ExpressServer();
 // and must not inherit the API-wide application/json default.
 setupDocs(server.app);
 setupMiddlewares(server.app);
-setupV1Routes(server.app);
-// LAST: 404 catch-all + JSON error boundary must trail every route.
-setupErrorHandling(server.app);
+const registeredRoutes = setupV1Routes(server.app);
+// LAST: 404 catch-all + JSON error boundary must trail every route. The
+// 405 table is DERIVED from the router above (audit D-4) — one spelling.
+setupErrorHandling(server.app, registeredRoutes);
 
 export { server };

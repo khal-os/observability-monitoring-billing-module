@@ -177,6 +177,7 @@ describe('RegisterPriceVersionController', () => {
         still_pending: 0,
         failed: 0,
         blocked_closed_month: 0,
+        pending_remaining: 0,
       },
     });
   });

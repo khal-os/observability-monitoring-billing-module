@@ -65,6 +65,27 @@ export class MongoDbPriceVersionRepository implements PriceVersionRepository {
     return effectivePrices;
   }
 
+  async listAllVersions(filter?: {
+    model?: string;
+    tokenType?: TokenType;
+  }): Promise<PriceVersionModel[]> {
+    // audit D-3 / US4: the readable price table. Small by construction
+    // (versions are data an operator registers, not traffic), so a plain
+    // ordered find over the unique index is enough.
+    const documents = await MongoDb.getCollection(PRICE_VERSIONS_COLLECTION)
+      .find(
+        {
+          ...(filter?.model ? { model: filter.model } : {}),
+          ...(filter?.tokenType ? { tokenType: filter.tokenType } : {}),
+        },
+        { projection: { _id: 0 } },
+      )
+      .sort({ model: 1, tokenType: 1, effectiveFrom: -1 })
+      .toArray();
+
+    return documents as unknown as PriceVersionModel[];
+  }
+
   async insertVersion(version: PriceVersionModel): Promise<void> {
     const collection = MongoDb.getCollection(PRICE_VERSIONS_COLLECTION);
 

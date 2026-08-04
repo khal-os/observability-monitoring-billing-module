@@ -78,19 +78,21 @@ describe('Prices Routes', () => {
         .expect(400);
     });
 
-    it('MUST NOT accept a form-encoded body — only JSON parses (C-1: no urlencoded parser)', async () => {
-      // Without the urlencoded middleware the body never parses, so the
-      // strict contract sees an empty body and answers 400 — a form post
-      // must never register a price.
+    it('MUST answer a form-encoded body as 415 naming the media type — never a misleading MissingParamError (audit D-2)', async () => {
+      // curl's -d default is x-www-form-urlencoded. The old behavior parsed
+      // it to {} and answered "Missing parameter: model" about a payload
+      // whose model was present — the operator debugged the wrong thing
+      // while pending_price blocked the month close.
       const response = await request(app)
         .post('/api/v1/prices')
-        .type('form')
+        .set('content-type', 'application/x-www-form-urlencoded')
         .send(
           'model=meta%2Fllama-4-scout&token_type=input&price_brl_per_million=1.00&effective_from=2026-06-01',
         )
-        .expect(400);
+        .expect(415);
 
-      expect(response.body.name).toBe('MissingParamError');
+      expect(response.body.name).toBe('UnsupportedMediaTypeError');
+      expect(response.body.msg).toContain('x-www-form-urlencoded');
     });
   });
 
@@ -180,4 +182,72 @@ describe('Prices Routes', () => {
       expect(response.body.msg).toContain('meta/llama-4-scout');
     });
   });
+
+  describe('GET /api/v1/prices — US4: the price table is readable (audit D-3)', () => {
+    it('MUST list registered versions R$-only, newest effective_from first per (model, token_type)', async () => {
+      await request(app)
+        .post('/api/v1/prices')
+        .send({
+          model: 'meta/llama-4-maverick',
+          token_type: 'input',
+          price_brl_per_million: '1.00',
+          effective_from: '2026-06-01',
+        })
+        .expect(201);
+      await request(app)
+        .post('/api/v1/prices')
+        .send({
+          model: 'meta/llama-4-maverick',
+          token_type: 'input',
+          price_brl_per_million: '1.25',
+          effective_from: '2026-07-01',
+        })
+        .expect(201);
+
+      const response = await request(app).get('/api/v1/prices').expect(200);
+      const llama = response.body.items.filter(
+        (item: { model: string }) => item.model === 'meta/llama-4-maverick',
+      );
+
+      expect(llama.map((item: { effective_from: string }) => item.effective_from)).toEqual([
+        '2026-07-01T00:00:00.000Z',
+        '2026-06-01T00:00:00.000Z',
+      ]);
+      expect(llama[0]).toMatchObject({
+        token_type: 'input',
+        pricing_type: 'fixed_brl',
+        price_brl_per_million: '1.25',
+      });
+      // Invariant 4: R$-only by construction.
+      expect(FORBIDDEN_INTERNAL_KEYS.test(JSON.stringify(response.body))).toBe(false);
+    });
+
+    it('MUST filter exactly and refuse unknown params (C-3 policy)', async () => {
+      await request(app)
+        .post('/api/v1/prices')
+        .send({
+          model: 'xai/grok-4-fast',
+          token_type: 'output',
+          price_brl_per_million: '11.00',
+          effective_from: '2026-06-01',
+        })
+        .expect(201);
+
+      const filtered = await request(app)
+        .get('/api/v1/prices?model=xai/grok-4-fast&token_type=output')
+        .expect(200);
+
+      expect(
+        filtered.body.items.every(
+          (item: { model: string; token_type: string }) =>
+            item.model === 'xai/grok-4-fast' && item.token_type === 'output',
+        ),
+      ).toBe(true);
+      expect(filtered.body.items.length).toBeGreaterThan(0);
+
+      await request(app).get('/api/v1/prices?bogus=1').expect(400);
+      await request(app).get('/api/v1/prices?token_type=banana').expect(400);
+    });
+  });
+
 });

@@ -51,6 +51,9 @@ services:
       # env file omits/comments the var; environment-setup.ts treats '' as
       # unset, so an empty forward can never half-enable auth.
       AUTH_SYSTEM_URL: ${AUTH_SYSTEM_URL:-}
+      # audit D-1: cross-origin is opt-in — exact origins, comma-separated;
+      # empty = same-origin only (no CORS headers at all).
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
       AUTH_SYSTEM_CLIENT_ID: ${AUTH_SYSTEM_CLIENT_ID:-}
       AUTH_SYSTEM_CLIENT_SECRET: ${AUTH_SYSTEM_CLIENT_SECRET:-}
     ports:

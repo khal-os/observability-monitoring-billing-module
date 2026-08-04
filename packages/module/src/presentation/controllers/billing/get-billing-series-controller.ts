@@ -7,7 +7,10 @@ import {
 } from './billing-protocols.js';
 import { buildBadRequest, buildSuccess } from '../../helpers/http-helper.js';
 import { InvalidParamError } from '../../errors/index.js';
-import { parseQuery } from '../../helpers/query-validation.js';
+import {
+  parseQuery,
+  strictIntParam,
+} from '../../helpers/query-validation.js';
 import {
   toBillingDailySeriesView,
   toBillingSeriesView,
@@ -23,8 +26,10 @@ const MAX_DAYS = 90;
 /** Strict (C-3): an unknown param is a 400, never silently ignored. */
 const seriesQuerySchema = z.strictObject({
   granularity: z.enum(['month', 'day']).default('month'),
-  months: z.coerce.number().int().min(1).max(MAX_MONTHS).optional(),
-  days: z.coerce.number().int().min(1).max(MAX_DAYS).optional(),
+  // strictIntParam (audit D-6): decimal digits only — no hex/exponent
+  // spellings the published integer contract does not admit.
+  months: strictIntParam.pipe(z.number().int().min(1).max(MAX_MONTHS)).optional(),
+  days: strictIntParam.pipe(z.number().int().min(1).max(MAX_DAYS)).optional(),
 });
 
 export class GetBillingSeriesController implements Controller {

@@ -164,6 +164,16 @@ export const traceDetailResponseSchema = traceListItemSchema
     costs: z.array(traceCostViewSchema).nullable(),
     costs_effective_from_display: z.string().nullable(),
     spans: z.array(spanViewSchema),
+    /** audit D-8: the size guard clipped this trace's content (decision 101) — the archive kept the trace, not the oversized payload. */
+    content_truncated: z.boolean(),
+    /** audit D-9: T6 post-close arrival state — null for the ordinary trace; absorbed_in_snapshot_version non-null once a re-close billed it. */
+    billing_quarantine: z
+      .strictObject({
+        reason: z.literal('period_closed'),
+        quarantined_at: z.string(),
+        absorbed_in_snapshot_version: z.number().int().nullable(),
+      })
+      .nullable(),
     content: traceContentViewSchema.nullable(),
   });
 

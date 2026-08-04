@@ -6,6 +6,7 @@ process.env.TZ = 'America/Sao_Paulo';
 
 import { z } from 'zod';
 import {
+  paginationSchema,
   isoDateParam,
   parseQuery,
   yearMonthQueryShape,
@@ -116,4 +117,24 @@ describe('yearMonthQueryShape + parseQuery (C-3: strict, house error mapping)', 
       response: { statusCode: 400, body: new InvalidParamError('foo') },
     });
   });
+
+  describe('strictIntParam (audit D-6 — the published contract says integer, decimal digits only)', () => {
+    const schema = z.strictObject({ ...paginationSchema });
+
+    it.each(['0x10', '1e2', ' 2 ', '2.0', '+3', '-1'])(
+      'MUST reject %p — Number() accepts it, JSON Schema does not',
+      (spelling) => {
+        expect(schema.safeParse({ page: spelling }).success).toBe(false);
+      },
+    );
+
+    it('MUST keep accepting plain decimals and applying defaults', () => {
+      expect(schema.parse({ page: '2', page_size: '50' })).toEqual({
+        page: 2,
+        page_size: 50,
+      });
+      expect(schema.parse({})).toEqual({ page: 1, page_size: 20 });
+    });
+  });
+
 });

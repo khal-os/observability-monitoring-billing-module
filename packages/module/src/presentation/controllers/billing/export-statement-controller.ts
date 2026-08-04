@@ -237,11 +237,27 @@ export class ExportStatementController implements Controller {
       throw error;
     }
 
+    // audit D-7: a CLOSED month's export is immutable (invariant 8) and
+    // may say so; the snapshot version in the ETag makes a reopen →
+    // re-close a natural cache invalidation. Everything else keeps the
+    // middleware's no-store default.
+    const closedMonthCache: Record<string, string> =
+      view.final && view.snapshot_version !== null
+        ? {
+            'cache-control': 'private, max-age=86400, immutable',
+            etag: `"billing-${year}-${month}-v${view.snapshot_version}-${format}"`,
+          }
+        : {};
+
     if (format === 'html') {
       return {
         statusCode: 200,
         body: statementPrintHtml(view),
-        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        raw: true,
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+          ...closedMonthCache,
+        },
       };
     }
 
@@ -253,9 +269,11 @@ export class ExportStatementController implements Controller {
       statusCode: 200,
       // BOM: Excel pt-BR reads the file as UTF-8 (accents survive).
       body: `\ufeff${statementCsv(view)}`,
+      raw: true,
       headers: {
         'Content-Type': 'text/csv; charset=utf-8',
         'Content-Disposition': `attachment; filename="${filename}"`,
+        ...closedMonthCache,
       },
     };
   }
