@@ -201,11 +201,16 @@ billing-reopen: require-client
 
 # Recompute the facet cube (decision 77) from the traces collection —
 # one-time after restoring pre-existing data; anytime to repair drift.
+# STOP the ingestion worker first (audit F-1): the $out swap discards any
+# write the worker makes mid-rebuild — the job refuses to finish if it
+# detects concurrent ingestion.
+#   docker compose ... stop trace-ingestion-worker
 rebuild-filter-counters: require-client
 	$(JOB) dist/main/jobs/rebuild-filter-counters.js
 
 # Recompute the sessions read-model (decision 80) from the traces
 # collection — one-time after restoring pre-existing data; ingestion
-# maintains it by recompute-on-touch from then on.
+# maintains it by recompute-on-touch from then on. STOP the worker first
+# (audit F-1) — see rebuild-filter-counters.
 rebuild-session-summaries: require-client
 	$(JOB) dist/main/jobs/rebuild-session-summaries.js

@@ -29,10 +29,32 @@ export const buildMongoDbUri = ({
   mongoDbPort,
 }: MongoDbEnvironmentVariables): { uri: string; message: string } => {
   if (mongoDbAtlas) {
+    // Atlas ALWAYS authenticates (audit F-5): the same credential rule the
+    // local branch below already enforces, applied here too. Without it,
+    // empty user/pass composed `mongodb+srv://:@host/db` and the driver
+    // died at boot with `URI contained empty userinfo section` — which is
+    // exactly what packages/module/.env.production (MONGO_DB_ATLAS="true",
+    // empty host/user/pass) produced outside Docker.
+    if (!mongoDbUser || !mongoDbPassword || !mongoDbHost || !mongoDbName) {
+      throw new Error(
+        'MONGO_DB_ATLAS requires MONGO_DB_HOST, MONGO_DB_NAME, MONGO_DB_USER ' +
+          'and MONGO_DB_PASSWORD (Atlas always authenticates) — audit F-5.',
+      );
+    }
+
     return {
-      uri: `mongodb+srv://${encodeURIComponent(mongoDbUser ?? '')}:${encodeURIComponent(mongoDbPassword ?? '')}@${mongoDbHost}/${mongoDbName}?retryWrites=true&w=majority`,
+      uri: `mongodb+srv://${encodeURIComponent(mongoDbUser)}:${encodeURIComponent(mongoDbPassword)}@${mongoDbHost}/${mongoDbName}?retryWrites=true&w=majority`,
       message: `MongoDB: Server is connected to "${mongoDbName}" database on Atlas!`,
     };
+  }
+
+  // Local/non-Atlas mode still needs a host and a database name to point at.
+  if (!mongoDbHost || !mongoDbName) {
+    throw new Error(
+      'MongoDB requires MONGO_DB_HOST and MONGO_DB_NAME — audit F-5: a ' +
+        'missing one composed `mongodb://undefined:.../undefined` and died ' +
+        'at connect with a DNS error instead of naming the variable.',
+    );
   }
 
   // Credentials are optional in local mode: absent in the auth-less dev

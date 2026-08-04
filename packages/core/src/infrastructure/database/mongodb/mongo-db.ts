@@ -60,7 +60,13 @@ export class MongoDb {
     return MongoDb.client;
   }
 
-  static async connectWithUri(uri: string): Promise<void> {
+  static async connectWithUri(
+    uri: string,
+    // Test-only: monitorCommands lets a suite assert projections/no-op
+    // writes on the client that actually issues the ops (audit F-2). Never
+    // set on a production path.
+    options?: { monitorCommands?: boolean },
+  ): Promise<void> {
     if (MongoDb.client) {
       console.warn(
         'MongoDB: Client is already connected. Skipping new connection.',
@@ -72,7 +78,10 @@ export class MongoDb {
       // Same explicit durability/serialization options as the config
       // path (audit C-7.5): tests and URI-driven entry points must not
       // silently run under different write semantics.
-      const client = new MongoClient(uri, MONGO_CLIENT_OPTIONS);
+      const client = new MongoClient(uri, {
+        ...MONGO_CLIENT_OPTIONS,
+        ...(options?.monitorCommands ? { monitorCommands: true } : {}),
+      });
 
       await client.connect();
 

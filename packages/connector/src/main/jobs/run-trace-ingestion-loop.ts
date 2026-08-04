@@ -89,6 +89,8 @@ const runWorker = async (): Promise<void> => {
   await assertIngestionIndexes();
   await batchSync.source.assertCompatibleSchema();
 
+  // audit F-4: the resolved knobs in the first lines of the log — a
+  // misconfigured knob must be visible without reading compose.
   console.log(
     `Trace ingestion worker: started (interval ${traceIngestionWorkerSettings.intervalMs / 1000}s, ` +
       `reprocess every ${traceIngestionWorkerSettings.reprocessIntervalMs / 1000}s).`,

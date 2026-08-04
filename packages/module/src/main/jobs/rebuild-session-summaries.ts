@@ -1,7 +1,9 @@
 import {
   makeDatabase,
+  makeRebuildGuard,
   makeSessionSummaryRebuild,
 } from '../factories/database-factory.js';
+
 
 /**
  * Recomputes the sessions read-model (session_summaries, decision 80)
@@ -15,7 +17,9 @@ const database = makeDatabase();
 await database.connect();
 
 try {
-  await makeSessionSummaryRebuild().run();
+  // audit F-1: the $out swap discards writes the always-on worker makes
+  // during the rebuild — refuse to finish blind (stop the worker first).
+  await makeRebuildGuard()(() => makeSessionSummaryRebuild().run());
 
   console.log('Session summaries: rebuilt from traces.');
 } finally {

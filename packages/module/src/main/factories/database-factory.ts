@@ -5,6 +5,7 @@ import {
   MigrationRunner,
 } from '../../infrastructure/interfaces/index.js';
 import { runMigrations } from '@observability/core/infrastructure/database/mongodb/helpers/migration-runner.js';
+import { guardConcurrentRebuild } from '@observability/core/infrastructure/database/mongodb/helpers/guard-concurrent-rebuild.js';
 import { migrations } from '@observability/core/infrastructure/database/mongodb/migrations/index.js';
 import {
   POC_PRICE_VERSIONS,
@@ -55,3 +56,11 @@ export const makePocPriceSeeder = (): {
     total: POC_PRICE_VERSIONS.length,
   }),
 });
+
+/**
+ * audit F-1: the $out-swap guard, exposed HERE so the rebuild jobs reach
+ * storage only through the composition root (the architecture boundary) —
+ * they must not deep-import an infrastructure helper directly.
+ */
+export const makeRebuildGuard = (): ((rebuild: () => Promise<void>) => Promise<void>) =>
+  guardConcurrentRebuild;

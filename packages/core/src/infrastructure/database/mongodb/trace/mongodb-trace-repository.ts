@@ -73,6 +73,32 @@ const chunksOf = <T>(items: T[], size: number): T[][] => {
  * into null at write time. A pending_price trace therefore shows
  * `totalCostMicrocents: null` — cost OPEN, still never R$ 0 (invariant 2).
  */
+/**
+ * The attribution-refresh working set (audit F-2): exactly what
+ * updateAttribution's callback reads — the facet dims, the model, the
+ * session, the stamp status and the correction guard. Never the embedded
+ * transcript or spans (decision 47).
+ */
+/** Canonical-shape inequality (audit F-2) — a re-sync of the same value writes nothing. */
+const differs = (stored: unknown, next: unknown): boolean =>
+  JSON.stringify(stored) !== JSON.stringify(next);
+
+const ATTRIBUTION_FIELDS = {
+  traceId: 1,
+  startedAt: 1,
+  domain: 1,
+  subdomain: 1,
+  type: 1,
+  agent: 1,
+  channel: 1,
+  status: 1,
+  model: 1,
+  sessionId: 1,
+  pricingStatus: 1,
+  attributionCorrectedAt: 1,
+  unclassified: 1,
+} as const;
+
 export class MongoDbTraceRepository implements TraceRepository {
   async insertIfAbsent(trace: TraceModel): Promise<InsertIfAbsentResult> {
     const traces = MongoDb.getCollection(TRACES_COLLECTION);
@@ -139,9 +165,16 @@ export class MongoDbTraceRepository implements TraceRepository {
         // Snapshot BEFORE the correction: agent/domain/subdomain are facet
         // cube dimensions, so a correction must move the trace's count from
         // its old tuple to the new one (decision 77).
+        // audit F-2: project ONLY the fields the callback consumes — the
+        // dims, the model, the session, the stamp status and the
+        // correction guard. The unprojected read pulled the whole trace
+        // (full transcript + every span, ~6.8KB avg) to touch ~200 bytes;
+        // over a 1M-trace backfill that is ~6.8GB of pure cache eviction
+        // against a 512m default, flushing the working set /traces and
+        // /billing depend on.
         const before = (await traces.findOne(
           { traceId },
-          { session },
+          { session, projection: ATTRIBUTION_FIELDS },
         )) as unknown as (TraceModel & { attributionCorrectedAt?: Date }) | null;
 
         // Runbook-corrected traces are off-limits to source refreshes
@@ -151,15 +184,23 @@ export class MongoDbTraceRepository implements TraceRepository {
           return null;
         }
 
+        // audit F-2: only fields whose value actually CHANGED enter the
+        // $set — a re-sync (the steady state) carrying the same attribution
+        // must produce NO write, not a pointless rewrite + oplog entry per
+        // backfilled trace. `differs` compares the canonical shapes.
         const set: Record<string, unknown> = {};
 
         if (attribution.agent !== undefined) {
           // Canonical block: version/instance always present (null when absent).
-          set['agent'] = {
+          const nextAgent = {
             id: attribution.agent.id,
             version: attribution.agent.version ?? null,
             instance: attribution.agent.instance ?? null,
           };
+
+          if (differs(before.agent ?? null, nextAgent)) {
+            set['agent'] = nextAgent;
+          }
         }
 
         if (attribution.model !== undefined) {
@@ -176,15 +217,22 @@ export class MongoDbTraceRepository implements TraceRepository {
             modelPinnedByStamp = true;
           } else {
             // Canonical block: provider always present (null when unknown).
-            set['model'] = {
+            const nextModel = {
               id: attribution.model.id,
               provider: attribution.model.provider ?? null,
             };
+
+            if (differs(before.model ?? null, nextModel)) {
+              set['model'] = nextModel;
+            }
           }
         }
 
         for (const field of ['domain', 'subdomain'] as const) {
-          if (attribution[field] !== undefined) {
+          if (
+            attribution[field] !== undefined &&
+            differs(before[field] ?? null, attribution[field] ?? null)
+          ) {
             set[field] = attribution[field];
           }
         }
@@ -197,7 +245,10 @@ export class MongoDbTraceRepository implements TraceRepository {
         // stored correction is never re-flagged by a payload lacking the
         // field and a flag is never cleared while the stored value is
         // still absent.
-        const stored = await traces.findOne({ traceId }, { session });
+        const stored = (await traces.findOne(
+          { traceId },
+          { session, projection: ATTRIBUTION_FIELDS },
+        )) as unknown as (TraceModel & { unclassified?: unknown }) | null;
 
         if (!stored) {
           return null;
@@ -211,17 +262,28 @@ export class MongoDbTraceRepository implements TraceRepository {
         }
 
         const unclassified = deriveUnclassified({
-          agentId: (stored['agent'] as { id?: string } | null)?.id ?? undefined,
-          model: (stored['model'] as ModelRef | null) ?? undefined,
+          agentId: stored.agent?.id ?? undefined,
+          model: stored.model ?? undefined,
         });
 
-        await traces.updateOne(
-          { traceId },
-          { $set: { unclassified: unclassified ?? null } },
-          { session },
-        );
+        // audit F-2: write the flag ONLY when it changed — the old code
+        // issued this updateOne UNCONDITIONALLY on every skipped re-sync
+        // (each backfilled trace took a pointless write + oplog entry even
+        // when nothing moved).
+        const nextUnclassified = unclassified ?? null;
+        const storedUnclassified = stored.unclassified ?? null;
 
-        return (stored['sessionId'] as string | null) ?? null;
+        if (
+          JSON.stringify(nextUnclassified) !== JSON.stringify(storedUnclassified)
+        ) {
+          await traces.updateOne(
+            { traceId },
+            { $set: { unclassified: nextUnclassified } },
+            { session },
+          );
+        }
+
+        return stored.sessionId ?? null;
       },
     );
 

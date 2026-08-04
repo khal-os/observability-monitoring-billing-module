@@ -26,12 +26,32 @@ export interface EnvironmentVariables
   clientName?: string;
 }
 
-/** Optional positive-integer env string (worker knobs). */
-const optionalIntString = (name: string) =>
+/**
+ * Optional POSITIVE integer env string with an explicit ceiling (audit
+ * F-4). The bare digit regex accepted 0 — and TRACE_INGESTION_BATCH_SIZE=0
+ * booted cleanly, drove the source query with LIMIT 0 and logged a healthy
+ * "0 fetched" forever while the source's ~49-day retention ate the backlog:
+ * invariant 6 failing in the silent shape. INTERVAL=0 busy-looped. The
+ * resolved knobs are echoed at worker startup so a misconfiguration is in
+ * the first lines of the log.
+ */
+const optionalBoundedIntString = (name: string, max: number) =>
   z
     .string()
-    .regex(/^\d+$/, `${name} must be a valid integer string`)
-    .optional();
+    .regex(/^\d+$/, `${name} must be a decimal integer string`)
+    .optional()
+    .superRefine((value, ctx) => {
+      if (value === undefined) return;
+
+      const parsed = Number(value);
+
+      if (parsed < 1 || parsed > max) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `${name} must be between 1 and ${max} — 0 would silently ingest nothing (audit F-4)`,
+        });
+      }
+    });
 
 const envSchema = z
   .object({
@@ -67,10 +87,10 @@ const envSchema = z
     LANGWATCH_CLICKHOUSE_PASSWORD: z.string().optional(),
     LANGWATCH_CLICKHOUSE_DATABASE: z.string().optional(),
     LANGWATCH_PROJECT_ID: z.string().optional(),
-    TRACE_INGESTION_INTERVAL_SECONDS: optionalIntString('TRACE_INGESTION_INTERVAL_SECONDS'),
-    TRACE_INGESTION_BATCH_SIZE: optionalIntString('TRACE_INGESTION_BATCH_SIZE'),
-    TRACE_INGESTION_QUIET_PERIOD_SECONDS: optionalIntString('TRACE_INGESTION_QUIET_PERIOD_SECONDS'),
-    REPROCESS_INTERVAL_SECONDS: optionalIntString('REPROCESS_INTERVAL_SECONDS'),
+    TRACE_INGESTION_INTERVAL_SECONDS: optionalBoundedIntString('TRACE_INGESTION_INTERVAL_SECONDS', 86_400),
+    TRACE_INGESTION_BATCH_SIZE: optionalBoundedIntString('TRACE_INGESTION_BATCH_SIZE', 10_000),
+    TRACE_INGESTION_QUIET_PERIOD_SECONDS: optionalBoundedIntString('TRACE_INGESTION_QUIET_PERIOD_SECONDS', 86_400),
+    REPROCESS_INTERVAL_SECONDS: optionalBoundedIntString('REPROCESS_INTERVAL_SECONDS', 604_800),
   })
   .transform((env) => ({
     ...env,

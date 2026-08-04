@@ -1,7 +1,9 @@
 import {
   makeDatabase,
   makeFilterCounterRebuild,
+  makeRebuildGuard,
 } from '../factories/database-factory.js';
+
 
 /**
  * Recomputes the facet cube (trace_filter_counters, decision 77) from the
@@ -15,7 +17,11 @@ const database = makeDatabase();
 await database.connect();
 
 try {
-  const tuples = await makeFilterCounterRebuild().run();
+  // audit F-1: same $out-swap hazard as the session rebuild.
+  let tuples = 0;
+  await makeRebuildGuard()(async () => {
+    tuples = await makeFilterCounterRebuild().run();
+  });
 
   console.log(`Filter counters: rebuilt ${tuples} dimension tuples.`);
 } finally {

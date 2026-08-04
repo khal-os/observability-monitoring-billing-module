@@ -138,4 +138,25 @@ describe('buildMongoDbUri()', () => {
       'mongodb+srv://user%40corp:p%40ss%3Aword%2F1@cluster0.example.mongodb.net/cleandb?retryWrites=true&w=majority',
     );
   });
+
+  describe('required-env guards (audit F-5)', () => {
+    it('MUST refuse Atlas with empty credentials — never compose mongodb+srv://:@host', () => {
+      expect(() =>
+        buildMongoDbUri({
+          mongoDbAtlas: true,
+          mongoDbHost: 'cluster0.example.mongodb.net',
+          mongoDbName: 'cleandb',
+        }),
+      ).toThrow(/MONGO_DB_ATLAS requires/);
+    });
+
+    it('MUST refuse a local URI missing host or database — never mongodb://undefined/undefined', () => {
+      expect(() => buildMongoDbUri({ mongoDbName: 'cleandb' })).toThrow(
+        /MONGO_DB_HOST and MONGO_DB_NAME/,
+      );
+      expect(() => buildMongoDbUri({ mongoDbHost: 'mongo' })).toThrow(
+        /MONGO_DB_HOST and MONGO_DB_NAME/,
+      );
+    });
+  });
 });
