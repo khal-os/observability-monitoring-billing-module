@@ -5,6 +5,8 @@ import {
   traceIngestionWorkerSettings,
 } from '../factories/sync-factory.js';
 import { makeDatabase } from '../factories/database-factory.js';
+import { beatWorkerHeartbeat } from './worker-heartbeat.js';
+import { assertIngestionIndexes } from '@observability/core/infrastructure/database/mongodb/helpers/assert-ingestion-indexes.js';
 
 /**
  * T2 continuous form — the trace-ingestion-worker sidecar's entry point. An infinite
@@ -60,21 +62,31 @@ const runWorker = async (): Promise<void> => {
   const batchSync = makeSyncBatchesUseCase();
 
   if (!batchSync) {
-    // Pre-onboarding / offline-demo stack: no ClickHouse source to page.
-    // Idle instead of exiting — an exit would just crash-loop the service.
-    console.log(
-      'Trace ingestion worker: continuous-sync source not configured (see clients/example.env) — idling. ' +
-        'Fixture-backed demos keep using `make sync`.',
+    // Pre-onboarding stack: no ClickHouse source to page. EXIT non-zero
+    // (audit G-1): the old idle branch kept the process alive, so the
+    // pgrep-style healthcheck read "healthy" for a worker that would
+    // never ingest — green-while-dead, while the source's ~49-day
+    // retention burned. A visible crash loop is the honest signal
+    // (decision 117's preference), and onboarding's `make up` recreates
+    // the worker with the source enabled. Nothing depends_on or waits on
+    // this service's health, so the loop blocks nobody.
+    console.error(
+      'Trace ingestion worker: continuous-sync source not configured — ' +
+        'onboarding writes the project id that enables it (see ' +
+        'clients/example.env). Exiting so the restart loop stays VISIBLE ' +
+        'instead of idling green (audit G-1). Fixture-backed demos use ' +
+        '`make sync` with TRACE_SOURCE=fixtures.',
     );
-
-    while (!stopping) {
-      await sleep(3600_000);
-    }
+    process.exitCode = 1;
 
     return;
   }
 
-  // Fatal by design: never sync through an unverified source schema.
+  // Fatal by design: never sync through an unverified source schema —
+  // and never write into a store whose idempotency index is missing
+  // (audit G-2: without the unique traceId index, re-reads double-store
+  // and the bill double-counts; `make migrate` is the only door).
+  await assertIngestionIndexes();
   await batchSync.source.assertCompatibleSchema();
 
   console.log(
@@ -97,6 +109,12 @@ const runWorker = async (): Promise<void> => {
 
       while (!caughtUp && !stopping) {
         const report = await batchSync.useCase.syncNextBatch();
+
+        // Progress, not process existence (audit G-1): only a COMPLETED
+        // batch beats. Error paths deliberately fall through without
+        // beating, so an outage or a wedge ages the heartbeat and the
+        // container turns unhealthy instead of green-while-dead.
+        beatWorkerHeartbeat();
 
         caughtUp = report.caughtUp;
       }

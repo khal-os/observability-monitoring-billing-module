@@ -5,6 +5,7 @@ import {
   RUNBOOK_DATE_FORMAT_HINT,
   parseRunbookDate,
 } from '@observability/core/common/helpers/parse-runbook-date.js';
+import { assertIngestionIndexes } from '@observability/core/infrastructure/database/mongodb/helpers/assert-ingestion-indexes.js';
 
 /**
  * T2-lite sync job. Windows are half-open [from, to) and idempotent:
@@ -61,6 +62,11 @@ const database = makeDatabase();
 await database.connect();
 
 try {
+  // Same guard as the worker (audit G-2): a backfill into a store whose
+  // unique traceId index is missing double-stores every re-read trace,
+  // and this door is exactly where an operator lands BEFORE remembering
+  // `make migrate` — refuse loudly instead of double-counting quietly.
+  await assertIngestionIndexes();
   await makeSyncTracesUseCase().sync({ from, to });
 } finally {
   await database.disconnect();

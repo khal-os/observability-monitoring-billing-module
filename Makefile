@@ -6,6 +6,7 @@
 #   make up CLIENT=hapvida                      # dev form (build block + demo fixtures)
 #   make up-prod CLIENT=hapvida                 # production form (image ref only)
 #   make migrate CLIENT=hapvida
+#   make migrate-up CLIENT=hapvida              # mongo -> migrate -> stack: índices ANTES do primeiro writer (G-2)
 #   make seed-prices CLIENT=hapvida             # DEV ONLY: PoC demo price table
 #   make sync CLIENT=claro FROM=2026-07-01 TO=2026-07-22
 #   make price CLIENT=vivo ARGS='--model ... --token-type ... --price-brl ... --effective-from 2026-07-01'
@@ -69,7 +70,7 @@ JOB = $(COMPOSE_PROD) run --rm --no-deps api node
 # prod form otherwise.
 SYNC_COMPOSE = $(if $(wildcard demo-data/$(CLIENT)/*.json),$(COMPOSE_DEV),$(COMPOSE_PROD))
 
-.PHONY: help build up up-prod down logs ps backup migrate seed-prices sync price reprocess rebuild-filter-counters rebuild-session-summaries billing-close billing-reopen deploy-smoke require-client
+.PHONY: help build up up-prod down logs ps backup migrate migrate-up seed-prices sync price reprocess rebuild-filter-counters rebuild-session-summaries billing-close billing-reopen deploy-smoke require-client
 
 help:
 	@grep -E '^#( |$$)' Makefile | sed 's/^# \?//'
@@ -139,6 +140,16 @@ backup: require-client
 
 migrate: require-client
 	$(JOB) dist/main/jobs/run-migrations.js
+
+# The deploy order that cannot double-count (audit G-2): the ingestor's
+# insert-once IS the unique traceId index, so the worker must never start
+# against an unmigrated store. mongo first, migrate against it, THEN the
+# full stack. (The writers also assert the index at startup and refuse to
+# run — this target is the order that never trips that guard.)
+migrate-up: require-client
+	$(COMPOSE_PROD) up -d mongo
+	$(JOB) dist/main/jobs/run-migrations.js
+	$(COMPOSE_PROD) up -d --remove-orphans
 
 # DEV ONLY (decision 74): seeds the PoC demo price table (formerly migration
 # 002). Gated on the same dev discriminator as `make sync` (demo-data/

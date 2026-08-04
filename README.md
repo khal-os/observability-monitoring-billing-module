@@ -41,8 +41,10 @@ LangWatch stack's ClickHouse — the ONLY real source (decision 127) —
 stamps prices at write time, and stays ~15–16 min behind live (15-min
 quiet period so incrementally-built traces settle before their immutable
 price stamp — `TRACE_INGESTION_*` knobs in the env contract). Before
-onboarding the worker idles; offline demos run `make sync` with the
-explicit `TRACE_SOURCE=fixtures` in the client env.
+onboarding the worker exits and restart-loops **visibly** (audit G-1 — an
+idle worker used to read "healthy" while ingesting nothing); onboarding
+brings it up for real. Offline demos run `make sync` with the explicit
+`TRACE_SOURCE=fixtures` in the client env.
 
 The env file is the whole contract and the client's **deployment state** —
 identity, ports, mongo credentials, LangWatch project id + per-instance
@@ -88,13 +90,19 @@ the raw contract, driven by CI: materialize the client's env file from the
 protected variable store, then apply the production form —
 
 ```bash
-docker compose -f compose.module.yml -f compose.connector.yml -f compose.mongodb.yml --env-file <client>.env up -d
+docker compose -f compose.module.yml -f compose.connector.yml -f compose.mongodb.yml --env-file <client>.env up -d mongo
 docker compose -f compose.module.yml -f compose.connector.yml -f compose.mongodb.yml --env-file <client>.env run --rm --no-deps api node dist/main/jobs/run-migrations.js
+docker compose -f compose.module.yml -f compose.connector.yml -f compose.mongodb.yml --env-file <client>.env up -d
 ```
 
 (no `compose.dev.yml`, prebuilt registry images via `MODULE_IMAGE`/`CONNECTOR_IMAGE`/`UI_IMAGE`).
-`make up-prod CLIENT=<name>` rehearses exactly this form locally, and
-`make migrate CLIENT=<name>` is that second command.
+**The order is the contract** (audit G-2): mongo first, migrations against
+it, and only then the full stack — starting the ingestion worker before the
+unique `traceId` index exists opens a window where a re-read stores the same
+trace twice, each with its own immutable price stamp. `make migrate-up
+CLIENT=<name>` is exactly this sequence; the writers also assert the index
+at startup and refuse to run, so a wrong order crashes loudly instead of
+double-counting quietly.
 
 **The migration step is not optional and it is not automatic** — no image,
 entrypoint or service runs it (`make migrate` is the only door), so a stack

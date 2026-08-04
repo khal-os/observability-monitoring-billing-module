@@ -75,9 +75,10 @@ services:
   # Gated by onboarding: while LANGWATCH_PROJECT_ID is empty — it is
   # written by scripts/3-onboard-langwatch.sh, and it is the value the
   # ClickHouse queries actually filter by — the URL interpolates to empty
-  # and the worker idles. (The old gate keyed on LANGWATCH_API_KEY, a
-  # credential no container of this component reads: agents get it from
-  # the vault, and the HTTP ingestion path it belonged to is gone.)
+  # and the worker EXITS 1: a visible restart loop until onboarding, never
+  # an idle that reads healthy (audit G-1). (The old gate keyed on
+  # LANGWATCH_API_KEY, a credential no container of this component reads:
+  # agents get it from the vault, and the HTTP path it belonged to is gone.)
   #
   # No depends_on for mongo here — this file must not name a service
   # another optional role file provides (an external database drops
@@ -127,13 +128,24 @@ services:
       clickhouse:
         condition: service_healthy
     healthcheck:
-      # No port to probe (loop, not server) — process-level check: the loop
-      # is a node process; gone means wedged/crashed, not idling.
-      test: ["CMD-SHELL", "pgrep node > /dev/null || exit 1"]
+      # PROGRESS, not process existence (audit G-1): the worker touches
+      # /tmp/trace-ingestion-heartbeat after every COMPLETED batch (see
+      # worker-heartbeat.ts — error paths deliberately don't beat), so a
+      # hung socket, a spinning cursor or a source outage ages the file
+      # and the container turns unhealthy instead of green-while-dead.
+      # Freshness window: 2×interval + 120s of slack for a slow batch.
+      test:
+        [
+          "CMD-SHELL",
+          "test $$(( $$(date +%s) - $$(stat -c %Y /tmp/trace-ingestion-heartbeat 2>/dev/null || echo 0) )) -lt $$(( 2 * ${TRACE_INGESTION_INTERVAL_SECONDS:-60} + 120 ))",
+        ]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 30s
+      # First beat needs connect + index/schema checks + one whole batch —
+      # generous on purpose; pre-onboarding the worker exits 1 and the
+      # restart loop (not this check) is the visible signal.
+      start_period: 120s
     restart: unless-stopped
     deploy:
       resources:
