@@ -9,7 +9,11 @@ import {
   TraceRepository,
 } from './billing-lifecycle-protocols.js';
 import { BillingSnapshotModel } from '@observability/core/domain/models/billing-snapshot-model.js';
-import { monthWindowUtc } from '@observability/core/domain/models/billing-period-model.js';
+import { monthWindow } from '@observability/core/domain/models/billing-period-model.js';
+import {
+  clientCalendarOf,
+  clientTimezone,
+} from '@observability/core/common/helpers/clock/client-clock.js';
 import {
   STATEMENT_LOGIC_VERSION,
   STATEMENT_ROUNDING_RULE,
@@ -17,7 +21,10 @@ import {
 } from '../billingStatement/statement-engine.js';
 
 /**
- * The close's page unit: one UTC day of the month (re-audit iteration 3).
+ * The close's page unit: one CLIENT day of the month (re-audit iteration
+ * 3; decision 130 aligned the cut to the client midnight — the fold is
+ * order-independent so any partition is CORRECT, but pages that match the
+ * daily-rollup lens keep every reader speaking one boundary).
  *
  * The month's usage set is one record per stamped trace and unbounded, and
  * the close runs in a hard-capped container (compose.module.yml gives the
@@ -40,13 +47,11 @@ const usagePageWindows = (
   let cursor = monthStart;
 
   while (cursor.getTime() < monthEnd.getTime()) {
-    const nextDay = new Date(
-      Date.UTC(
-        cursor.getUTCFullYear(),
-        cursor.getUTCMonth(),
-        cursor.getUTCDate() + 1,
-      ),
-    );
+    // monthStart IS a client midnight (monthWindow, decision 130), so
+    // stepping 24h stays on client midnights in fixed-offset zones; in a
+    // DST zone one page is 23/25h — a partition shift the order-independent
+    // fold is indifferent to, clamped to the month end either way.
+    const nextDay = new Date(cursor.getTime() + 86_400_000);
     const end = nextDay.getTime() > monthEnd.getTime() ? monthEnd : nextDay;
 
     pages.push({ start: cursor, end });
@@ -103,7 +108,7 @@ export class CloseBillingPeriodDbUseCase implements CloseBillingPeriodUseCase {
   }
 
   async close(year: number, month: number): Promise<CloseBillingPeriodResult> {
-    const { start, end } = monthWindowUtc(year, month);
+    const { start, end } = monthWindow(year, month);
     const now = this.now();
 
     if (end.getTime() > now.getTime()) {
@@ -155,6 +160,23 @@ export class CloseBillingPeriodDbUseCase implements CloseBillingPeriodUseCase {
     );
     const version =
       Math.max(period?.snapshotVersion ?? 0, currentSnapshot?.version ?? 0) + 1;
+
+    // Decision 130: the zone is pinned like a price. A re-close of a month
+    // whose earlier snapshot was cut under a DIFFERENT zone would compare
+    // and reconcile across two incompatible windows — refuse loudly.
+    // (Zone changes are forward-only, and never after real closes exist.)
+    if (currentSnapshot && currentSnapshot.timezone !== clientTimezone()) {
+      throw new BillingCloseBlockedError({
+        pendingTraceCount: 0,
+        modelsWithoutPrice: [],
+        message:
+          `Fechamento bloqueado: o snapshot v${currentSnapshot.version} deste ` +
+          `mês foi cortado no fuso ${currentSnapshot.timezone}, mas ` +
+          `CLIENT_TIMEZONE agora é ${clientTimezone()}. Mudança de fuso é ` +
+          'forward-only (decisão 130) — nunca sobre um mês já fechado.',
+      });
+    }
+
     const closedAt = this.now();
 
     // re-audit iteration 3: the month is folded PAGE BY PAGE — read a day,
@@ -209,6 +231,7 @@ export class CloseBillingPeriodDbUseCase implements CloseBillingPeriodUseCase {
             trigger: 'runbook',
             ingestionWatermark,
             logicVersion: STATEMENT_LOGIC_VERSION,
+            timezone: clientTimezone(),
             roundingRule: STATEMENT_ROUNDING_RULE,
             statement: fold.statement(),
             // v1: always empty — the pending guard above blocks the only
@@ -328,8 +351,10 @@ export class CloseBillingPeriodDbUseCase implements CloseBillingPeriodUseCase {
     if (!earliest) return;
 
     const targetOrdinal = year * 12 + (month - 1);
-    let cursorYear = earliest.getUTCFullYear();
-    let cursorMonth = earliest.getUTCMonth() + 1;
+    // Decision 130: the earliest trace's month is a CLIENT-calendar fact.
+    const earliestCalendar = clientCalendarOf(earliest);
+    let cursorYear = earliestCalendar.year;
+    let cursorMonth = earliestCalendar.month;
 
     if (cursorYear * 12 + (cursorMonth - 1) >= targetOrdinal) return;
 
@@ -343,7 +368,7 @@ export class CloseBillingPeriodDbUseCase implements CloseBillingPeriodUseCase {
     // the trace-free probe only runs for the non-closed ones.
     while (cursorYear * 12 + (cursorMonth - 1) < targetOrdinal) {
       if (!closedMonths.has(`${cursorYear}-${cursorMonth}`)) {
-        const window = monthWindowUtc(cursorYear, cursorMonth);
+        const window = monthWindow(cursorYear, cursorMonth);
 
         if (await this.billingQueryRepository.hasTraces(window.start, window.end)) {
           const blocking = `${cursorYear}-${String(cursorMonth).padStart(2, '0')}`;

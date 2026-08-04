@@ -12,6 +12,7 @@ import { BillingPeriodModel } from '@observability/core/domain/models/billing-pe
 import { modelKey } from '@observability/core/domain/models/model-ref.js';
 import { stampTokens } from '@observability/core/application/useCases/priceStamping/price-stamper.js';
 import { closedMonthKeys, monthKeyOf } from '@observability/core/domain/models/month-key.js';
+import { clientCalendarOf } from '@observability/core/common/helpers/clock/client-clock.js';
 import { mapToTrace, sourceModelRef, sumTokens } from './trace-mapper.js';
 import {
   UnstorableTraceError,
@@ -206,9 +207,12 @@ export const ingestSourceTrace = async (
   // backfills), never the steady-state stream, which is same-month and
   // pays no lookup at all.
   if (!quarantined && traceMonth !== monthKeyOf(ingestedAt)) {
+    // Decision 130: the trace's billing month is its CLIENT month — the
+    // same key traceMonth above was derived with.
+    const traceCalendar = clientCalendarOf(trace.startedAt);
     const period = await deps.billingPeriodRepository.find(
-      trace.startedAt.getUTCFullYear(),
-      trace.startedAt.getUTCMonth() + 1,
+      traceCalendar.year,
+      traceCalendar.month,
     );
 
     quarantined = period?.status === 'closed';

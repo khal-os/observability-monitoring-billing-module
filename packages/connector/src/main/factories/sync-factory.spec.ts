@@ -12,6 +12,7 @@ import { EnvironmentVariables } from '../../infrastructure/configuration/helpers
 
 const baseConfig: EnvironmentVariables = {
   Environment: 'production',
+  clientTimezone: 'America/Sao_Paulo',
 };
 
 const loadFactory = async (overrides: Partial<EnvironmentVariables>) => {

@@ -47,7 +47,9 @@ brings it up for real. Offline demos run `make sync` with the explicit
 `TRACE_SOURCE=fixtures` in the client env.
 
 The env file is the whole contract and the client's **deployment state** —
-identity, ports, mongo credentials, LangWatch project id + per-instance
+identity, **business timezone** (`CLIENT_TIMEZONE`, required — decision 130:
+billing boundary ≡ display zone, forward-only after a close), ports, mongo
+credentials, LangWatch project id + per-instance
 secrets, image pin (the LangWatch API key deliberately lives elsewhere —
 decision 127: it is the agents' credential, kept in LangWatch's own
 Postgres and copied from the UI into the platform vault). [clients/example.env](clients/example.env) is the committed

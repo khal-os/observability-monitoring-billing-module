@@ -10,7 +10,7 @@ import { BillingPeriodRepository } from '@observability/core/application/interfa
 import { BillingSnapshotRepository } from '@observability/core/application/interfaces/billing-snapshot-repository.js';
 import {
   BillingPeriodModel,
-  monthWindowUtc,
+  monthWindow,
   previousMonthOf,
   resolvePeriodStatus,
 } from '@observability/core/domain/models/billing-period-model.js';
@@ -47,7 +47,7 @@ export class GetBillingSummaryDbUseCase implements GetBillingSummaryUseCase {
   }
 
   async get(year: number, month: number): Promise<BillingSummary> {
-    const { start, end } = monthWindowUtc(year, month);
+    const { start, end } = monthWindow(year, month);
 
     // audit B-10.3 + B-1: nothing legitimate queries the future — a future
     // month used to render (and export!) a legit-looking zero bill labeled
@@ -154,7 +154,7 @@ export class GetBillingSummaryDbUseCase implements GetBillingSummaryUseCase {
       };
     }
 
-    const { start, end } = monthWindowUtc(year, month);
+    const { start, end } = monthWindow(year, month);
     const records = await this.billingQueryRepository.fetchUsageRecords(
       start,
       end,

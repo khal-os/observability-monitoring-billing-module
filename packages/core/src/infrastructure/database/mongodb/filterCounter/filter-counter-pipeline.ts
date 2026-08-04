@@ -1,3 +1,4 @@
+import { clientTimezone } from '../../../../common/helpers/clock/client-clock.js';
 import { Document } from 'mongodb';
 
 /**
@@ -8,12 +9,25 @@ import { Document } from 'mongodb';
  * test asserts the two stay byte-equal, so the cube can never drift by
  * construction. Same pattern as the sessions read-model
  * (session-summary-pipeline.ts).
+ *
+ * A FUNCTION, not a const (decision 130): the day stage reads the client
+ * clock, and a module-level evaluation would freeze whatever zone was (or
+ * was NOT) initialized at first import — the stages must be built when
+ * the rebuild RUNS.
  */
-export const filterCounterStages: Document[] = [
+export const filterCounterStages = (): Document[] => [
   {
     $group: {
       _id: {
-        day: { $dateTrunc: { date: '$startedAt', unit: 'day' } },
+        // Decision 130: the SAME client day the incremental write derives
+        // (clientDayOf) — rebuild ≡ incremental is the cube's contract.
+        day: {
+          $dateTrunc: {
+            date: '$startedAt',
+            unit: 'day',
+            timezone: clientTimezone(),
+          },
+        },
         domain: { $ifNull: ['$domain', null] },
         subdomain: { $ifNull: ['$subdomain', null] },
         type: '$type',

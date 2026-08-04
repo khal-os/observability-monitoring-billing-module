@@ -1,13 +1,14 @@
 /**
  * Display formatting for client-facing view models (pt-BR). The API owns
  * EVERY derived/formatted value the UI shows — the front-end only binds
- * fields to the DOM (decision 51). Deterministic by construction: no
- * Intl/ICU dependency; datetimes are rendered in the client's fixed
- * timezone UTC-3 (America/Sao_Paulo — Brazil has no DST since 2019;
- * single-tenant deployment, invariant 5).
+ * fields to the DOM (decision 51). Datetimes are rendered in the CLIENT's
+ * timezone (decision 130: display zone ≡ billing zone, from the one
+ * required CLIENT_TIMEZONE knob — read per instant via the client clock,
+ * so DST zones stay correct; single-tenant deployment, invariant 5).
  */
 
-const DISPLAY_UTC_OFFSET_MS = -3 * 60 * 60 * 1000;
+
+import { clientUtcOffsetMs } from '../clock/client-clock.js';
 
 const MONTHS_PT = [
   'janeiro',
@@ -62,9 +63,9 @@ export const formatDurationDisplay = (rawDurationMs: number): string => {
   return fraction === 0 ? `${seconds} s` : `${seconds},${fraction} s`;
 };
 
-/** "20/07/2026, 14:51:22" in the fixed client timezone (UTC-3). */
+/** "20/07/2026, 14:51:22" in the client timezone (decision 130). */
 export const formatDateTimeDisplay = (date: Date): string => {
-  const local = new Date(date.getTime() + DISPLAY_UTC_OFFSET_MS);
+  const local = new Date(date.getTime() + clientUtcOffsetMs(date));
 
   return (
     `${pad2(local.getUTCDate())}/${pad2(local.getUTCMonth() + 1)}/` +
@@ -73,9 +74,21 @@ export const formatDateTimeDisplay = (date: Date): string => {
   );
 };
 
-/** "01/07/2026" — calendar date in UTC (price versions are UTC dates). */
+/**
+ * "01/07/2026" — calendar date in UTC. For PRICE effective dates only,
+ * which remain UTC calendar dates (QA19 pending: price effectiveness is
+ * an instant comparison, deliberately untouched by decision 130). Day
+ * bucketing of traces uses formatClientDateDisplay below.
+ */
 export const formatUtcDateDisplay = (date: Date): string =>
   `${pad2(date.getUTCDate())}/${pad2(date.getUTCMonth() + 1)}/${date.getUTCFullYear()}`;
+
+/** "01/07/2026" — calendar date in the CLIENT zone (decision 130). */
+export const formatClientDateDisplay = (date: Date): string => {
+  const local = new Date(date.getTime() + clientUtcOffsetMs(date));
+
+  return formatUtcDateDisplay(local);
+};
 
 /** Relative age at request time: "agora", "há 35 min", "há 2 h", "há 3 d". */
 export const formatAgeDisplay = (date: Date, now: Date): string => {

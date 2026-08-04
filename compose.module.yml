@@ -46,6 +46,8 @@ services:
       ENVIRONMENT: production
       SERVER_PORT: "3000"
       CLIENT_NAME: ${CLIENT_NAME} # brands the OpenAPI docs of this instance
+      # Decision 130: REQUIRED — billing boundary ≡ display zone (IANA name).
+      CLIENT_TIMEZONE: ${CLIENT_TIMEZONE:?set CLIENT_TIMEZONE in the client env (IANA, e.g. America/Sao_Paulo) — decision 130}
       # Host defaults to the in-project mongo (compose.mongodb.yml); an
       # external database = drop that file and set these in the env file.
       MONGO_DB_HOST: ${MONGO_DB_HOST:-mongo}
@@ -87,6 +89,7 @@ services:
     container_name: ${CLIENT_NAME}-ui
     environment:
       CLIENT_NAME: ${CLIENT_NAME} # substituted into the nginx template (/client.json)
+      CLIENT_TIMEZONE: ${CLIENT_TIMEZONE} # decision 130 — shown as the header zone label
     ports:
       # Same loopback default as the api. The UI is the client-facing
       # surface, so UI_BIND=0.0.0.0 is the override that may legitimately

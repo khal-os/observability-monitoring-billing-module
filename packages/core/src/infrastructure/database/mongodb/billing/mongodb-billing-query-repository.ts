@@ -11,6 +11,7 @@ import { PendingPriceSummary } from '../../../../domain/useCases/get-billing-sum
 import { BillingUsageRecord } from '../../../../domain/models/billing-snapshot-model.js';
 import { ModelRef, modelKey } from '../../../../domain/models/model-ref.js';
 import { MongoDb } from '../mongo-db.js';
+import { clientTimezone, clientUtcOffsetMs } from '../../../../common/helpers/clock/client-clock.js';
 import { TRACES_COLLECTION } from '../collections.js';
 
 /**
@@ -83,7 +84,7 @@ export class MongoDbBillingQueryRepository implements BillingQueryRepository {
         {
           $project: {
             // $year/$month operate in UTC by default — same calendar-month
-            // boundary monthWindowUtc uses for the summary.
+            // boundary monthWindow uses for the summary.
             year: { $year: '$startedAt' },
             month: { $month: '$startedAt' },
             pricingStatus: 1,
@@ -477,7 +478,14 @@ export class MongoDbBillingQueryRepository implements BillingQueryRepository {
           $group: {
             _id: {
               day: {
-                $dateTrunc: { date: '$startedAt', unit: 'day', timezone: 'UTC' },
+                // Decision 130: the day bar cuts at the CLIENT midnight —
+                // the same boundary the invoice and the screen use. Mongo
+                // handles the IANA zone (DST included) natively.
+                $dateTrunc: {
+                  date: '$startedAt',
+                  unit: 'day',
+                  timezone: clientTimezone(),
+                },
               },
               tokenType: '$stampedCosts.tokenType',
             },

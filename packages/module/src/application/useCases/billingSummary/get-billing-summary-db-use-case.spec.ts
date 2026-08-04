@@ -56,7 +56,7 @@ const makeSut = (now = NOW) => {
   };
 };
 
-// The calendar helpers (monthWindowUtc, previousMonthOf, firstOpenMonthStart)
+// The calendar helpers (monthWindow, previousMonthOf, firstOpenMonthStart)
 // and the period-status rule are covered where they live:
 // domain/models/billing-period-model.spec.ts.
 

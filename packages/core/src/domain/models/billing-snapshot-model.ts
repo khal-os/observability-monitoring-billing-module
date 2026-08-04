@@ -158,6 +158,13 @@ export interface BillingSnapshotModel {
   ingestionWatermark: Date | null;
   /** Statement engine version that produced the output. */
   logicVersion: string;
+  /**
+   * IANA zone whose midnight cut this month's window (decision 130) —
+   * recorded so the frozen bill carries its own boundary: a later
+   * CLIENT_TIMEZONE change can never silently re-window history, and a
+   * re-close of THIS month refuses to run under a different zone.
+   */
+  timezone: string;
   /** Human-readable rounding rule, recorded for audit (T6). */
   roundingRule: string;
   statement: StatementProjection;

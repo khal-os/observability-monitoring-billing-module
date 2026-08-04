@@ -109,7 +109,7 @@ describe('MongoDbFilterCounterRepository (facet cube, decision 77)', () => {
 
     expect(counters).toEqual([
       {
-        day: new Date('2026-06-05T00:00:00.000Z'),
+        day: new Date('2026-06-05T03:00:00.000Z' /* client midnight, decision 130 */),
         domain: 'varejo',
         subdomain: 'loja-sp',
         type: 'chat',
@@ -145,7 +145,7 @@ describe('MongoDbFilterCounterRepository (facet cube, decision 77)', () => {
 
   it('applyDelta on a DRIFTED cube MUST no-op the decrement, never go negative (audit C-7.4)', async () => {
     const dims = (agentId: string) => ({
-      day: new Date('2026-06-05T00:00:00.000Z'),
+      day: new Date('2026-06-05T03:00:00.000Z' /* client midnight, decision 130 */),
       domain: 'varejo',
       subdomain: 'loja-sp',
       type: 'chat',

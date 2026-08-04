@@ -491,12 +491,14 @@ describe('ListBillsDbUseCase (T7)', () => {
 
       // Anchored on the earliest STORED trace, not on the earliest CLOSED
       // month: the old bound was 2026-07-01 and cut May out entirely.
+      // Decision 130: every boundary below is a CLIENT midnight (03:00Z
+      // under the suite's America/Sao_Paulo clock).
       expect(spy).toHaveBeenLastCalledWith(
-        new Date('2026-05-01T00:00:00.000Z'),
+        new Date('2026-05-01T03:00:00.000Z'),
         [
           {
-            start: new Date('2026-06-01T00:00:00.000Z'),
-            end: new Date('2026-07-01T00:00:00.000Z'),
+            start: new Date('2026-06-01T03:00:00.000Z'),
+            end: new Date('2026-07-01T03:00:00.000Z'),
           },
         ],
       );
@@ -520,10 +522,11 @@ describe('ListBillsDbUseCase (T7)', () => {
     // is the frozen-month scope of the pending lens (re-audit iteration
     // 2): it must name exactly the CLOSED months, so an open or reopened
     // month never inherits the frozen reading of its stragglers.
-    expect(spy).toHaveBeenLastCalledWith(new Date('2026-07-01T00:00:00.000Z'), [
+    // Decision 130: client midnights (03:00Z under the suite clock).
+    expect(spy).toHaveBeenLastCalledWith(new Date('2026-07-01T03:00:00.000Z'), [
       {
-        start: new Date('2026-06-01T00:00:00.000Z'),
-        end: new Date('2026-07-01T00:00:00.000Z'),
+        start: new Date('2026-06-01T03:00:00.000Z'),
+        end: new Date('2026-07-01T03:00:00.000Z'),
       },
     ]);
   });

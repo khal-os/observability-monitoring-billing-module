@@ -1,7 +1,7 @@
 import {
   BillingPeriodAuditEntry,
   BillingPeriodModel,
-  monthWindowUtc,
+  monthWindow,
 } from '../../domain/models/billing-period-model.js';
 import {
   BillingSnapshotModel,
@@ -342,7 +342,9 @@ export class StubBillingQueryRepository implements BillingQueryRepository {
     const inScope = sinceInclusive
       ? this.billRows.filter(
           (row) =>
-            Date.UTC(row.year, row.month - 1, 1) >= sinceInclusive.getTime(),
+            // Decision 130: month membership is the CLIENT window's.
+            monthWindow(row.year, row.month).start.getTime() >=
+            sinceInclusive.getTime(),
         )
       : this.billRows;
 
@@ -354,7 +356,7 @@ export class StubBillingQueryRepository implements BillingQueryRepository {
     // readers derive from ONE source here, so a spec can assert /bills and
     // /billing/summary agree instead of asserting two fixtures.
     return inScope.map((row) => {
-      const { start } = monthWindowUtc(row.year, row.month);
+      const { start } = monthWindow(row.year, row.month);
       const isClosedMonth = closedMonthWindows.some(
         (window) => start >= window.start && start < window.end,
       );
@@ -392,7 +394,7 @@ export class StubBillingQueryRepository implements BillingQueryRepository {
     monthEnd?: Date,
   ): Promise<BillingUsageRecord[]> {
     const bucket = this.usageByMonth.get(this.monthKey(monthStart)) ?? [];
-    const month = monthWindowUtc(
+    const month = monthWindow(
       monthStart.getUTCFullYear(),
       monthStart.getUTCMonth() + 1,
     );
@@ -432,7 +434,9 @@ export class StubBillingQueryRepository implements BillingQueryRepository {
 
     return this.rollupRows.filter(
       (row) =>
-        Date.UTC(row.year, row.month - 1, 1) >= sinceInclusive.getTime(),
+        // Decision 130: month membership is the CLIENT window's.
+        monthWindow(row.year, row.month).start.getTime() >=
+        sinceInclusive.getTime(),
     );
   }
 
@@ -536,7 +540,10 @@ export class StubBillingQueryRepository implements BillingQueryRepository {
       .map((key) => {
         const [year, month] = key.split('-').map(Number);
 
-        return Date.UTC(year as number, (month as number) - 1, 1);
+        // Decision 130: "a trace exists in month M" means an instant
+        // inside the CLIENT month window — a UTC midnight would sit in
+        // the previous client month and drag the anchor back a month.
+        return monthWindow(year as number, month as number).start.getTime();
       });
 
     return monthStarts.length === 0

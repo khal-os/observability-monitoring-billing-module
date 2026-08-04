@@ -1400,7 +1400,16 @@ fetch('/client.json')
   .then((res) => (res.ok ? res.json() : null))
   .then((data) => {
     if (!data?.client) return;
-    document.getElementById('client-name').textContent = data.client;
+    const badge = document.getElementById('client-name');
+    /* Decisão 130: o fuso é um fato do CLIENTE, não do visitante — todo
+       horário exibido e toda fronteira de faturamento cortam neste fuso,
+       então o cabeçalho declara qual é. */
+    badge.textContent = data.timezone
+      ? `${data.client} · ${data.timezone}`
+      : data.client;
+    if (data.timezone) {
+      badge.title = `Horários e faturamento no fuso ${data.timezone} (decisão 130)`;
+    }
     document.title = `${data.client} — Plataforma`;
   })
   .catch(() => {});

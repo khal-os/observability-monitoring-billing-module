@@ -38,7 +38,7 @@ ENVFILE = clients/$(CLIENT).env
 # env file is the only source of truth for these.
 # EVERY variable a compose file interpolates must be listed here — a var
 # that escapes the scrub silently overrides all client env files at once.
-SCRUB = env -u COMPOSE_PROJECT_NAME -u CLIENT_NAME -u API_PORT \
+SCRUB = env -u COMPOSE_PROJECT_NAME -u CLIENT_NAME -u CLIENT_TIMEZONE -u API_PORT \
           -u LANGWATCH_PORT -u LANGWATCH_PROJECT_ID -u TRACE_SOURCE \
           -u API_BIND -u LANGWATCH_BIND -u UI_BIND \
           -u AUTH_SYSTEM_URL -u AUTH_SYSTEM_CLIENT_ID -u AUTH_SYSTEM_CLIENT_SECRET \

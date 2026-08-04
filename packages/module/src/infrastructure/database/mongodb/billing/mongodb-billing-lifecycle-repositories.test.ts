@@ -62,9 +62,11 @@ const makeTrace = (overrides: Partial<TraceModel> = {}): TraceModel => ({
   ...overrides,
 });
 
-const MAY_START = new Date('2026-05-01T00:00:00.000Z');
-const JUNE_START = new Date('2026-06-01T00:00:00.000Z');
-const JULY_START = new Date('2026-07-01T00:00:00.000Z');
+const MAY_START = new Date('2026-05-01T03:00:00.000Z'); // client midnight (decision 130)
+// Decision 130: production readers pass CLIENT month windows (monthWindow)
+// — 03:00Z under the suite's America/Sao_Paulo clock.
+const JUNE_START = new Date('2026-06-01T03:00:00.000Z');
+const JULY_START = new Date('2026-07-01T03:00:00.000Z');
 
 /**
  * The daily rollup's quarantine-exclusion scope (decisions 97/100): June
@@ -85,6 +87,7 @@ const makeSnapshot = (
   trigger: 'runbook',
   ingestionWatermark: new Date('2026-06-30T23:59:59.000Z'),
   logicVersion: 'statement-engine/1',
+  timezone: 'America/Sao_Paulo',
   roundingRule: 'half-up 2 casas',
   statement: buildStatement(records),
   exceptions: [],
@@ -933,7 +936,7 @@ describe('Billing lifecycle repositories (integration)', () => {
       expect(await sut.monthlyRollup(JULY_START)).toEqual([]);
     });
 
-    it('dailyRollup buckets by UTC day, splits by type, EXCLUDES quarantined (decision 97)', async () => {
+    it('dailyRollup buckets by CLIENT day (decision 130), splits by type, EXCLUDES quarantined (decision 97)', async () => {
       const traces = new MongoDbTraceRepository();
       await traces.insertIfAbsent(
         makeTrace({
@@ -944,7 +947,9 @@ describe('Billing lifecycle repositories (integration)', () => {
       await traces.insertIfAbsent(
         makeTrace({
           traceId: 'd2',
-          startedAt: new Date('2026-06-05T02:00:00.000Z'),
+          // Midday: unambiguously the CLIENT'S June 5 (02:00Z would be
+          // the client's June 4 — decision 130's boundary).
+          startedAt: new Date('2026-06-05T12:00:00.000Z'),
           stampedCosts: [
             {
               tokenType: 'output',
@@ -971,7 +976,7 @@ describe('Billing lifecycle repositories (integration)', () => {
       await traces.insertIfAbsent(
         makeTrace({
           traceId: 'd4',
-          startedAt: new Date('2026-06-06T01:00:00.000Z'),
+          startedAt: new Date('2026-06-06T12:00:00.000Z'),
         }),
       );
 

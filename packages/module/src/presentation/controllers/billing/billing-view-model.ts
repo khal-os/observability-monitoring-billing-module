@@ -35,8 +35,10 @@ import {
   formatDateTimeDisplay,
   formatIntDisplay,
   formatMonthLabel,
+  formatClientDateDisplay,
   formatUtcDateDisplay,
 } from '@observability/core/common/helpers/display/display.js';
+import { clientUtcOffsetMs } from '@observability/core/common/helpers/clock/client-clock.js';
 import {
   BillListView,
   BillingProjectionView,
@@ -685,13 +687,19 @@ export const toBillingDailySeriesView = (
         label: 'Total',
         kind: 'total',
         points: days.map((day) => {
-          const date = new Date(day.date);
+          // $dateTrunc returns the client-midnight INSTANT (decision 130);
+          // shifting by the zone offset recovers the calendar day it names
+          // (raw getUTC* would drift for zones east of UTC).
+          const instant = new Date(day.date);
+          const date = new Date(
+            instant.getTime() + clientUtcOffsetMs(instant),
+          );
 
           return {
             year: date.getUTCFullYear(),
             month: date.getUTCMonth() + 1,
             day: date.getUTCDate(),
-            month_label: formatUtcDateDisplay(date),
+            month_label: formatClientDateDisplay(instant),
             short_label: `${String(date.getUTCDate()).padStart(2, '0')}/${String(
               date.getUTCMonth() + 1,
             ).padStart(2, '0')}`,

@@ -243,9 +243,16 @@ comparação, donut de mix, card de cache, exports).
   tokens — e com UM motor só, a igualdade é por construção.
 - **QA19 segue aberta** (regra as-of do carimbo) — o fechamento COPIA os
   carimbos, não re-precifica; nada aqui depende da resposta.
-- Fronteira de mês em UTC (convenção existente de `monthWindowUtc`).
-  Cliente é BR — se a fatura precisar de fuso América/São_Paulo, é decisão
-  de produto que muda `monthWindowUtc` (e nada mais). **Perguntar.**
+- ~~Fronteira de mês em UTC~~ **RESOLVIDO (decisão 130, 04/08/2026)**: a
+  fronteira é a meia-noite do CLIENTE, do knob obrigatório
+  `CLIENT_TIMEZONE` (IANA) — fronteira de faturamento ≡ fuso de exibição,
+  por construção. (A nota original dizia que a mudança tocaria
+  "`monthWindowUtc` e nada mais" — errado: tocou a janela [renomeada
+  `monthWindow`], os dois `$dateTrunc` [rollup diário + rebuild do cubo],
+  `monthKeyOf`/quarentena, `resolvePeriodStatus`, a projeção, a escada do
+  daily lens, o pager do fechamento, o dia do cubo de facetas e os
+  formatters de exibição. O snapshot grava o fuso; re-close sob fuso
+  diferente é recusado — mudança de fuso é forward-only.)
 - Exportação nativa XLSX/PDF (hoje: CSV + print view). **Confirmar se basta.**
 - US9/US13/US14/US16 não existem na planilha recebida (numeração pula) —
   nada implementado para elas.

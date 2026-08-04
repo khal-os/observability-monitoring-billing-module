@@ -5,7 +5,7 @@ import {
   TraceFilterOption,
   TraceFilterOptions,
 } from '../../../../domain/useCases/list-trace-filter-options-use-case.js';
-import { utcDayOf } from '../../../../domain/models/filter-counter-model.js';
+import { clientDayOf } from '../../../../domain/models/filter-counter-model.js';
 import {
   MAX_PAGINATION_SKIP,
   Paginated,
@@ -90,11 +90,11 @@ const buildCounterMatch = (filters: TraceListFilters): Filter<Document> => {
   const match: Filter<Document> = {};
 
   if (filters.from || filters.to) {
-    const from = filters.from ? utcDayOf(filters.from) : undefined;
+    const from = filters.from ? clientDayOf(filters.from) : undefined;
     const to = filters.to
-      ? filters.to.getTime() === utcDayOf(filters.to).getTime()
+      ? filters.to.getTime() === clientDayOf(filters.to).getTime()
         ? filters.to
-        : new Date(utcDayOf(filters.to).getTime() + 24 * 60 * 60 * 1000)
+        : new Date(clientDayOf(filters.to).getTime() + 24 * 60 * 60 * 1000)
       : undefined;
 
     match['day'] = {

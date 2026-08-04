@@ -28,7 +28,7 @@ server {
     # which client it belongs to.
     location = /client.json {
         default_type application/json;
-        return 200 '{"client":"${CLIENT_NAME}"}';
+        return 200 '{"client":"${CLIENT_NAME}","timezone":"${CLIENT_TIMEZONE}"}';
     }
 
     location / {

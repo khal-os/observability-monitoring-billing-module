@@ -8,6 +8,8 @@ export interface ServerEnvironmentVariables {
    * absent in tests/bare dev runs.
    */
   clientName?: string;
+  /** REQUIRED (decision 130): the client's business timezone, IANA name. */
+  clientTimezone: string;
   /**
    * Base URL of the khal Auth System (M2M). When set, every /api/v1 request
    * must carry a Bearer token the Auth System accepts (introspection —

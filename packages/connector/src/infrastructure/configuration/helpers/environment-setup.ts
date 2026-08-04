@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import path from 'path';
 import { z } from 'zod';
+import { initializeClientClock } from '@observability/core/common/helpers/clock/client-clock.js';
 import {
   mongoEnvSchemaShape,
   toMongoDbEnvironment,
@@ -28,6 +29,8 @@ export interface EnvironmentVariables
   Environment: Environment;
   /** Deployment display name (single-tenant instance) — optional, logs only. */
   clientName?: string;
+  /** REQUIRED (decision 130): the client's business timezone, IANA name. */
+  clientTimezone: string;
 }
 
 /**
@@ -65,6 +68,9 @@ const envSchema = z
       environmentEnum.DEVELOPMENT,
     ] as const),
     CLIENT_NAME: z.string().optional(),
+    // Decision 130: REQUIRED — the worker cuts quarantine/reprocess month
+    // keys at the same client midnight the bill uses.
+    CLIENT_TIMEZONE: z.string().min(1, 'CLIENT_TIMEZONE is required (decision 130)'),
     // audit C-6: the Mongo env is core's — one reader for both images.
     ...mongoEnvSchemaShape,
     // Decision 127: ClickHouse is the ONLY real source — the HTTP client
@@ -124,9 +130,13 @@ if (!parsedEnv.success) {
 
 const safeEnvironment = parsedEnv.data;
 
+// Decision 130 — see the module's twin comment.
+initializeClientClock(safeEnvironment.CLIENT_TIMEZONE);
+
 export const environment: EnvironmentVariables = {
   Environment: safeEnvironment.ENVIRONMENT,
   clientName: safeEnvironment.CLIENT_NAME || undefined,
+  clientTimezone: safeEnvironment.CLIENT_TIMEZONE,
   ...toMongoDbEnvironment(safeEnvironment),
   traceSource: safeEnvironment.TRACE_SOURCE,
   langwatchClickhouseUrl: safeEnvironment.LANGWATCH_CLICKHOUSE_URL,

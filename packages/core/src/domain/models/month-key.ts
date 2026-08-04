@@ -1,8 +1,18 @@
 import { BillingPeriodModel } from './billing-period-model.js';
+import { clientCalendarOf } from '../../common/helpers/clock/client-clock.js';
 
-/** Month key shared by the sync loops and the reprocess sweep — `${UTC year}-${UTC month}`. */
-export const monthKeyOf = (date: Date): string =>
-  `${date.getUTCFullYear()}-${date.getUTCMonth() + 1}`;
+/**
+ * Month key shared by the sync loops and the reprocess sweep — the
+ * CLIENT-zone month of the instant (decision 130): which billing month a
+ * trace belongs to is the client's calendar question, so the quarantine
+ * check and the reprocess closed-month skip must cut at the same midnight
+ * the invoice does.
+ */
+export const monthKeyOf = (date: Date): string => {
+  const { year, month } = clientCalendarOf(date);
+
+  return `${year}-${month}`;
+};
 
 /** The same key from year/month components (audit H-2 — one spelling, everywhere). */
 export const monthKeyOfYearMonth = (year: number, month: number): string =>

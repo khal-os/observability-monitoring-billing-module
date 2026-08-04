@@ -1,3 +1,4 @@
+import { startOfClientDay } from '../../common/helpers/clock/client-clock.js';
 import { ExecutionStatus, TraceModel } from './trace-model.js';
 
 /**
@@ -22,11 +23,15 @@ export interface FilterCounterModel extends FilterCounterDims {
   count: number;
 }
 
-export const utcDayOf = (date: Date): Date =>
-  new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+/**
+ * The CLIENT-zone day of an instant (decision 130) — the facet cube's day
+ * dimension and the trace-list day filter cut at the same midnight the
+ * billing day does, so "traces of 05/07" always matches the bill's 05/07.
+ */
+export const clientDayOf = (date: Date): Date => startOfClientDay(date);
 
 export const toFilterCounterDims = (trace: TraceModel): FilterCounterDims => ({
-  day: utcDayOf(trace.startedAt),
+  day: clientDayOf(trace.startedAt),
   domain: trace.domain ?? null,
   subdomain: trace.subdomain ?? null,
   type: trace.type,

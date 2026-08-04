@@ -71,7 +71,7 @@ export class MongoDbFilterCounterRepository {
   async rebuildFromTraces(): Promise<number> {
     await MongoDb.getCollection(TRACES_COLLECTION)
       .aggregate(
-        [...filterCounterStages, { $out: TRACE_FILTER_COUNTERS_COLLECTION }],
+        [...filterCounterStages(), { $out: TRACE_FILTER_COUNTERS_COLLECTION }],
         { allowDiskUse: true },
       )
       .toArray();

@@ -322,12 +322,12 @@ describe('GetBillingSeriesDbUseCase (T8)', () => {
 });
 
 describe('GetBillingSeriesDbUseCase.listDaily (decision 97)', () => {
-  it('returns the last N UTC days ending TODAY, empty days as zero bars, today partial', async () => {
+  it('returns the last N CLIENT days ending TODAY (decision 130), empty days as zero bars, today partial', async () => {
     const { sut, billingQueryRepository } = makeSut();
     // NOW is 2026-07-19T12:00Z → the 3-day window is 17, 18 and 19/07.
     billingQueryRepository.dailyRows = [
       {
-        date: new Date('2026-07-17T00:00:00.000Z'),
+        date: new Date('2026-07-17T03:00:00.000Z'),
         totalCostMicrocents: 300,
         byTokenType: [
           { tokenType: 'input', costMicrocents: 200 },
@@ -335,13 +335,13 @@ describe('GetBillingSeriesDbUseCase.listDaily (decision 97)', () => {
         ],
       },
       {
-        date: new Date('2026-07-19T00:00:00.000Z'),
+        date: new Date('2026-07-19T03:00:00.000Z'),
         totalCostMicrocents: 50,
         byTokenType: [{ tokenType: 'input', costMicrocents: 50 }],
       },
       // Outside the window — must not leak in.
       {
-        date: new Date('2026-07-10T00:00:00.000Z'),
+        date: new Date('2026-07-10T03:00:00.000Z'),
         totalCostMicrocents: 999,
         byTokenType: [],
       },
@@ -403,16 +403,19 @@ describe('GetBillingProjectionDbUseCase (US12)', () => {
     expect(projection.insufficientData).toBe(false);
   });
 
-  it('numerator covers COMPLETE days only (start of month → start of today, UTC)', async () => {
+  it('numerator covers COMPLETE days only (client month start → client start of today, decision 130)', async () => {
     const now = new Date('2026-07-19T15:30:00.000Z');
     const { sut, billingQueryRepository } = makeProjection(now, 0);
     const spy = jest.spyOn(billingQueryRepository, 'accruedCostMicrocents');
 
     await sut.get();
 
+    // Decision 130: both bounds are CLIENT midnights (03:00Z under the
+    // suite's America/Sao_Paulo clock) — the projection's day is the
+    // client's day, not UTC's.
     expect(spy).toHaveBeenCalledWith(
-      new Date('2026-07-01T00:00:00.000Z'),
-      new Date('2026-07-19T00:00:00.000Z'),
+      new Date('2026-07-01T03:00:00.000Z'),
+      new Date('2026-07-19T03:00:00.000Z'),
     );
   });
 

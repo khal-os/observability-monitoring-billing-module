@@ -14,7 +14,7 @@
  * the decision-119 live-scan bound: every /bills and /billing/series
  * reverted to a full-collection scan over full-content trace documents.
  *
- * `monthWindowUtc` carries the same bounds as a structural backstop; this
+ * `monthWindow` carries the same bounds as a structural backstop; this
  * helper is the door-level half that answers with a usage message naming
  * the offending value instead of a raw stack.
  */

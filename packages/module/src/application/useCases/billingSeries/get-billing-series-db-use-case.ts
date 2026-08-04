@@ -1,4 +1,9 @@
 import {
+  addClientDays,
+  clientCalendarOf,
+  startOfClientDay,
+} from '@observability/core/common/helpers/clock/client-clock.js';
+import {
   BillingPeriodRepository,
   BillingQueryRepository,
   BillingSeriesDay,
@@ -82,10 +87,9 @@ export class GetBillingSeriesDbUseCase implements GetBillingSeriesUseCase {
       firstOpenMonthStart(periods, earliestTraceAt),
     );
     const now = this.now();
-    const currentOrdinal = monthOrdinal(
-      now.getUTCFullYear(),
-      now.getUTCMonth() + 1,
-    );
+    // Decision 130: "the current month" is the client's.
+    const nowCalendar = clientCalendarOf(now);
+    const currentOrdinal = monthOrdinal(nowCalendar.year, nowCalendar.month);
 
     const periodByOrdinal = new Map(
       periods.map((period) => [
@@ -223,8 +227,8 @@ export class GetBillingSeriesDbUseCase implements GetBillingSeriesUseCase {
   }
 
   /**
-   * The daily lens (decision 97): same stamps, UTC-day buckets, today
-   * included and partial. Served from the live store; unresolved
+   * The daily lens (decision 97): same stamps, CLIENT-day buckets
+   * (decision 130), today included and partial. Served from the live store; unresolved
    * quarantine is excluded ONLY on days inside CLOSED months — those days
    * must sum to the frozen bill, while a reopened month's straggler is in
    * the LIVE total and must chart (re-audit fix: Σ daily ≡ summary holds
@@ -233,13 +237,12 @@ export class GetBillingSeriesDbUseCase implements GetBillingSeriesUseCase {
    */
   async listDaily(days: number): Promise<BillingSeriesDay[]> {
     const now = this.now();
-    const todayStart = Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth(),
-      now.getUTCDate(),
-    );
-    const from = new Date(todayStart - (days - 1) * 86_400_000);
-    const toExclusive = new Date(todayStart + 86_400_000);
+    // Decision 130: the ladder walks CLIENT midnights — the same instants
+    // the rollup's $dateTrunc buckets sit on. addClientDays steps in
+    // wall-clock space so a DST 23h/25h day never drifts it.
+    const todayStart = startOfClientDay(now);
+    const from = addClientDays(todayStart, -(days - 1));
+    const toExclusive = addClientDays(todayStart, 1);
 
     // Periods FIRST: the rollup's quarantine-exclusion scope is exactly
     // the closed months' windows.
@@ -257,15 +260,20 @@ export class GetBillingSeriesDbUseCase implements GetBillingSeriesUseCase {
 
     const result: BillingSeriesDay[] = [];
 
-    for (let time = from.getTime(); time < toExclusive.getTime(); time += 86_400_000) {
-      const date = new Date(time);
-      const row = byTime.get(time);
-      const monthKey = `${date.getUTCFullYear()}-${date.getUTCMonth() + 1}`;
+    for (
+      let date = from;
+      date.getTime() < toExclusive.getTime();
+      date = addClientDays(date, 1)
+    ) {
+      const row = byTime.get(date.getTime());
+      // Decision 130: which month a day belongs to is the CLIENT calendar.
+      const calendar = clientCalendarOf(date);
+      const monthKey = `${calendar.year}-${calendar.month}`;
 
       // The day's status is its MONTH's status — same domain rule, daily lens.
       const periodStatus = resolvePeriodStatus(
-        date.getUTCFullYear(),
-        date.getUTCMonth() + 1,
+        calendar.year,
+        calendar.month,
         periodByMonth.get(monthKey),
         now,
       );
@@ -273,7 +281,7 @@ export class GetBillingSeriesDbUseCase implements GetBillingSeriesUseCase {
       result.push({
         date,
         periodStatus,
-        partial: time === todayStart,
+        partial: date.getTime() === todayStart.getTime(),
         totalCostMicrocents: row?.totalCostMicrocents ?? 0,
         byTokenType: row?.byTokenType ?? [],
       });

@@ -105,6 +105,8 @@ services:
     environment:
       ENVIRONMENT: production
       CLIENT_NAME: ${CLIENT_NAME}
+      # Decision 130: the worker cuts quarantine/reprocess months at the client midnight.
+      CLIENT_TIMEZONE: ${CLIENT_TIMEZONE:?set CLIENT_TIMEZONE in the client env (IANA) — decision 130}
       MONGO_DB_HOST: ${MONGO_DB_HOST:-mongo}
       MONGO_DB_PORT: ${MONGO_DB_PORT:-27017}
       MONGO_DB_NAME: ${CLIENT_NAME}

@@ -76,6 +76,11 @@ else
 COMPOSE_PROJECT_NAME=${NAME}
 CLIENT_NAME=${NAME}
 
+# Decisão 130 (OBRIGATÓRIO): fuso de negócio do cliente (IANA) — fronteira
+# de faturamento = fuso de exibição. Forward-only: nunca mude após um mês
+# fechado.
+CLIENT_TIMEZONE=${CLIENT_TIMEZONE:-America/Sao_Paulo}
+
 API_PORT=${API_PORT}
 LANGWATCH_PORT=${LANGWATCH_PORT}
 UI_PORT=${UI_PORT}

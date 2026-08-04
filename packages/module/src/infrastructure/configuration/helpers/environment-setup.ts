@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import path from 'path';
 import { z } from 'zod';
+import { initializeClientClock } from '@observability/core/common/helpers/clock/client-clock.js';
 import {
   mongoEnvSchemaShape,
   toMongoDbEnvironment,
@@ -45,6 +46,10 @@ const envSchema = z
       .string()
       .regex(/^\d+$/, 'SERVER_PORT must be a valid integer string'),
     CLIENT_NAME: z.string().optional(),
+    // Decision 130: REQUIRED — the client's business timezone (IANA name).
+    // Declared, never inferred (a fallback zone is a wrong bill); validity
+    // is asserted by initializeClientClock below.
+    CLIENT_TIMEZONE: z.string().min(1, 'CLIENT_TIMEZONE is required (decision 130)'),
     AUTH_SYSTEM_URL: optionalNonEmptyString,
     // audit D-1: cross-origin is an explicit operator act — exact origins,
     // comma-separated; unset/empty = same-origin only (no CORS headers).
@@ -80,10 +85,15 @@ if (!parsedEnv.success) {
 
 const safeEnvironment = parsedEnv.data;
 
+// Decision 130: one clock for billing boundary AND display, initialized
+// at boot — every entry point imports this module before any date math.
+initializeClientClock(safeEnvironment.CLIENT_TIMEZONE);
+
 export const environment: EnvironmentVariables = {
   Environment: safeEnvironment.ENVIRONMENT,
   serverPort: safeEnvironment.SERVER_PORT,
   clientName: safeEnvironment.CLIENT_NAME || undefined,
+  clientTimezone: safeEnvironment.CLIENT_TIMEZONE,
   // '' → undefined already guaranteed by optionalNonEmptyString above.
   authSystemUrl: safeEnvironment.AUTH_SYSTEM_URL,
   corsAllowedOrigins: safeEnvironment.CORS_ALLOWED_ORIGINS,

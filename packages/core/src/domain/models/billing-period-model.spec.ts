@@ -1,7 +1,7 @@
 import {
   BillingPeriodModel,
   firstOpenMonthStart,
-  monthWindowUtc,
+  monthWindow,
   previousMonthOf,
   resolvePeriodStatus,
 } from './billing-period-model.js';
@@ -12,21 +12,23 @@ const period = (
   status: 'open' | 'closed',
 ): BillingPeriodModel => ({ year, month, status, audit: [] });
 
-describe('monthWindowUtc()', () => {
-  it('MUST build the half-open UTC calendar month window', () => {
-    expect(monthWindowUtc(2026, 6)).toEqual({
-      start: new Date('2026-06-01T00:00:00.000Z'),
-      end: new Date('2026-07-01T00:00:00.000Z'),
+describe('monthWindow()', () => {
+  it('MUST build the half-open CLIENT-midnight month window (decision 130 — the B-4 fix itself)', () => {
+    // Suite clock: America/Sao_Paulo (UTC-3). June begins at 03:00Z — the
+    // three UTC hours the old window billed under the wrong month.
+    expect(monthWindow(2026, 6)).toEqual({
+      start: new Date('2026-06-01T03:00:00.000Z'),
+      end: new Date('2026-07-01T03:00:00.000Z'),
     });
-    expect(monthWindowUtc(2026, 12).end).toEqual(
-      new Date('2027-01-01T00:00:00.000Z'),
+    expect(monthWindow(2026, 12).end).toEqual(
+      new Date('2027-01-01T03:00:00.000Z'),
     );
   });
 
   it('MUST reject malformed periods', () => {
-    expect(() => monthWindowUtc(2026, 13)).toThrow();
-    expect(() => monthWindowUtc(2026, 0)).toThrow();
-    expect(() => monthWindowUtc(2026.5, 6)).toThrow();
+    expect(() => monthWindow(2026, 13)).toThrow();
+    expect(() => monthWindow(2026, 0)).toThrow();
+    expect(() => monthWindow(2026.5, 6)).toThrow();
   });
 
   it('previousMonthOf crosses the year boundary', () => {
@@ -100,7 +102,7 @@ describe('firstOpenMonthStart() (audit C-7.1)', () => {
         [period(2026, 5, 'closed'), period(2026, 6, 'closed')],
         new Date('2026-05-02T00:00:00.000Z'),
       ),
-    ).toEqual(new Date('2026-07-01T00:00:00.000Z'));
+    ).toEqual(new Date('2026-07-01T03:00:00.000Z'));
   });
 
   it('crosses the year boundary', () => {
@@ -109,7 +111,7 @@ describe('firstOpenMonthStart() (audit C-7.1)', () => {
         [period(2026, 12, 'closed')],
         new Date('2026-12-09T00:00:00.000Z'),
       ),
-    ).toEqual(new Date('2027-01-01T00:00:00.000Z'));
+    ).toEqual(new Date('2027-01-01T03:00:00.000Z'));
   });
 
   it('a REOPENED (or skipped) month inside the run pulls the bound back — its live data must be scanned', () => {
@@ -122,7 +124,7 @@ describe('firstOpenMonthStart() (audit C-7.1)', () => {
         ],
         new Date('2026-04-03T00:00:00.000Z'),
       ),
-    ).toEqual(new Date('2026-05-01T00:00:00.000Z'));
+    ).toEqual(new Date('2026-05-01T03:00:00.000Z'));
   });
 
   it('re-audit: reopening the EARLIEST closed month pulls the bound back to it', () => {
@@ -137,7 +139,7 @@ describe('firstOpenMonthStart() (audit C-7.1)', () => {
         ],
         new Date('2026-05-10T00:00:00.000Z'),
       ),
-    ).toEqual(new Date('2026-05-01T00:00:00.000Z'));
+    ).toEqual(new Date('2026-05-01T03:00:00.000Z'));
   });
 
   it('re-audit: a reopened month crossing the year boundary still bounds the scan', () => {
@@ -150,7 +152,7 @@ describe('firstOpenMonthStart() (audit C-7.1)', () => {
         ],
         new Date('2025-12-15T00:00:00.000Z'),
       ),
-    ).toEqual(new Date('2025-12-01T00:00:00.000Z'));
+    ).toEqual(new Date('2025-12-01T03:00:00.000Z'));
   });
 
   it('a reopened month AFTER the closed run never pushes the bound forward', () => {
@@ -159,9 +161,11 @@ describe('firstOpenMonthStart() (audit C-7.1)', () => {
     expect(
       firstOpenMonthStart(
         [period(2026, 4, 'closed'), period(2026, 6, 'open')],
-        new Date('2026-04-01T00:00:00.000Z'),
+        // Decision 130: 00:00Z on the 1st belongs to the PREVIOUS client
+        // month — use an instant unambiguously inside client April.
+        new Date('2026-04-01T04:00:00.000Z'),
       ),
-    ).toEqual(new Date('2026-05-01T00:00:00.000Z'));
+    ).toEqual(new Date('2026-05-01T03:00:00.000Z'));
   });
 
   /**
@@ -177,7 +181,7 @@ describe('firstOpenMonthStart() (audit C-7.1)', () => {
           [period(2026, 6, 'closed')],
           new Date('2026-05-20T00:00:00.000Z'),
         ),
-      ).toEqual(new Date('2026-05-01T00:00:00.000Z'));
+      ).toEqual(new Date('2026-05-01T03:00:00.000Z'));
     });
 
     it('the pre-history month keeps the bound even across the year boundary and a long closed run', () => {
@@ -190,7 +194,7 @@ describe('firstOpenMonthStart() (audit C-7.1)', () => {
           ],
           new Date('2025-11-30T23:59:59.000Z'),
         ),
-      ).toEqual(new Date('2025-11-01T00:00:00.000Z'));
+      ).toEqual(new Date('2025-11-01T03:00:00.000Z'));
     });
 
     it('the walk still runs FROM the data anchor: closed pre-history advances, the first open month stops it', () => {
@@ -204,7 +208,7 @@ describe('firstOpenMonthStart() (audit C-7.1)', () => {
           ],
           new Date('2026-03-02T00:00:00.000Z'),
         ),
-      ).toEqual(new Date('2026-05-01T00:00:00.000Z'));
+      ).toEqual(new Date('2026-05-01T03:00:00.000Z'));
     });
 
     it('data INSIDE the earliest closed month never moves the bound backwards', () => {
@@ -214,9 +218,10 @@ describe('firstOpenMonthStart() (audit C-7.1)', () => {
       expect(
         firstOpenMonthStart(
           [period(2026, 5, 'closed'), period(2026, 6, 'closed')],
-          new Date('2026-05-01T00:00:01.000Z'),
+          // The first second of the CLIENT's May (decision 130).
+          new Date('2026-05-01T03:00:01.000Z'),
         ),
-      ).toEqual(new Date('2026-07-01T00:00:00.000Z'));
+      ).toEqual(new Date('2026-07-01T03:00:00.000Z'));
     });
 
     it('an empty store falls back to the lifecycle documents (both halves intact)', () => {
@@ -225,10 +230,10 @@ describe('firstOpenMonthStart() (audit C-7.1)', () => {
           [period(2026, 5, 'open'), period(2026, 6, 'closed')],
           null,
         ),
-      ).toEqual(new Date('2026-05-01T00:00:00.000Z'));
+      ).toEqual(new Date('2026-05-01T03:00:00.000Z'));
       expect(
         firstOpenMonthStart([period(2026, 6, 'closed')], null),
-      ).toEqual(new Date('2026-07-01T00:00:00.000Z'));
+      ).toEqual(new Date('2026-07-01T03:00:00.000Z'));
     });
 
     /**
@@ -280,7 +285,7 @@ describe('firstOpenMonthStart() (audit C-7.1)', () => {
 
       for (const testCase of cases) {
         const earliest = testCase.traceMonths
-          .map(({ year, month }) => Date.UTC(year, month - 1, 3))
+          .map(({ year, month }) => monthWindow(year, month).start.getTime() + 86_400_000)
           .sort((a, b) => a - b)[0] as number;
         const bound = firstOpenMonthStart(
           testCase.periods,
@@ -300,7 +305,8 @@ describe('firstOpenMonthStart() (audit C-7.1)', () => {
             month: `${year}-${month}`,
             covered:
               bound === null ||
-              Date.UTC(year, month - 1, 1) >= bound.getTime(),
+              // Decision 130: the month starts at the CLIENT midnight.
+              monthWindow(year, month).start.getTime() >= bound.getTime(),
           }).toEqual({
             case: testCase.name,
             month: `${year}-${month}`,
@@ -311,19 +317,22 @@ describe('firstOpenMonthStart() (audit C-7.1)', () => {
     });
   });
 
-  describe('monthWindowUtc year bounds (audit B-2 — the structural backstop)', () => {
+  describe('monthWindow year bounds (audit B-2 — the structural backstop)', () => {
     it('MUST refuse the two-digit year Date.UTC would map into the 1900s', () => {
-      expect(() => monthWindowUtc(26, 6)).toThrow(/Invalid billing period/);
+      expect(() => monthWindow(26, 6)).toThrow(/Invalid billing period/);
     });
 
     it('MUST refuse years outside 1970-9999', () => {
-      expect(() => monthWindowUtc(1969, 12)).toThrow(/Invalid billing period/);
-      expect(() => monthWindowUtc(10000, 1)).toThrow(/Invalid billing period/);
+      expect(() => monthWindow(1969, 12)).toThrow(/Invalid billing period/);
+      expect(() => monthWindow(10000, 1)).toThrow(/Invalid billing period/);
     });
 
     it('MUST keep accepting the real range', () => {
-      expect(monthWindowUtc(1970, 1).start.toISOString()).toBe('1970-01-01T00:00:00.000Z');
-      expect(monthWindowUtc(9999, 12).end.getTime()).toBe(Date.UTC(10000, 0, 1));
+      // Decision 130: boundaries are client midnights (suite zone UTC-3).
+      expect(monthWindow(1970, 1).start.toISOString()).toBe('1970-01-01T03:00:00.000Z');
+      expect(monthWindow(9999, 12).end.getTime()).toBe(
+        Date.UTC(10000, 0, 1) + 3 * 3_600_000,
+      );
     });
   });
 

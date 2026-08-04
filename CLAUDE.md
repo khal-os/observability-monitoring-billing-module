@@ -74,7 +74,10 @@ imports count as the layer they name (`@observability/core/<layer>/…`).
    store is the permanent archive; the sync is data-loss prevention.
 7. **Attribution (agent/metadata) is mutable in open periods; the price stamp
    is not.** Corrections re-aggregate, never re-price.
-8. **Billing period = calendar month.** Current month is always partial and
+8. **Billing period = calendar month in the CLIENT's timezone** (decision
+   130: the required `CLIENT_TIMEZONE` env knob sets billing boundary ≡
+   display zone; snapshots record their zone, changes are forward-only).
+   Current month is always partial and
    must be labeled so. A month closes (T6) only when fully past, via the
    audited runbook flow; a closed month is served exclusively from its
    immutable snapshot — never recomputed.

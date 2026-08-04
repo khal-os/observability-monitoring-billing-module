@@ -12,6 +12,10 @@ import {
   closedMonthKeys,
   monthKeyOfYearMonth,
 } from './month-key.js';
+import {
+  clientCalendarOf,
+  startOfClientMonth,
+} from '../../common/helpers/clock/client-clock.js';
 
 export type BillingPeriodLifecycleStatus = 'open' | 'closed';
 
@@ -70,8 +74,10 @@ export const resolvePeriodStatus = (
 ): BillingPeriodStatus => {
   if (period?.status === 'closed') return 'closed';
 
-  const nowYear = now.getUTCFullYear();
-  const nowMonth = now.getUTCMonth() + 1;
+  // Decision 130: "which month is it now" is the CLIENT's calendar
+  // question — a UTC answer flips in_progress/open three hours early for
+  // a UTC-3 client (the close-eligibility gate rides this).
+  const { year: nowYear, month: nowMonth } = clientCalendarOf(now);
 
   if (year === nowYear && month === nowMonth) return 'in_progress';
 
@@ -83,12 +89,12 @@ export const resolvePeriodStatus = (
 };
 
 /** The billing period IS the UTC calendar month (invariant 8) — half-open window. */
-export const monthWindowUtc = (
+export const monthWindow = (
   year: number,
   month: number,
 ): { start: Date; end: Date } => {
   // Year bounds are correctness, not pedantry (audit B-2): Date.UTC maps
-  // years 0-99 into 1900-1999, so monthWindowUtc(26, 6) silently produced
+  // years 0-99 into 1900-1999, so monthWindow(26, 6) silently produced
   // the 1926 window — and a close over it SUCCEEDED (fully past, empty,
   // pending-free), leaving a period document that anchored the
   // decision-119 live-scan bound at 1926 forever. Same bounds as the HTTP
@@ -104,9 +110,16 @@ export const monthWindowUtc = (
     throw new Error(`Invalid billing period: year=${year}, month=${month}`);
   }
 
+  // Decision 130 (audit B-4): the boundary is the CLIENT's midnight, not
+  // UTC's — the month named on the invoice is the month the operator sees
+  // on screen, cut at the same instant. Returned as UTC instants (storage
+  // truth), computed per boundary (DST zones get each side's own offset).
   return {
-    start: new Date(Date.UTC(year, month - 1, 1)),
-    end: new Date(Date.UTC(year, month, 1)),
+    start: startOfClientMonth(year, month),
+    end:
+      month === 12
+        ? startOfClientMonth(year + 1, 1)
+        : startOfClientMonth(year, month + 1),
   };
 };
 
@@ -129,7 +142,7 @@ export const closedMonthWindows = (
 ): { start: Date; end: Date }[] =>
   periods
     .filter((period) => period.status === 'closed')
-    .map((period) => monthWindowUtc(period.year, period.month));
+    .map((period) => monthWindow(period.year, period.month));
 
 /**
  * audit C-7.1: the live-scan bound — UTC start of the earliest month whose
@@ -199,17 +212,17 @@ export const firstOpenMonthStart = (
   // The anchor is the earliest month that can carry money. A stored trace
   // older than the earliest closed month means an OPEN month with no
   // period document to betray it, so only the data can put the walk there.
+  // Decision 130: which month the earliest trace belongs to is a CLIENT
+  // calendar question — same boundary as every other reader.
+  const earliestCalendar = earliestTraceAt
+    ? clientCalendarOf(earliestTraceAt)
+    : null;
   const anchor =
-    earliestTraceAt &&
-    Date.UTC(
-      earliestTraceAt.getUTCFullYear(),
-      earliestTraceAt.getUTCMonth(),
-      1,
-    ) < Date.UTC(earliestClosed.year, earliestClosed.month - 1, 1)
-      ? {
-          year: earliestTraceAt.getUTCFullYear(),
-          month: earliestTraceAt.getUTCMonth() + 1,
-        }
+    earliestCalendar &&
+    (earliestCalendar.year < earliestClosed.year ||
+      (earliestCalendar.year === earliestClosed.year &&
+        earliestCalendar.month < earliestClosed.month))
+      ? earliestCalendar
       : earliestClosed;
 
   let { year, month } = anchor;
@@ -225,9 +238,12 @@ export const firstOpenMonthStart = (
 
   const reopenedStarts = periods
     .filter((period) => period.status !== 'closed')
-    .map((period) => Date.UTC(period.year, period.month - 1, 1));
+    .map((period) => startOfClientMonth(period.year, period.month).getTime());
 
   // Math.min over an empty spread is Infinity, so the walk still decides
-  // when every period document is closed.
-  return new Date(Math.min(Date.UTC(year, month - 1, 1), ...reopenedStarts));
+  // when every period document is closed. Decision 130: the bound is the
+  // client month start — the same instant the month windows cut at.
+  return new Date(
+    Math.min(startOfClientMonth(year, month).getTime(), ...reopenedStarts),
+  );
 };

@@ -57,12 +57,14 @@ STUBS="$(mktemp -d)"
 printf '#!/bin/sh\nexit 0\n' > "${STUBS}/docker"
 chmod +x "${STUBS}/docker"
 
-# The minimal env file the contract sanctions: identity only. No API_PORT,
+# The minimal env file the contract sanctions: identity + the required
+# client clock (decision 130). No API_PORT,
 # no LANGWATCH_PORT, no UI_PORT — exactly the "dedicated host, omit them"
 # case of clients/example.env.
 cat > "$ENVFILE" <<EOF
 COMPOSE_PROJECT_NAME=${SLUG}
 CLIENT_NAME=${SLUG}
+CLIENT_TIMEZONE=America/Sao_Paulo
 EOF
 
 # ---------------------------------------------------------------------------

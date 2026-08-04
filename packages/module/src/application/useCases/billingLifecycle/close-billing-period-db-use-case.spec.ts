@@ -229,8 +229,8 @@ describe('CloseBillingPeriodDbUseCase (T6)', () => {
 
       expect(traceRepository.calls).toEqual([
         {
-          monthStart: new Date('2026-06-01T00:00:00.000Z'),
-          monthEnd: new Date('2026-07-01T00:00:00.000Z'),
+          monthStart: new Date('2026-06-01T03:00:00.000Z'),
+          monthEnd: new Date('2026-07-01T03:00:00.000Z'),
           snapshotTraceIds: ['t1', 't2'],
           snapshotVersion: 1,
         },
@@ -347,8 +347,8 @@ describe('CloseBillingPeriodDbUseCase (T6)', () => {
       // transaction and the reconciliation.
       expect(traceRepository.calls).toHaveLength(2);
       expect(traceRepository.calls[1]).toEqual({
-        monthStart: new Date('2026-06-01T00:00:00.000Z'),
-        monthEnd: new Date('2026-07-01T00:00:00.000Z'),
+        monthStart: new Date('2026-06-01T03:00:00.000Z'),
+        monthEnd: new Date('2026-07-01T03:00:00.000Z'),
         snapshotTraceIds: ['t1', 't2'],
         snapshotVersion: 1,
       });
@@ -460,6 +460,7 @@ describe('CloseBillingPeriodDbUseCase (T6)', () => {
           trigger: 'runbook',
           ingestionWatermark: null,
           logicVersion: STATEMENT_LOGIC_VERSION,
+          timezone: 'America/Sao_Paulo',
           roundingRule: 'half-up 2 casas',
           statement: buildStatement([]),
           exceptions: [],
@@ -639,7 +640,10 @@ describe('CloseBillingPeriodDbUseCase (T6)', () => {
       ).toBe(true);
 
       // The staged pages are days too — the peak is the busiest DAY.
-      expect(billingSnapshotRepository.pageSizes).toEqual([3, 2, 2]);
+      // Decision 130: z-1 (01:00Z) belongs to the CLIENT'S June 1 (22:00
+      // local), so it pages apart from the June 2 traces — the exact
+      // reclassification B-4 was about.
+      expect(billingSnapshotRepository.pageSizes).toEqual([1, 2, 2, 2]);
       expect(Math.max(...billingSnapshotRepository.pageSizes)).toBeLessThan(
         SPREAD.length,
       );

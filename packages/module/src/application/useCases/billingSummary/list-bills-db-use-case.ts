@@ -12,7 +12,7 @@ import {
   BillingPeriodModel,
   closedMonthWindows,
   firstOpenMonthStart,
-  monthWindowUtc,
+  monthWindow,
   resolvePeriodStatus,
 } from '@observability/core/domain/models/billing-period-model.js';
 
@@ -165,7 +165,7 @@ export class ListBillsDbUseCase implements ListBillsUseCase {
     period: BillingPeriodModel,
     now: Date,
   ): Promise<BillListItem> {
-    const { start, end } = monthWindowUtc(period.year, period.month);
+    const { start, end } = monthWindow(period.year, period.month);
     const [hasTraces, quarantinedTraceCount] = await Promise.all([
       this.billingQueryRepository.hasTraces(start, end),
       this.billingQueryRepository.countQuarantined(start, end),
@@ -203,7 +203,7 @@ export class ListBillsDbUseCase implements ListBillsUseCase {
     },
     periodStatus: BillingPeriodStatus,
   ): Promise<BillListItem> {
-    const { start, end } = monthWindowUtc(row.year, row.month);
+    const { start, end } = monthWindow(row.year, row.month);
 
     // audit B-1: no hardcoded zero — a REOPENED month can carry unresolved
     // quarantined traces the admin must see (US5, decision 100).
@@ -227,7 +227,7 @@ export class ListBillsDbUseCase implements ListBillsUseCase {
     month: number,
     args: { closedAt?: Date; pendingTraceCount: number },
   ): Promise<BillListItem> {
-    const { start, end } = monthWindowUtc(year, month);
+    const { start, end } = monthWindow(year, month);
     const [snapshot, quarantinedTraceCount] = await Promise.all([
       this.billingSnapshotRepository.findCurrent(year, month),
       this.billingQueryRepository.countQuarantined(start, end),
