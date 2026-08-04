@@ -37,14 +37,25 @@ export interface BillingPeriodModel {
  * 'closed' = month frozen by T6, served from its snapshot, labeled final.
  * 'in_progress' = current calendar month, always partial (invariant 8).
  * 'open' = past month not yet closed.
+ * 'future' = month after the current one (audit B-1): reachable because
+ *   the ingest boundary admits future started_at timestamps (source clock
+ *   skew, a mis-instrumented agent). Never served as a bill — the summary
+ *   400s it, /bills excludes it, the series never charts past the current
+ *   month. INTERNAL value: it must not reach the wire (the response
+ *   enums stay closed/in_progress/open by construction).
  */
-export type BillingPeriodStatus = 'closed' | 'in_progress' | 'open';
+export type BillingPeriodStatus = 'closed' | 'in_progress' | 'open' | 'future';
 
 /**
  * THE period-status rule (invariant 8's label logic), stated once: a
  * lifecycle-closed month is 'closed'; otherwise the current UTC calendar
- * month is 'in_progress' (always partial) and any other month is 'open'.
- * Absence of a period document means the month was never closed.
+ * month is 'in_progress' (always partial), a later month is 'future'
+ * (audit B-1 — this rule used to live in ONE of the three readers, so
+ * /bills listed a month /billing/summary 400'd: two readers of one truth
+ * disagreeing about whether the month exists), and any other month is
+ * 'open'. Absence of a period document means the month was never closed;
+ * a lifecycle-closed FUTURE month is impossible (the close guard refuses
+ * months that have not fully passed).
  */
 export const resolvePeriodStatus = (
   year: number,
@@ -54,9 +65,16 @@ export const resolvePeriodStatus = (
 ): BillingPeriodStatus => {
   if (period?.status === 'closed') return 'closed';
 
-  return year === now.getUTCFullYear() && month === now.getUTCMonth() + 1
-    ? 'in_progress'
-    : 'open';
+  const nowYear = now.getUTCFullYear();
+  const nowMonth = now.getUTCMonth() + 1;
+
+  if (year === nowYear && month === nowMonth) return 'in_progress';
+
+  if (year > nowYear || (year === nowYear && month > nowMonth)) {
+    return 'future';
+  }
+
+  return 'open';
 };
 
 /** The billing period IS the UTC calendar month (invariant 8) — half-open window. */
@@ -64,7 +82,20 @@ export const monthWindowUtc = (
   year: number,
   month: number,
 ): { start: Date; end: Date } => {
-  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+  // Year bounds are correctness, not pedantry (audit B-2): Date.UTC maps
+  // years 0-99 into 1900-1999, so monthWindowUtc(26, 6) silently produced
+  // the 1926 window — and a close over it SUCCEEDED (fully past, empty,
+  // pending-free), leaving a period document that anchored the
+  // decision-119 live-scan bound at 1926 forever. Same bounds as the HTTP
+  // door's yearMonthQueryShape and the runbook's parseRunbookYearMonth.
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    year < 1970 ||
+    year > 9999 ||
+    month < 1 ||
+    month > 12
+  ) {
     throw new Error(`Invalid billing period: year=${year}, month=${month}`);
   }
 

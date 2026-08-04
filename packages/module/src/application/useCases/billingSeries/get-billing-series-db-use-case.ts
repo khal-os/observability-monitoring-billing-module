@@ -101,7 +101,16 @@ export class GetBillingSeriesDbUseCase implements GetBillingSeriesUseCase {
     // current month: a month with zero traffic materializes as a zero bar
     // — a gap in traffic must LOOK like a gap (the daily lens's rule,
     // applied to the monthly axis). An empty store charts nothing.
-    const knownOrdinals = [...rollupByMonth.keys(), ...periodByOrdinal.keys()];
+    // audit B-1: the axis never runs past the CURRENT month. One trace
+    // dated 2027 used to drag lastOrdinal a year out — slice(-12) then
+    // kept twelve zero-filled FUTURE bars and pushed every real month
+    // (including the current one) off the chart, all at R$ 0,00 with
+    // nothing signalling the anomaly. Future-dated data stays archived
+    // and charts when its month arrives.
+    const knownOrdinals = [
+      ...rollupByMonth.keys(),
+      ...periodByOrdinal.keys(),
+    ].filter((ordinal) => ordinal <= currentOrdinal);
 
     if (knownOrdinals.length === 0) return [];
 

@@ -19,6 +19,12 @@ export interface PendingPriceTrace {
   tokens: TokenCounts;
 }
 
+/** Page cursor for findPendingPrice — the read's own sort tuple. */
+export interface PendingPriceCursor {
+  startedAt: Date;
+  traceId: string;
+}
+
 /**
  * Attribution fields are MUTABLE in open periods (invariant 7). This type
  * is the whole reason the update op exists: it structurally cannot carry
@@ -123,8 +129,24 @@ export interface TraceRepository {
     pinnedModel: ModelRef | null,
   ): Promise<'stamped' | 'skipped'>;
 
-  /** Slim projection, oldest first — never the embedded payloads. */
-  findPendingPrice(): Promise<PendingPriceTrace[]>;
+  /**
+   * Slim projection, oldest first — never the embedded payloads. `limit`
+   * is REQUIRED and un-defaulted (audit B-5, same discipline as
+   * firstOpenMonthStart's earliestTraceAt): the unbounded read let
+   * POST /prices drag a whole day of an unpriced model's traffic — ~33k
+   * traces at the stated sizing — through one serial HTTP request.
+   * Callers page on the (startedAt, traceId) tuple cursor — `after`
+   * walks FORWARD past traces the page could not move (blocked closed
+   * months, still-pending), so a head-of-line clog of unstampable traces
+   * never starves the stampable ones behind it.
+   */
+  findPendingPrice(
+    limit: number,
+    after?: PendingPriceCursor,
+  ): Promise<PendingPriceTrace[]>;
+
+  /** Cheap indexed count of pending_price traces (audit B-5 — the honest "how much is left"). */
+  countPendingPrice(): Promise<number>;
 
   /**
    * audit B-1 (decision 100 — "the snapshot adjudicates"): called by the

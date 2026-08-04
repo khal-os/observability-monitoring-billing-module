@@ -1,4 +1,8 @@
 import { parseArgs } from 'node:util';
+import {
+  RUNBOOK_YEAR_MONTH_HINT,
+  parseRunbookYearMonth,
+} from '@observability/core/common/helpers/parse-runbook-year-month.js';
 import { makeDatabase } from '../factories/database-factory.js';
 import { makeCloseBillingPeriodUseCase } from '../factories/billing-factory.js';
 import {
@@ -22,13 +26,18 @@ const { values } = parseArgs({
   },
 });
 
-const year = Number(values.year);
-const month = Number(values.month);
+// One border for every runbook year/month door (audit B-2) — the same
+// bounds as the HTTP query shape, so "--year 26" is refused instead of
+// closing June 1926 and anchoring the live-scan bound there forever.
+const period = parseRunbookYearMonth(values.year, values.month);
 
-if (!Number.isInteger(year) || !Number.isInteger(month)) {
+if (!period) {
   console.error('Usage: npm run billing:close -- --year <YYYY> --month <1-12>');
+  console.error(`--year "${values.year}" --month "${values.month}": ${RUNBOOK_YEAR_MONTH_HINT}`);
   process.exit(1);
 }
+
+const { year, month } = period;
 
 const database = makeDatabase();
 

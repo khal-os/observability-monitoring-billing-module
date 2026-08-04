@@ -109,8 +109,12 @@ class TraceRepositoryStub implements TraceRepository {
     return 'skipped';
   }
 
-  async findPendingPrice(): Promise<TraceModel[]> {
+  async findPendingPrice(_limit: number): Promise<TraceModel[]> {
     return [];
+  }
+
+  async countPendingPrice(): Promise<number> {
+    return 0;
   }
 
   // Port member (audit B-1) — the sync never reconciles; no-op stub.

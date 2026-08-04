@@ -71,8 +71,36 @@ class TraceRepositoryStub implements TraceRepository {
     pinnedModel: ModelRef | null;
   }[] = [];
 
-  async findPendingPrice(): Promise<PendingPriceTrace[]> {
-    return this.pending;
+  async findPendingPrice(
+    limit: number,
+    after?: { startedAt: Date; traceId: string },
+  ): Promise<PendingPriceTrace[]> {
+    // Adapter semantics: pending set, tuple-sorted, strictly after the
+    // cursor; stamped traces have left the set.
+    const stillPending = this.pending.filter(
+      (trace) => !this.stamps.some((stamp) => stamp.traceId === trace.traceId),
+    );
+    const sorted = [...stillPending].sort(
+      (a, b) =>
+        a.startedAt.getTime() - b.startedAt.getTime() ||
+        (a.traceId < b.traceId ? -1 : a.traceId > b.traceId ? 1 : 0),
+    );
+    const fromCursor = after
+      ? sorted.filter(
+          (trace) =>
+            trace.startedAt.getTime() > after.startedAt.getTime() ||
+            (trace.startedAt.getTime() === after.startedAt.getTime() &&
+              trace.traceId > after.traceId),
+        )
+      : sorted;
+
+    return fromCursor.slice(0, limit);
+  }
+
+  async countPendingPrice(): Promise<number> {
+    return this.pending.filter(
+      (trace) => !this.stamps.some((stamp) => stamp.traceId === trace.traceId),
+    ).length;
   }
 
   async stampPendingTrace(
@@ -157,6 +185,8 @@ describe('ReprocessPendingDbUseCase', () => {
       stillPending: 0,
       failed: 0,
       blockedClosedMonth: 1,
+      // The blocked trace stays pending — reported, never hidden.
+      pendingRemaining: 1,
     });
     expect(traceRepository.stamps.map((stamp) => stamp.traceId)).toEqual([
       'open-july',
@@ -204,6 +234,8 @@ describe('ReprocessPendingDbUseCase', () => {
       stillPending: 0,
       failed: 1,
       blockedClosedMonth: 0,
+      // The failed trace stays pending for the next sweep.
+      pendingRemaining: 1,
     });
     expect(traceRepository.stamps.map((stamp) => stamp.traceId)).toEqual([
       'ok-1',
@@ -242,6 +274,7 @@ describe('ReprocessPendingDbUseCase', () => {
       stillPending: 0,
       failed: 0,
       blockedClosedMonth: 0,
+      pendingRemaining: 0,
     });
   });
 
@@ -263,4 +296,53 @@ describe('ReprocessPendingDbUseCase', () => {
       traceRepository.pending[0]?.model,
     );
   });
+
+  it('audit B-5: maxTraces caps ONE run and reports the honest remainder — the HTTP door never drags a day of backlog', async () => {
+    const { sut, traceRepository } = makeSut();
+    traceRepository.pending = [
+      pendingTrace({ traceId: 'p1', startedAt: new Date('2026-07-05T10:00:00Z') }),
+      pendingTrace({ traceId: 'p2', startedAt: new Date('2026-07-05T11:00:00Z') }),
+      pendingTrace({ traceId: 'p3', startedAt: new Date('2026-07-05T12:00:00Z') }),
+    ];
+
+    const report = await sut.reprocess({ maxTraces: 2 });
+
+    expect(report.examined).toBe(2);
+    expect(report.stamped).toBe(2);
+    expect(report.pendingRemaining).toBe(1);
+    expect(traceRepository.stamps.map((stamp) => stamp.traceId)).toEqual([
+      'p1',
+      'p2',
+    ]);
+  });
+
+  it('audit B-5: a page-sized clog of closed-month traces at the HEAD must not starve the stampable ones behind it', async () => {
+    const { sut, traceRepository, billingPeriodRepository } = makeSut();
+    await closeMonth(billingPeriodRepository, 2026, 6);
+
+    // 501 blocked traces (closed June) older than one stampable July trace:
+    // a head-anchored re-read would fetch the same blocked page forever and
+    // never reach 'reachable'. The tuple cursor walks past them.
+    traceRepository.pending = [
+      ...Array.from({ length: 501 }, (_, i) =>
+        pendingTrace({
+          traceId: `blocked-${String(i).padStart(3, '0')}`,
+          startedAt: new Date(Date.UTC(2026, 5, 10, 0, 0, i % 60, i)),
+        }),
+      ),
+      pendingTrace({
+        traceId: 'reachable',
+        startedAt: new Date('2026-07-05T12:00:00Z'),
+      }),
+    ];
+
+    const report = await sut.reprocess();
+
+    expect(report.blockedClosedMonth).toBe(501);
+    expect(report.stamped).toBe(1);
+    expect(traceRepository.stamps.map((stamp) => stamp.traceId)).toEqual([
+      'reachable',
+    ]);
+  });
+
 });

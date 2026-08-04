@@ -49,22 +49,22 @@ export class GetBillingSummaryDbUseCase implements GetBillingSummaryUseCase {
   async get(year: number, month: number): Promise<BillingSummary> {
     const { start, end } = monthWindowUtc(year, month);
 
-    // audit B-10.3: nothing legitimate queries the future — a future month
-    // used to render (and export!) a legit-looking zero bill labeled
-    // "aguardando fechamento". The controllers map this error to a 400.
-    const now = this.now();
-    if (
-      year > now.getUTCFullYear() ||
-      (year === now.getUTCFullYear() && month > now.getUTCMonth() + 1)
-    ) {
+    // audit B-10.3 + B-1: nothing legitimate queries the future — a future
+    // month used to render (and export!) a legit-looking zero bill labeled
+    // "aguardando fechamento". The check DERIVES from resolvePeriodStatus
+    // (its one home) instead of re-spelling the comparison: this guard
+    // once existed only here while /bills and the series had their own
+    // ideas, and three readers of one truth drifted. The controllers map
+    // this error to a 400.
+    const period = await this.billingPeriodRepository.find(year, month);
+    const periodStatus = this.periodStatus(year, month, period);
+
+    if (periodStatus === 'future') {
       throw new BillingPeriodStateError(
         `O mês ${year}-${String(month).padStart(2, '0')} está no futuro — ` +
           'não há nada a faturar.',
       );
     }
-
-    const period = await this.billingPeriodRepository.find(year, month);
-    const periodStatus = this.periodStatus(year, month, period);
 
     const monthData = await this.monthStatement(year, month, periodStatus);
 

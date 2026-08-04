@@ -13,6 +13,7 @@ import {
   PROJECTION_MIN_COMPLETE_DAYS,
 } from '@observability/core/domain/useCases/get-billing-projection-use-case.js';
 import {
+  agentKey,
   StatementAgentGroup,
   StatementAgentModelMix,
   StatementLine,
@@ -50,7 +51,26 @@ const TOKEN_TYPE_LABELS: Record<TokenType, string> = {
   cache_write: 'cache escrita',
 };
 
-const STATUS_LABELS: Record<BillingPeriodStatus, string> = {
+/**
+ * The wire speaks three statuses; 'future' is INTERNAL (audit B-1): the
+ * readers exclude/400/clamp future months upstream, so one reaching a
+ * client-facing view is a bug — narrowed here with a throw, never
+ * serialized. The response enums stay closed by construction.
+ */
+type WirePeriodStatus = Exclude<BillingPeriodStatus, 'future'>;
+
+const wirePeriodStatus = (status: BillingPeriodStatus): WirePeriodStatus => {
+  if (status === 'future') {
+    throw new Error(
+      'audit B-1: a FUTURE month must never reach a client-facing view — ' +
+        'the billing readers exclude it upstream',
+    );
+  }
+
+  return status;
+};
+
+const STATUS_LABELS: Record<WirePeriodStatus, string> = {
   closed: 'Fechado — final',
   in_progress: 'Em andamento — dados parciais',
   open: 'Aberto — aguardando fechamento',
@@ -306,9 +326,12 @@ const agentModelDisplayCents = (
   mix: StatementAgentModelMix,
 ): number[] => {
   const byModel = new Map<string | null, number>();
+  const key = agentKey(mix.agentId, mix.agentVersion);
 
   for (const line of statement.lines) {
-    if (line.agentId !== mix.agentId || line.agentVersion !== mix.agentVersion) {
+    // agentKey, not a hand-spelled field pair (audit B-3): one home for
+    // the grouping rule.
+    if (agentKey(line.agentId, line.agentVersion) !== key) {
       continue;
     }
 
@@ -356,7 +379,7 @@ const toComparisonView = (
       comparison.previousYear,
       comparison.previousMonth,
     ),
-    previous_period_status: comparison.previousPeriodStatus,
+    previous_period_status: wirePeriodStatus(comparison.previousPeriodStatus),
     previous_partial: comparison.previousPeriodStatus === 'in_progress',
     previous_total_cost_brl_display: formatBrlDisplay(
       formatBrlFromMicrocents(comparison.previousTotalCostMicrocents),
@@ -410,10 +433,10 @@ export const toBillingSummaryView = (
     year: summary.year,
     month: summary.month,
     month_label: formatMonthLabel(summary.year, summary.month),
-    period_status: summary.periodStatus,
+    period_status: wirePeriodStatus(summary.periodStatus),
     partial: summary.periodStatus === 'in_progress',
     final: summary.periodStatus === 'closed',
-    status_label: STATUS_LABELS[summary.periodStatus],
+    status_label: STATUS_LABELS[wirePeriodStatus(summary.periodStatus)],
     watermark_display: summary.ingestionWatermark
       ? `dados até ${formatDateTimeDisplay(new Date(summary.ingestionWatermark))}`
       : null,
@@ -487,10 +510,10 @@ export const toBillListView = (bills: BillListItem[]): BillListView => ({
     year: bill.year,
     month: bill.month,
     month_label: formatMonthLabel(bill.year, bill.month),
-    period_status: bill.periodStatus,
+    period_status: wirePeriodStatus(bill.periodStatus),
     partial: bill.periodStatus === 'in_progress',
     final: bill.periodStatus === 'closed',
-    status_label: STATUS_LABELS[bill.periodStatus],
+    status_label: STATUS_LABELS[wirePeriodStatus(bill.periodStatus)],
     closed_at_display: bill.closedAt
       ? formatDateTimeDisplay(new Date(bill.closedAt))
       : null,
@@ -564,7 +587,7 @@ export const toBillingSeriesView = (
     month: month.month,
     month_label: formatMonthLabel(month.year, month.month),
     short_label: shortMonthLabel(month.year, month.month),
-    period_status: month.periodStatus,
+    period_status: wirePeriodStatus(month.periodStatus),
     partial: month.periodStatus === 'in_progress',
   });
 
@@ -671,7 +694,7 @@ export const toBillingDailySeriesView = (
             short_label: `${String(date.getUTCDate()).padStart(2, '0')}/${String(
               date.getUTCMonth() + 1,
             ).padStart(2, '0')}`,
-            period_status: day.periodStatus,
+            period_status: wirePeriodStatus(day.periodStatus),
             partial: day.partial,
             cost_brl_display: formatBrlDisplay(
               formatBrlFromMicrocents(day.totalCostMicrocents),

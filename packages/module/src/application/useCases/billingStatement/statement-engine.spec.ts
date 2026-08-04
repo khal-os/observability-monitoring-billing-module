@@ -383,4 +383,46 @@ describe('collectAppliedPriceVersions', () => {
     const again = collectAppliedPriceVersions([...FIXTURE].reverse());
     expect(JSON.stringify(again)).toBe(JSON.stringify(versions));
   });
+
+  it("MUST keep two agents whose id/version straddle the old separator DISTINCT — grouping keys are injective (audit B-3)", () => {
+    // '@@'-joined keys collided {id:'suporte@@v', version:'2'} with
+    // {id:'suporte', version:'v@@2'}: one line, one agent card, the second
+    // agent's whole cost attributed to the first — and the month total
+    // unchanged, so no closure check could see it. Free-form metadata is
+    // the source of these ids; nothing constrains their charset.
+    const colliding: BillingUsageRecord[] = [
+      {
+        traceId: 'c1',
+        startedAt: new Date('2026-06-10T12:00:00Z'),
+        agentId: 'suporte@@v',
+        agentVersion: '2',
+        model: 'anthropic/claude-haiku-4-5',
+        stampedCosts: [stamped('input', 1_000_000, PRICE_INPUT)],
+        totalCostMicrocents: PRICE_INPUT,
+      },
+      {
+        traceId: 'c2',
+        startedAt: new Date('2026-06-10T12:05:00Z'),
+        agentId: 'suporte',
+        agentVersion: 'v@@2',
+        model: 'anthropic/claude-haiku-4-5',
+        stampedCosts: [stamped('input', 1_000_000, PRICE_INPUT)],
+        totalCostMicrocents: PRICE_INPUT,
+      },
+    ];
+
+    const statement = buildStatement(colliding);
+
+    expect(statement.lines).toHaveLength(2);
+    expect(statement.agents).toHaveLength(2);
+    expect(statement.agents.map((agent) => agent.agentId).sort()).toEqual([
+      'suporte',
+      'suporte@@v',
+    ]);
+    // Each keeps its own money — nothing was absorbed.
+    for (const agent of statement.agents) {
+      expect(agent.costMicrocents).toBe(PRICE_INPUT);
+    }
+  });
+
 });

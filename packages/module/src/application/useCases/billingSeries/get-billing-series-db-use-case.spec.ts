@@ -425,4 +425,37 @@ describe('GetBillingProjectionDbUseCase (US12)', () => {
     expect(projection.insufficientData).toBe(true);
     expect(projection.projectedCostMicrocents).toBeNull();
   });
+
+  it('MUST clamp the axis at the CURRENT month — one 2027-dated trace must not fill the chart with zero-filled future bars (audit B-1)', async () => {
+    const { sut, billingQueryRepository } = makeSut();
+
+    billingQueryRepository.rollupRows = [
+      {
+        year: 2026,
+        month: 6,
+        totalCostMicrocents: 1_000_000,
+        byTokenType: [{ tokenType: 'input' as const, costMicrocents: 1_000_000 }],
+        byAgent: [],
+        byModel: [],
+      },
+      // The anomaly: a trace dated ten months out.
+      {
+        year: 2027,
+        month: 5,
+        totalCostMicrocents: 500_000,
+        byTokenType: [{ tokenType: 'input' as const, costMicrocents: 500_000 }],
+        byAgent: [],
+        byModel: [],
+      },
+    ];
+
+    const months = await sut.list(12);
+    const last = months.at(-1);
+
+    // NOW is 2026-07 — the axis ends there; nothing charts past it and the
+    // real months are not pushed off the left edge.
+    expect(last).toMatchObject({ year: 2026, month: 7 });
+    expect(months.every((month) => month.year < 2027)).toBe(true);
+  });
+
 });

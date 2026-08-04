@@ -480,7 +480,7 @@ export const runTraceRepositoryContract = (
           }),
         );
 
-        const pending = await harness.repository.findPendingPrice();
+        const pending = await harness.repository.findPendingPrice(100);
 
         expect(pending.map((trace) => trace.traceId)).toEqual([
           'trace-pending-1',

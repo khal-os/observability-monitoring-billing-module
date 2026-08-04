@@ -68,10 +68,36 @@ export class ListBillsDbUseCase implements ListBillsUseCase {
       periods.map((period) => [`${period.year}-${period.month}`, period]),
     );
 
+    // audit B-1: a future-dated trace (source clock skew, a
+    // mis-instrumented agent) must not mint a bill — /billing/summary
+    // 400s the month, so listing it here offered the UI a row it could
+    // never open (two readers of one truth disagreeing). Excluded and
+    // logged: the trace stays archived (invariant 6) and becomes billable
+    // when its month arrives.
+    const futureRows = rows.filter(
+      (row) =>
+        resolvePeriodStatus(
+          row.year,
+          row.month,
+          periodByMonth.get(`${row.year}-${row.month}`),
+          now,
+        ) === 'future',
+    );
+
+    for (const row of futureRows) {
+      console.warn(
+        `Bills: mês ${row.year}-${String(row.month).padStart(2, '0')} tem ` +
+          'traces datados no FUTURO — fora da lista de faturas até o mês ' +
+          'chegar (anomalia de relógio da fonte? audit B-1).',
+      );
+    }
+
+    const billableRows = rows.filter((row) => !futureRows.includes(row));
+
     // audit C-7.3: per-month reads (snapshot + quarantine count) fan out
     // in parallel — the sequential per-month await was an N+1.
     const items = await Promise.all(
-      rows.map((row) => {
+      billableRows.map((row) => {
         const period = periodByMonth.get(`${row.year}-${row.month}`);
         periodByMonth.delete(`${row.year}-${row.month}`);
 

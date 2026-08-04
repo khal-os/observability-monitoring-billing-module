@@ -19,6 +19,9 @@ import {
  * DuplicatePriceVersionError propagates untouched (invariant 9): callers
  * answer it their own way (HTTP 409 / CLI exit code).
  */
+/** audit B-5: one page's worth of immediate stamping per HTTP registration. */
+const HTTP_REPROCESS_CAP = 1_000;
+
 export class RegisterPriceVersionDbUseCase
   implements RegisterPriceVersionUseCase
 {
@@ -52,8 +55,15 @@ export class RegisterPriceVersionDbUseCase
     });
 
     // Decision 57: stamp what the new price unblocks NOW; the worker's
-    // periodic sweep stays as backstop.
-    const reprocess = await this.reprocessPending.reprocess();
+    // periodic sweep stays as backstop. CAPPED (audit B-5): uncapped, a
+    // day of an unpriced model's backlog (~33k traces) ran ~165k serial
+    // Mongo ops inside this one HTTP request — minutes of wall time, and
+    // a proxy timeout aborted the response while the loop kept running
+    // (the retry then 409'd without re-running the sweep). The report's
+    // pendingRemaining tells the operator what the backstop still owes.
+    const reprocess = await this.reprocessPending.reprocess({
+      maxTraces: HTTP_REPROCESS_CAP,
+    });
 
     return {
       model: canonicalModel,

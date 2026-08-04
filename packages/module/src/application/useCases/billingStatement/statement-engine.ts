@@ -122,23 +122,31 @@ const addMicrocents = (current: number, value: number): number =>
   sumMicrocents([current, value]);
 
 /**
- * The null sentinel is U+0000 WRITTEN AS AN ESCAPE (re-audit iteration 4):
- * the character cannot occur in an agentId, agentVersion or model — a
- * space can, so "simplifying" it to ' ' would collide an unattributed
- * trace with a whitespace-named one. The escape (never the raw byte) keeps
- * this file text: with raw NULs git classified THE billing calculation as
- * a binary blob, so every change to it landed without a reviewable diff
- * and grep silently skipped it.
+ * INJECTIVE grouping keys (post-split audit B-3): the keys used to join
+ * on '@@' — a separator that is LEGAL inside the free-form fields it
+ * separated, so `{id: 'suporte@@v', version: '2'}` and `{id: 'suporte',
+ * version: 'v@@2'}` produced ONE key: two agents billed as one, the
+ * second's cost attributed to the first, frozen into the snapshot — and
+ * the month TOTAL unaffected, so no total-vs-parts check could see it
+ * (the exact silent shape of iteration 6's space sentinel, one level
+ * deeper). JSON.stringify over the tuple cannot collide: every element
+ * is delimited and escaped, and null needs no sentinel at all — which
+ * also retires the U+0000 escape and its NUL-byte history (iteration 4).
+ * Byte layout of the KEYS changes; grouping semantics for every
+ * '@@'-free input (all real data observed so far) is identical, so
+ * STATEMENT_LOGIC_VERSION deliberately does not move — bumping would
+ * falsely mark every frozen, still-reproducible snapshot as another
+ * calculation's output (decision 122's own rationale).
  */
 const lineKey = (line: Omit<StatementLine, 'tokens' | 'costMicrocents' | 'displayCents'>): string =>
-  [
-    line.agentId ?? '\u0000',
-    line.agentVersion ?? '\u0000',
-    line.model ?? '\u0000',
+  JSON.stringify([
+    line.agentId,
+    line.agentVersion,
+    line.model,
     line.tokenType,
     line.appliedPriceMicrocentsPerMillion,
     line.appliedPriceEffectiveFrom.getTime(),
-  ].join('@@');
+  ]);
 
 /** Folds ONE record into the line accumulator (state = distinct lines). */
 const addRecordLines = (
@@ -175,14 +183,14 @@ const addRecordLines = (
 };
 
 /**
- * Exported so nobody hand-copies it — the month-over-month comparison did,
- * and reached for a space sentinel, which is exactly the collision the note
- * on lineKey forbids (re-audit iteration 6). One home for the rule.
+ * Re-exported from the domain (audit B-3): the rule's one home is
+ * billing-snapshot-model.ts, where presentation may also reach it —
+ * iteration 6 proved a hand-copy drifts, and the layer rules forbid
+ * presentation from importing THIS file.
  */
-export const agentKey = (
-  agentId: string | null,
-  agentVersion: string | null,
-): string => `${agentId ?? '\u0000'}@@${agentVersion ?? '\u0000'}`;
+import { agentKey } from '@observability/core/domain/models/billing-snapshot-model.js';
+
+export { agentKey };
 
 const buildAgentGroups = (lines: StatementLine[]): StatementAgentGroup[] => {
   const groups = new Map<string, StatementAgentGroup>();
@@ -284,10 +292,12 @@ const buildModelMixByAgent = (
   agents: StatementAgentGroup[],
 ): StatementAgentModelMix[] =>
   agents.map((agent) => {
+    // Through agentKey, not a hand-spelled field pair — the grouping rule
+    // has ONE home (audit B-3; a second spelling is how iteration 6's
+    // sentinel bug survived).
+    const key = agentKey(agent.agentId, agent.agentVersion);
     const agentLines = lines.filter(
-      (line) =>
-        line.agentId === agent.agentId &&
-        line.agentVersion === agent.agentVersion,
+      (line) => agentKey(line.agentId, line.agentVersion) === key,
     );
 
     return {
@@ -399,12 +409,12 @@ const addRecordPriceVersions = (
   record: BillingUsageRecord,
 ): void => {
   for (const cost of record.stampedCosts) {
-    const key = [
-      record.model ?? '\u0000',
+    const key = JSON.stringify([
+      record.model,
       cost.tokenType,
       cost.appliedPriceMicrocentsPerMillion,
       cost.appliedPriceEffectiveFrom.getTime(),
-    ].join('@@');
+    ]);
 
     if (!seen.has(key)) {
       seen.set(key, {

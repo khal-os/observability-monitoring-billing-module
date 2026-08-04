@@ -307,6 +307,7 @@ describe('Sync + price stamping (integration)', () => {
         stamped: 2,
         stillPending: 0,
         failed: 0,
+        pendingRemaining: 0,
       });
 
       // June 10 trace → June 1 prices (NOT the June 15 ones)

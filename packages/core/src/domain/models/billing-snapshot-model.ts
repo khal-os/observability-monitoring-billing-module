@@ -44,6 +44,21 @@ export interface BillingUsageRecord {
  * every line's `tokens × price = cost` stays literally checkable and the
  * sums stay exact.
  */
+/**
+ * THE agent grouping key (audit B-3) — injective by construction:
+ * JSON.stringify delimits and escapes every element, so no free-form
+ * agentId/agentVersion pair can collide ('@@'-joined keys once merged
+ * {id:'suporte@@v', version:'2'} with {id:'suporte', version:'v@@2'} —
+ * two agents billed as one, invisibly, because the month total was
+ * unaffected). Lives in the DOMAIN so the engine (application) and the
+ * view-models (presentation) share the one spelling without breaking
+ * the layer rules.
+ */
+export const agentKey = (
+  agentId: string | null,
+  agentVersion: string | null,
+): string => JSON.stringify([agentId, agentVersion]);
+
 export interface StatementLine {
   agentId: string | null;
   agentVersion: string | null;

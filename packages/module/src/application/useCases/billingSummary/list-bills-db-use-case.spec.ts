@@ -527,4 +527,25 @@ describe('ListBillsDbUseCase (T7)', () => {
       },
     ]);
   });
+
+  it('MUST exclude a FUTURE-dated month from the bill list — /billing/summary 400s it, so listing it offered a row the UI could never open (audit B-1)', async () => {
+    const { sut, billingQueryRepository } = makeSut();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    billingQueryRepository.billRows = [
+      billRow({ year: 2026, month: 7 }),
+      // One trace with startedAt in 2027 (source clock skew) mints a row.
+      billRow({ year: 2027, month: 5 }),
+    ];
+
+    const bills = await sut.list();
+
+    expect(
+      bills.map((bill) => `${bill.year}-${bill.month}`),
+    ).toEqual(['2026-7']);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('FUTURO'));
+
+    warn.mockRestore();
+  });
+
 });

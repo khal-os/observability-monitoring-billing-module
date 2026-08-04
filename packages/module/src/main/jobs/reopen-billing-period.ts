@@ -1,4 +1,8 @@
 import { parseArgs } from 'node:util';
+import {
+  RUNBOOK_YEAR_MONTH_HINT,
+  parseRunbookYearMonth,
+} from '@observability/core/common/helpers/parse-runbook-year-month.js';
 import { makeDatabase } from '../factories/database-factory.js';
 import { makeReopenBillingPeriodUseCase } from '../factories/billing-factory.js';
 import { BillingPeriodStateError } from '@observability/core/domain/useCases/close-billing-period-use-case.js';
@@ -19,16 +23,23 @@ const { values } = parseArgs({
   },
 });
 
-const year = Number(values.year);
-const month = Number(values.month);
+// Same year/month border as the close job and the HTTP door (audit B-2).
+const period = parseRunbookYearMonth(values.year, values.month);
 const reason = values.reason ?? '';
 
-if (!Number.isInteger(year) || !Number.isInteger(month) || !reason.trim()) {
+if (!period || !reason.trim()) {
   console.error(
     'Usage: npm run billing:reopen -- --year <YYYY> --month <1-12> --reason "<motivo auditado>"',
   );
+  if (!period) {
+    console.error(
+      `--year "${values.year}" --month "${values.month}": ${RUNBOOK_YEAR_MONTH_HINT}`,
+    );
+  }
   process.exit(1);
 }
+
+const { year, month } = period;
 
 const database = makeDatabase();
 

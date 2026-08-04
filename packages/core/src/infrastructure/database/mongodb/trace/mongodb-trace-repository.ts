@@ -4,6 +4,7 @@ import {
   PendingStamp,
   QuarantineReconciliation,
   AttributionUpdateResult,
+  PendingPriceCursor,
   TraceAttribution,
   TraceRepository,
 } from '../../../../application/interfaces/trace-repository.js';
@@ -295,20 +296,45 @@ export class MongoDbTraceRepository implements TraceRepository {
     return 'stamped';
   }
 
-  async findPendingPrice(): Promise<PendingPriceTrace[]> {
+  async findPendingPrice(
+    limit: number,
+    after?: PendingPriceCursor,
+  ): Promise<PendingPriceTrace[]> {
     // Slim projection (decision 79): re-stamping needs four small fields;
-    // the embedded input/output/spans (decision 47) stay in the store —
-    // the sweep runs inside the ingestion worker and must stay bounded
-    // even when a new unpriced model has accumulated a day of traffic.
+    // the embedded input/output/spans (decision 47) stay in the store.
+    // audit B-5: the LIMIT is what actually keeps the sweep bounded — the
+    // projection bounds bytes per document, not the number of documents,
+    // and this read used to materialize every pending trace at once.
+    // Rides pricingStatus_1_startedAt_1; the sort makes pages stable.
     const documents = await MongoDb.getCollection(TRACES_COLLECTION)
       .find(
-        { pricingStatus: 'pending_price' },
+        {
+          pricingStatus: 'pending_price',
+          // Tuple cursor (audit B-5): strictly after the previous page's
+          // last trace, so unstampable traces (blocked closed months) are
+          // walked past instead of re-read at the head forever.
+          ...(after
+            ? {
+                $or: [
+                  { startedAt: { $gt: after.startedAt } },
+                  { startedAt: after.startedAt, traceId: { $gt: after.traceId } },
+                ],
+              }
+            : {}),
+        },
         { projection: { _id: 0, traceId: 1, model: 1, startedAt: 1, tokens: 1 } },
       )
-      .sort({ startedAt: 1 })
+      .sort({ startedAt: 1, traceId: 1 })
+      .limit(limit)
       .toArray();
 
     return documents as unknown as PendingPriceTrace[];
+  }
+
+  async countPendingPrice(): Promise<number> {
+    return MongoDb.getCollection(TRACES_COLLECTION).countDocuments({
+      pricingStatus: 'pending_price',
+    });
   }
 
   async reconcileQuarantineAfterClose(

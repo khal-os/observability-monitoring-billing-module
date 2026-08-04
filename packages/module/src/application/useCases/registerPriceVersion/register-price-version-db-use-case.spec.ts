@@ -30,6 +30,7 @@ class ReprocessPendingStub implements ReprocessPendingUseCase {
     stillPending: 1,
     failed: 0,
     blockedClosedMonth: 0,
+    pendingRemaining: 0,
   };
 
   async reprocess(): Promise<ReprocessReport> {
@@ -97,6 +98,7 @@ describe('RegisterPriceVersionDbUseCase', () => {
       stamped: 2,
       stillPending: 1,
       failed: 0,
+      pendingRemaining: 0,
     });
   });
 

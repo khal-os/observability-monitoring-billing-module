@@ -32,6 +32,7 @@ class RegisterPriceVersionStub implements RegisterPriceVersionUseCase {
         stillPending: 0,
         failed: 0,
         blockedClosedMonth: 0,
+        pendingRemaining: 0,
       },
     };
   }

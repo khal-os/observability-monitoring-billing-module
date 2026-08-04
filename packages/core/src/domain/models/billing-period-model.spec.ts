@@ -63,10 +63,24 @@ describe('resolvePeriodStatus() (invariant 8 label rule, stated once)', () => {
   });
 
   it('resolves the current month against UTC, not local time', () => {
-    // One minute before the UTC month turns: still the old month.
+    // One minute before the UTC month turns: still the old month — and the
+    // NEXT month is 'future', not 'open' (audit B-1: "open" for a month
+    // that has not happened is what let /bills list a bill /billing/summary
+    // 400'd).
     const edge = new Date('2026-07-31T23:59:00.000Z');
     expect(resolvePeriodStatus(2026, 7, null, edge)).toBe('in_progress');
-    expect(resolvePeriodStatus(2026, 8, null, edge)).toBe('open');
+    expect(resolvePeriodStatus(2026, 8, null, edge)).toBe('future');
+  });
+
+  it("resolves months after the current one as 'future' — one rule for all three readers (audit B-1)", () => {
+    const NOW = new Date('2026-08-03T12:00:00.000Z');
+
+    expect(resolvePeriodStatus(2026, 9, null, NOW)).toBe('future');
+    expect(resolvePeriodStatus(2027, 1, null, NOW)).toBe('future');
+    expect(resolvePeriodStatus(2027, 5, null, NOW)).toBe('future');
+    // The past stays 'open'; the current month stays 'in_progress'.
+    expect(resolvePeriodStatus(2026, 7, null, NOW)).toBe('open');
+    expect(resolvePeriodStatus(2026, 8, null, NOW)).toBe('in_progress');
   });
 });
 
@@ -296,4 +310,21 @@ describe('firstOpenMonthStart() (audit C-7.1)', () => {
       }
     });
   });
+
+  describe('monthWindowUtc year bounds (audit B-2 — the structural backstop)', () => {
+    it('MUST refuse the two-digit year Date.UTC would map into the 1900s', () => {
+      expect(() => monthWindowUtc(26, 6)).toThrow(/Invalid billing period/);
+    });
+
+    it('MUST refuse years outside 1970-9999', () => {
+      expect(() => monthWindowUtc(1969, 12)).toThrow(/Invalid billing period/);
+      expect(() => monthWindowUtc(10000, 1)).toThrow(/Invalid billing period/);
+    });
+
+    it('MUST keep accepting the real range', () => {
+      expect(monthWindowUtc(1970, 1).start.toISOString()).toBe('1970-01-01T00:00:00.000Z');
+      expect(monthWindowUtc(9999, 12).end.getTime()).toBe(Date.UTC(10000, 0, 1));
+    });
+  });
+
 });
