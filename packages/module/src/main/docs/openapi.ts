@@ -200,7 +200,10 @@ export const buildOpenApiDocument = (clientName?: string) => ({
       'Uma API, três faces: Billing (quanto custou), Traces (as execuções ' +
       'reais) e Sessions (as conversas). Todos os valores client-facing são ' +
       'em R$; custos vêm do carimbo de preço aplicado na ingestão (imutável). ' +
-      'Traces sem preço aplicável aparecem como pending_price — nunca R$ 0,00. ' +
+      'Traces sem preço aplicável aparecem como pending_price — nunca R$ 0,00; ' +
+      'traces com modelo mas zero tokens medidos aparecem como ' +
+      'no_measured_usage (decisão 128) — custo desconhecido, fora dos totais, ' +
+      'sem bloquear o fechamento. ' +
       'Comportamento global: método errado em um caminho conhecido responde ' +
       '405 com o header Allow (não repetido por operação).',
   },

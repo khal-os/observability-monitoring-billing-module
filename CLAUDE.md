@@ -55,6 +55,10 @@ imports count as the layer they name (`@observability/core/<layer>/…`).
 2. **A trace with no applicable price is stored as `pending_price`** — tokens
    kept, cost open, excluded from R$ totals. It is NEVER valued at R$ 0.00.
    When the price is registered (open month only), pending traces get stamped.
+   Corollary (decision 128): a trace with a MODEL but zero measured tokens is
+   `no_measured_usage` — cost unknown, not zero; excluded from totals, counted
+   on the summary, and it does NOT block month close. A trace with NO model
+   and no tokens is genuinely free work and stays stamped at R$ 0.00.
 3. **One store, one truth.** Billing aggregates are **sums of stamped trace
    costs** — never an independent calculation path. Session cost = exact sum
    of its traces' costs. An automated consistency check may assert

@@ -80,4 +80,50 @@ describe('Billing query windows against the real adapter (audit E-2)', () => {
 
     expect(juneWatermark?.toISOString()).toBe('2026-06-10T12:00:00.000Z');
   });
+
+  describe('countNoMeasuredUsage (decision 128)', () => {
+    it('MUST count ONLY no_measured_usage traces inside the month window', async () => {
+      const traces = new MongoDbTraceRepository();
+
+      await traces.insertIfAbsent(
+        makeContractTrace({
+          traceId: 'nmu-in-window',
+          startedAt: new Date('2026-06-10T12:00:00Z'),
+          tokens: {},
+          tokensTotal: 0,
+          pricingStatus: 'no_measured_usage',
+          stampedCosts: undefined,
+          totalCostMicrocents: undefined,
+          stampedAt: undefined,
+        }),
+      );
+      await traces.insertIfAbsent(
+        makeContractTrace({
+          traceId: 'nmu-out-of-window',
+          startedAt: new Date('2026-07-10T12:00:00Z'),
+          tokens: {},
+          tokensTotal: 0,
+          pricingStatus: 'no_measured_usage',
+          stampedCosts: undefined,
+          totalCostMicrocents: undefined,
+          stampedAt: undefined,
+        }),
+      );
+      // A stamped trace in-window must NOT count.
+      await traces.insertIfAbsent(
+        makeContractTrace({
+          traceId: 'nmu-stamped-neighbor',
+          startedAt: new Date('2026-06-11T12:00:00Z'),
+        }),
+      );
+
+      const repository = new MongoDbBillingQueryRepository();
+      const count = await repository.countNoMeasuredUsage(
+        new Date('2026-06-01T00:00:00Z'),
+        new Date('2026-07-01T00:00:00Z'),
+      );
+
+      expect(count).toBe(1);
+    });
+  });
 });

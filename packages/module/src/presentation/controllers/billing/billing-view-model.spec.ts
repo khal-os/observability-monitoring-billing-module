@@ -45,6 +45,7 @@ const makeSummary = (): BillingSummary => ({
   ingestionWatermark: null,
   reopenNotes: [],
   quarantinedTraceCount: 0,
+  noMeasuredUsageTraceCount: 0,
   comparison: null,
 });
 

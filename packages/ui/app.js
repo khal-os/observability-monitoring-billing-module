@@ -409,6 +409,15 @@ const renderCosts = (trace) => {
         trace.pending_missing_label ? ` (sem preço para: ${escapeHtml(trace.pending_missing_label)})` : ''}.</p>
     </section>`;
   }
+  if (trace.pricing_status === 'no_measured_usage') {
+    /* Decisão 128: modelo presente, zero tokens medidos — o LLM rodou mas
+       o uso não foi reportado. Custo desconhecido, nunca R$ 0,00. */
+    return `<section class="panel-section">
+      <h3 class="section-title">Custo</h3>
+      <p class="pending">Sem uso medido — o trace tem modelo mas nenhum token
+        reportado (instrumentação). Custo desconhecido, fora dos totais.</p>
+    </section>`;
+  }
   if (!trace.costs || !trace.costs.length) return '';
 
   const rows = trace.costs.map((cost) => `<tr>
@@ -1069,6 +1078,11 @@ const renderBillPanel = (data) => {
         O custo entra no mês quando o preço for cadastrado.
       </div>` : ''}
 
+    ${data.no_measured_usage_trace_count > 0 ? `
+      <p class="pending unclassified">
+        <strong>${Number(data.no_measured_usage_trace_count)} trace(s) sem uso medido</strong> —
+        modelo presente, nenhum token reportado (decisão 128); fora dos totais,
+        não bloqueia o fechamento.</p>` : ''}
     ${data.quarantined_trace_count > 0 ? `
       <div class="pending-card">
         <strong>${Number(data.quarantined_trace_count)} trace(s) em quarentena</strong> —

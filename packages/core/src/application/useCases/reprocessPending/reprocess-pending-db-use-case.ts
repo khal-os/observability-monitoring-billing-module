@@ -133,9 +133,18 @@ export class ReprocessPendingDbUseCase implements ReprocessPendingUseCase {
             )
           : {};
 
-        const stamp = stampTokens(trace.tokens, effectivePrices);
+        const stamp = stampTokens(
+          trace.tokens,
+          effectivePrices,
+          trace.model !== undefined && trace.model !== null,
+        );
 
-        if (stamp.pricingStatus === 'pending_price') {
+        // Only a full stamp proceeds. 'pending_price' is the expected
+        // other arm; 'no_measured_usage' is UNREACHABLE from the pending
+        // set (pending requires a used token type, decision 128) but the
+        // exhaustive guard keeps a future stamper change from silently
+        // writing a partial stamp here.
+        if (stamp.pricingStatus !== 'stamped') {
           report.stillPending += 1;
           continue;
         }

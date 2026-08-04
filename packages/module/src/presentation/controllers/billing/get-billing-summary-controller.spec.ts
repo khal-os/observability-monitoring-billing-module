@@ -55,6 +55,7 @@ const makeSummary = (): BillingSummary => ({
   pendingPrice: { traceCount: 0, tokens: {}, models: [] },
   ingestionWatermark: null,
   reopenNotes: [],
+  noMeasuredUsageTraceCount: 0,
   quarantinedTraceCount: 0,
   comparison: null,
 });

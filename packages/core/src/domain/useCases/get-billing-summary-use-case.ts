@@ -58,6 +58,12 @@ export interface BillingSummary {
   reopenNotes: BillingReopenNote[];
   /** Traces that arrived after the close, quarantined (T6) — admin visibility. */
   quarantinedTraceCount: number;
+  /**
+   * Traces whose LLM reported no measured usage (decision 128) — a live
+   * CONTEXT count like quarantinedTraceCount, never a statement input:
+   * these traces are outside every R$ total by construction.
+   */
+  noMeasuredUsageTraceCount: number;
   comparison: BillingMonthComparison | null;
 }
 

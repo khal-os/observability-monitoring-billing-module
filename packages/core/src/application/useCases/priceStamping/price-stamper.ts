@@ -12,6 +12,10 @@ export type StampOutcome =
   | {
       pricingStatus: 'pending_price';
       missingPriceTokenTypes: TokenType[];
+    }
+  | {
+      /** Model present, zero measured tokens — see PricingStatus (decision 128). */
+      pricingStatus: 'no_measured_usage';
     };
 
 /**
@@ -34,14 +38,24 @@ export const findMissingPriceTokenTypes = (
  * cent. Every token type actually USED (count > 0) needs an effective
  * price; if ANY is missing the whole trace is pending_price: tokens kept,
  * cost open, NEVER partially stamped and NEVER valued at R$ 0 (invariant 2).
+ *
+ * `hasModel` is the decision-128 gate: the trace's model is DERIVED from
+ * its LLM spans, so model-present + zero-tokens-everywhere means an LLM
+ * ran and reported no usage — cost unknown, not zero → 'no_measured_usage'.
+ * No model + no tokens is tool-only work: honestly R$ 0,00, stamped.
  */
 export const stampTokens = (
   tokens: TokenCounts,
   effectivePrices: EffectivePrices,
+  hasModel: boolean,
 ): StampOutcome => {
   const usedTokenTypes = TOKEN_TYPES.filter(
     (tokenType) => (tokens[tokenType] ?? 0) > 0,
   );
+
+  if (hasModel && usedTokenTypes.length === 0) {
+    return { pricingStatus: 'no_measured_usage' };
+  }
 
   const missingPriceTokenTypes = findMissingPriceTokenTypes(
     tokens,

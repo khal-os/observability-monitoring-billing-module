@@ -81,6 +81,8 @@ export class GetBillingSummaryDbUseCase implements GetBillingSummaryUseCase {
     );
     const quarantinedTraceCount =
       await this.billingQueryRepository.countQuarantined(start, end);
+    const noMeasuredUsageTraceCount =
+      await this.billingQueryRepository.countNoMeasuredUsage(start, end);
 
     const comparison = await this.comparison(year, month, monthData.statement);
 
@@ -104,6 +106,7 @@ export class GetBillingSummaryDbUseCase implements GetBillingSummaryUseCase {
         : {}),
       reopenNotes,
       quarantinedTraceCount,
+      noMeasuredUsageTraceCount,
       comparison,
     };
   }

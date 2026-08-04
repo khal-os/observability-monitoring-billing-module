@@ -30,5 +30,11 @@ export const tokenCountsViewSchema = z.strictObject({
 });
 
 export const executionStatusSchema = z.enum(['ok', 'error']);
-export const pricingStatusSchema = z.enum(['stamped', 'pending_price']);
+export const pricingStatusSchema = z.enum([
+  'stamped',
+  'pending_price',
+  // Decision 128: model present, zero measured tokens — cost unknown,
+  // never billed as R$ 0,00, never blocks the close.
+  'no_measured_usage',
+]);
 export const tokenTypeSchema = z.enum(TOKEN_TYPES);

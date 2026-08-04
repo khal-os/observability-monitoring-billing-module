@@ -136,6 +136,8 @@ export const billingSummaryResponseSchema = z.strictObject({
     z.strictObject({ at_display: z.string(), reason: z.string() }),
   ),
   quarantined_trace_count: z.number().int(),
+  /** Decision 128 — live context count, never part of any R$ total. */
+  no_measured_usage_trace_count: z.number().int(),
   total_cost_brl: z.string(),
   total_cost_brl_display: z.string(),
   stamped_trace_count: z.number().int(),

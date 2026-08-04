@@ -455,6 +455,7 @@ export const toBillingSummaryView = (
         reason: note.reason,
       })),
     quarantined_trace_count: summary.quarantinedTraceCount,
+    no_measured_usage_trace_count: summary.noMeasuredUsageTraceCount,
     total_cost_brl: formatBrlFromCents(statement.totalDisplayCents),
     total_cost_brl_display: formatBrlDisplay(
       formatBrlFromCents(statement.totalDisplayCents),

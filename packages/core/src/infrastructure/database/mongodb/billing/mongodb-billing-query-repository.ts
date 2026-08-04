@@ -535,6 +535,14 @@ export class MongoDbBillingQueryRepository implements BillingQueryRepository {
     });
   }
 
+  async countNoMeasuredUsage(monthStart: Date, monthEnd: Date): Promise<number> {
+    // Live context count (decision 128) — same lens as countQuarantined.
+    return MongoDb.getCollection(TRACES_COLLECTION).countDocuments({
+      startedAt: { $gte: monthStart, $lt: monthEnd },
+      pricingStatus: 'no_measured_usage',
+    });
+  }
+
   async earliestTraceAt(): Promise<Date | null> {
     // One indexed min read ({startedAt: -1} index, ascending scan) — the
     // close-order guard's anchor.

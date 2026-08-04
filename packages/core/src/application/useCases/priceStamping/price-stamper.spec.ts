@@ -27,6 +27,7 @@ describe('stampTokens()', () => {
       const outcome = stampTokens(
         { input: 1200, output: 350 },
         makePrices(),
+        true,
       );
 
       expect(outcome.pricingStatus).toBe('stamped');
@@ -56,6 +57,7 @@ describe('stampTokens()', () => {
       const outcome = stampTokens(
         { input: 100, output: 0, cache_read: undefined },
         makePrices(),
+        true,
       );
 
       expect(outcome.pricingStatus).toBe('stamped');
@@ -73,6 +75,7 @@ describe('stampTokens()', () => {
       const outcome = stampTokens(
         { input: 100, cache_write: 50 },
         makePrices(),
+        true,
       );
 
       expect(outcome).toEqual({
@@ -82,7 +85,7 @@ describe('stampTokens()', () => {
     });
 
     it('MUST return pending_price when no price exists at all', () => {
-      const outcome = stampTokens({ input: 5000, output: 800 }, {});
+      const outcome = stampTokens({ input: 5000, output: 800 }, {}, true);
 
       expect(outcome).toEqual({
         pricingStatus: 'pending_price',
@@ -91,9 +94,33 @@ describe('stampTokens()', () => {
     });
 
     it('MUST NOT flag pending for an unpriced type that was not used', () => {
-      const outcome = stampTokens({ input: 100, cache_write: 0 }, makePrices());
+      const outcome = stampTokens({ input: 100, cache_write: 0 }, makePrices(), true);
 
       expect(outcome.pricingStatus).toBe('stamped');
+    });
+  });
+
+  describe('When no token type was measured at all (decision 128 — audit A-4/Q2)', () => {
+    it('MUST return no_measured_usage when a MODEL is present — an LLM ran, cost unknown, never R$ 0,00', () => {
+      const outcome = stampTokens({ input: 0, output: 0 }, makePrices(), true);
+
+      expect(outcome).toEqual({ pricingStatus: 'no_measured_usage' });
+    });
+
+    it('MUST return no_measured_usage regardless of the price table (there is nothing to price)', () => {
+      const outcome = stampTokens({}, {}, true);
+
+      expect(outcome).toEqual({ pricingStatus: 'no_measured_usage' });
+    });
+
+    it('MUST stamp an honest R$ 0,00 when NO model is present — tool-only work is genuinely free', () => {
+      const outcome = stampTokens({}, {}, false);
+
+      expect(outcome).toEqual({
+        pricingStatus: 'stamped',
+        stampedCosts: [],
+        totalCostMicrocents: 0,
+      });
     });
   });
 });

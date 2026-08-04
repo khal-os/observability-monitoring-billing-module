@@ -98,7 +98,7 @@ describe('ListBillsDbUseCase (T7)', () => {
     expect(bills[1]).toMatchObject({
       totalCostMicrocents: 8_220_000,
       stampedTraceCount: 5,
-      quarantinedTraceCount: 0,
+  quarantinedTraceCount: 0,
     });
   });
 

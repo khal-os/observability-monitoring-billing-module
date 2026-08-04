@@ -18,6 +18,8 @@ import { TRACES_COLLECTION } from '@observability/core/infrastructure/database/m
 import { SyncTracesDbUseCase } from '../../../application/useCases/syncTraces/sync-traces-db-use-case.js';
 import { FakeTraceSourceClient } from '../../traceSource/fake-trace-source-client.js';
 import { MongoDbIngestFailureRepository } from './ingestFailures/mongodb-ingest-failure-repository.js';
+import { ingestSourceTrace } from '../../../application/useCases/syncTraces/trace-ingestor.js';
+import { SourceTrace } from '../../../application/interfaces/trace-source-client.js';
 import { estimateBsonBytes } from './ingestFailures/bson-size-estimator.js';
 
 /**
@@ -111,5 +113,57 @@ describe('Connector write path against the real store (audit E-3)', () => {
     );
 
     await expect(assertIngestionIndexes()).rejects.toThrow(/make migrate/);
+  });
+
+  it('MUST store a MODEL-bearing zero-token trace as no_measured_usage — never stamped R$ 0,00 (decision 128)', async () => {
+    const zeroUsage: SourceTrace = {
+      traceId: 'nmu-e2e',
+      type: 'chat',
+      channel: { type: 'whatsapp' },
+      agent: { id: 'eugenia' },
+      // Model present: an LLM ran. Zero tokens anywhere: usage unreported.
+      model: 'anthropic/claude-sonnet-4-6',
+      startedAt: new Date('2026-06-15T12:00:00.000Z'),
+      finishedAt: new Date('2026-06-15T12:00:03.000Z'),
+      status: 'ok',
+      tokens: {},
+      input: 'oi',
+      output: 'olá',
+      spans: [],
+    };
+    const noModel: SourceTrace = {
+      ...zeroUsage,
+      traceId: 'tool-only-e2e',
+      // No model: no LLM span — tool-only work, honestly free.
+      model: undefined,
+      agent: { id: 'router' },
+    };
+
+    const deps = {
+      priceVersionRepository: new MongoDbPriceVersionRepository(),
+      traceRepository: new MongoDbTraceRepository(),
+      billingPeriodRepository: new MongoDbBillingPeriodRepository(),
+      ingestFailureRepository: new MongoDbIngestFailureRepository(),
+      estimateDocumentBytes: estimateBsonBytes,
+    };
+
+    await ingestSourceTrace(deps, zeroUsage, new Set());
+    await ingestSourceTrace(deps, noModel, new Set());
+
+    const storedZeroUsage = await MongoDb.getCollection(
+      TRACES_COLLECTION,
+    ).findOne({ traceId: 'nmu-e2e' });
+    const storedNoModel = await MongoDb.getCollection(
+      TRACES_COLLECTION,
+    ).findOne({ traceId: 'tool-only-e2e' });
+
+    // The gate: model present + nothing measured = cost UNKNOWN.
+    expect(storedZeroUsage?.['pricingStatus']).toBe('no_measured_usage');
+    expect(storedZeroUsage?.['totalCostMicrocents']).toBeNull();
+    expect(storedZeroUsage?.['stampedAt']).toBeNull();
+
+    // No model + nothing measured = genuinely free, honest stamped zero.
+    expect(storedNoModel?.['pricingStatus']).toBe('stamped');
+    expect(storedNoModel?.['totalCostMicrocents']).toBe(0);
   });
 });

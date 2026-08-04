@@ -10,8 +10,19 @@ export type TokenCounts = Partial<Record<TokenType, number>>;
  * Pricing state is ORTHOGONAL to execution status (T1 status is ok/error;
  * T10 filters by it). A pending_price trace keeps its tokens, has NO cost
  * fields at all — it is never valued at R$ 0.00 (invariant 2).
+ *
+ * 'no_measured_usage' (decision 128, audit A-4 residual/Q2): the trace
+ * carries a MODEL — an LLM demonstrably ran — but not a single measured
+ * token anywhere (summary and spans all empty, after the A-2 span
+ * fallback). Real cost is unknown, not zero, so stamping R$ 0,00 would be
+ * the exact lie invariant 2 forbids. Terminal by immutability (stored
+ * counts never change; insert-once), never priced, visible in the bill as
+ * a count, and — unlike pending_price — it does NOT block the month
+ * close: there is no price whose registration could ever resolve it.
+ * A trace with NO model and no tokens is genuinely free (tool-only /
+ * no-LLM work) and stays stamped at R$ 0,00 — that zero is honest.
  */
-export type PricingStatus = 'stamped' | 'pending_price';
+export type PricingStatus = 'stamped' | 'pending_price' | 'no_measured_usage';
 
 /**
  * Agents and the omni channel both scale horizontally and deploy in

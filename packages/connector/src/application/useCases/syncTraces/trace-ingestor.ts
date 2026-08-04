@@ -184,7 +184,10 @@ export const ingestSourceTrace = async (
       )
     : {};
 
-  const stamp = stampTokens(trace.tokens, effectivePrices);
+  // Decision 128: model-present + zero measured tokens is
+  // 'no_measured_usage' (an LLM ran, usage unreported — cost unknown,
+  // never R$ 0,00); no model + no tokens stays an honest stamped zero.
+  const stamp = stampTokens(trace.tokens, effectivePrices, model !== undefined);
 
   const ingestedAt = new Date();
   const traceMonth = monthKeyOf(trace.startedAt);

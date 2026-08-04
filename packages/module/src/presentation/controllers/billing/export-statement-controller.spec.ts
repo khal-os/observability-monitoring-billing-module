@@ -49,6 +49,7 @@ const makeSummary = (
     ingestionWatermark: null,
     reopenNotes: [],
     quarantinedTraceCount: 0,
+    noMeasuredUsageTraceCount: 0,
     comparison: null,
     ...summaryOverrides,
   };

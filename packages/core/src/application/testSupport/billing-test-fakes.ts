@@ -295,6 +295,7 @@ const mergePending = (
 
 /** Configurable per-month data source for the query side. */
 export class StubBillingQueryRepository implements BillingQueryRepository {
+  noMeasuredUsage?: number;
   usageByMonth = new Map<string, BillingUsageRecord[]>();
   pendingByMonth = new Map<string, PendingPriceSummary>();
   /**
@@ -461,6 +462,13 @@ export class StubBillingQueryRepository implements BillingQueryRepository {
 
   async countQuarantined(monthStart: Date, _monthEnd: Date): Promise<number> {
     return this.quarantinedByMonth.get(this.monthKey(monthStart)) ?? 0;
+  }
+
+  async countNoMeasuredUsage(
+    _monthStart: Date,
+    _monthEnd: Date,
+  ): Promise<number> {
+    return this.noMeasuredUsage ?? 0;
   }
 
   async accruedCostMicrocents(from: Date, toExclusive: Date): Promise<number> {

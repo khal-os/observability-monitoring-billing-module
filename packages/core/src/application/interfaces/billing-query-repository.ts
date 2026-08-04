@@ -152,6 +152,15 @@ export interface BillingQueryRepository {
    */
   countQuarantined(monthStart: Date, monthEnd: Date): Promise<number>;
 
+  /**
+   * Traces whose LLM reported no measured usage (decision 128) inside the
+   * month window — a live CONTEXT count on the summary, exactly like
+   * countQuarantined: never a statement input, so it exists for closed
+   * months too without touching the frozen snapshot or the
+   * STATEMENT_LOGIC_VERSION.
+   */
+  countNoMeasuredUsage(monthStart: Date, monthEnd: Date): Promise<number>;
+
   /** Total stamped cost accrued in [monthStart, upTo) — the projection's numerator (US12). */
   accruedCostMicrocents(monthStart: Date, upTo: Date): Promise<number>;
 
