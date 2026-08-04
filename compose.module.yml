@@ -110,3 +110,68 @@ services:
       resources:
         limits:
           memory: 64m
+
+  # T6 continuous form (decision 131): the billing-close scheduler. Closes
+  # every fully-past client-calendar month through the ONE close use case
+  # (trigger 'scheduled'), oldest first, retrying a blocked month every
+  # cycle (QA5: the bill waits). OPT-IN by compose profile: the service
+  # only EXISTS when the client env sets COMPOSE_PROFILES=billing-auto-close
+  # — absent knob, absent container (declared, never inferred; an always-on
+  # service idling behind an env check would read healthy while doing
+  # nothing). EXACTLY ONE replica — never scale: scaling is per-service, so
+  # a future `--scale api=N` never touches this; the fixed container_name
+  # makes compose refuse to scale it, same lock as the trace-ingestion-
+  # worker. (Concurrent closes are safe anyway — guarded update + unique
+  # index, one winner — a duplicate would only double-log.)
+  billing-close-scheduler:
+    profiles: ["billing-auto-close"]
+    image: ${MODULE_IMAGE:-platform-module:local}
+    container_name: ${CLIENT_NAME}-billing-close-scheduler
+    command: ["node", "dist/main/jobs/run-billing-close-scheduler.js"]
+    init: true # PID-1 reaping; the loop drains SIGTERM itself
+    # An in-flight close should finish its current day-page + atomic
+    # commit — default 10s is tight for a busy month on a busy host.
+    stop_grace_period: 60s
+    environment:
+      ENVIRONMENT: production
+      # Required by the module env schema (one schema, one reader) — the
+      # scheduler never listens; same env the runbook jobs run under.
+      SERVER_PORT: "3000"
+      CLIENT_NAME: ${CLIENT_NAME}
+      # Decision 130: the close cuts the month at the client midnight.
+      CLIENT_TIMEZONE: ${CLIENT_TIMEZONE:?set CLIENT_TIMEZONE in the client env (IANA) — decision 130}
+      MONGO_DB_HOST: ${MONGO_DB_HOST:-mongo}
+      MONGO_DB_PORT: ${MONGO_DB_PORT:-27017}
+      MONGO_DB_NAME: ${CLIENT_NAME}
+      MONGO_DB_USER: ${MONGO_DB_USER:-}
+      MONGO_DB_PASSWORD: ${MONGO_DB_PASSWORD:-}
+      # Defaults mirror SCHEDULER_DEFAULTS in billing-factory.ts.
+      BILLING_AUTO_CLOSE_DELAY_MINUTES: ${BILLING_AUTO_CLOSE_DELAY_MINUTES:-60}
+      BILLING_AUTO_CLOSE_CHECK_INTERVAL_SECONDS: ${BILLING_AUTO_CLOSE_CHECK_INTERVAL_SECONDS:-900}
+    healthcheck:
+      # PROGRESS, not process existence (audit G-1): the loop touches
+      # /tmp/billing-close-heartbeat after every COMPLETED evaluation cycle
+      # (blocked included — a blocked close is a decision, not a wedge; see
+      # billing-scheduler-heartbeat.ts — error paths deliberately don't
+      # beat), so a hung Mongo socket ages the file and the container turns
+      # unhealthy. Freshness window: 2×interval + 120s for a close in flight.
+      test:
+        [
+          "CMD-SHELL",
+          "test $$(( $$(date +%s) - $$(stat -c %Y /tmp/billing-close-heartbeat 2>/dev/null || echo 0) )) -lt $$(( 2 * ${BILLING_AUTO_CLOSE_CHECK_INTERVAL_SECONDS:-900} + 120 ))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      # First beat needs connect + one whole evaluation cycle (which may
+      # include a full month close on catch-up) — generous on purpose.
+      start_period: 120s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          # NOT smaller than the api: idle footprint is tiny, but the
+          # monthly close runs the SAME day-paged fold decision 120 sized
+          # against a 512m container's ~259 MB heap — a smaller cap would
+          # reintroduce the heap death, now in the automated path only.
+          memory: 512m

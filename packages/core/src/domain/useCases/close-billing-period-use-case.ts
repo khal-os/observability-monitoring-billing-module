@@ -1,6 +1,8 @@
 /**
- * T6: closes a fully-past UTC calendar month into an immutable audit
- * snapshot. Runbook-triggered only in v1 (QA4 answered — decision 87).
+ * T6: closes a fully-past calendar month (client timezone, decision 130)
+ * into an immutable audit snapshot. Two doors, ONE use case: the runbook
+ * job (decision 87) and the opt-in auto-close sidecar (decision 131) —
+ * the door is recorded as the audit/snapshot `trigger`.
  *
  * Blocked (throws BillingCloseBlockedError) while ANY pending_price trace
  * exists in the month: a bill can never silently exclude open costs.

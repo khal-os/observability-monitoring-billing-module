@@ -94,7 +94,12 @@ do carimbo de pendentes. Visível ao admin (contagem na lista de meses).
 
 - **Fechar**: job runbook `make billing:close CLIENT=x YEAR=y MONTH=m`
   (+ `npm run billing:close`). QA4 respondida: gatilho é ADMIN/runbook,
-  sem automático na v1 (decisão 87). Regras:
+  sem automático na v1 (decisão 87). *[Refinada pela decisão 131
+  (04/08/2026): o gatilho automático existe como OPT-IN — sidecar
+  `billing-close-scheduler` atrás do perfil compose `billing-auto-close`,
+  mesmo use case com `trigger: 'scheduled'` auditado; bloqueado re-tenta a
+  cada ciclo (QA5 respondida: a fatura espera) e mês REABERTO nunca
+  re-fecha sozinho — reabertura é território do runbook.]* Regras:
   - só mês-calendário completamente no passado (UTC);
   - **bloqueado se existir trace `pending_price` no mês** (critério T6) —
     o job lista os modelos sem preço e sai com erro;

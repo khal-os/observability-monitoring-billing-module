@@ -79,8 +79,10 @@ imports count as the layer they name (`@observability/core/<layer>/…`).
    display zone; snapshots record their zone, changes are forward-only).
    Current month is always partial and
    must be labeled so. A month closes (T6) only when fully past, via the
-   audited runbook flow; a closed month is served exclusively from its
-   immutable snapshot — never recomputed.
+   audited close flow — the runbook, or the opt-in auto-close sidecar
+   (decision 131; both through the ONE use case, `trigger` recorded); a
+   closed month is served exclusively from its immutable snapshot — never
+   recomputed.
 9. **Prices are versioned data** (no admin UI in v1), registered via
    `POST /api/v1/prices` or the `price:insert` runbook job — both share ONE
    use case (canonical model key + immediate reprocess, decisions 82/57/83).
@@ -112,9 +114,12 @@ OUT: RBAC, voice, masking/retention, admin UIs, alerts.
 Billing épicos 5–8 (added post-PoC, decisions 87–123; the package
 layout above is decisions 124–127 —
 `docs/produto/billing-implementacao.md` is the working doc): T6 month
-lifecycle (open→closed; runbook-only `make billing-close`/`billing-reopen`;
-close blocked while pending_price exists; snapshot = inputs + outputs +
-audit, all versions kept; reproducibility is an automated acceptance test) ·
+lifecycle (open→closed; `make billing-close`/`billing-reopen` runbook, plus
+the opt-in auto-close sidecar behind the `billing-auto-close` compose
+profile — decision 131; close blocked while pending_price exists (the
+scheduler retries every cycle — QA5 resolved: the bill waits); snapshot =
+inputs + outputs + audit, all versions kept; reproducibility is an
+automated acceptance test) ·
 T7 statement read layer (`GET /billing/summary` serves a CLOSED month
 exclusively from its snapshot, open months live via the SAME pure engine —
 `statement-engine.ts` is the one calculation; `/bills` carries period

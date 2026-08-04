@@ -1,3 +1,4 @@
+import { BillingLifecycleTrigger } from './billing-period-model.js';
 import { TokenType } from './price-version-model.js';
 
 /**
@@ -153,7 +154,7 @@ export interface BillingSnapshotModel {
   /** 1, 2, ... — bumped by each close after a reopen; all versions kept. */
   version: number;
   createdAt: Date;
-  trigger: 'runbook';
+  trigger: BillingLifecycleTrigger;
   /** Max ingestedAt among the month's traces at close time (data-freshness watermark). */
   ingestionWatermark: Date | null;
   /** Statement engine version that produced the output. */

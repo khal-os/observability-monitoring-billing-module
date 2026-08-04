@@ -9,12 +9,13 @@ import {
   BillingCloseBlockedError,
   BillingPeriodStateError,
 } from '@observability/core/domain/useCases/close-billing-period-use-case.js';
-import { formatBrlFromCents } from '@observability/core/common/helpers/money/money.js';
+import { formatCloseSuccess } from './helpers/format-close-result.js';
 
 /**
- * T6 runbook (decision 87 — the ONLY close trigger in v1): freezes a
- * fully-past month into its audit snapshot. The job's output IS the US5
- * notification: closed with the final total, or blocked with the reason.
+ * T6 runbook (decision 87): freezes a fully-past month into its audit
+ * snapshot. The job's output IS the US5 notification: closed with the
+ * final total, or blocked with the reason. (The opt-in auto-close
+ * scheduler — decision 131 — is the other door to the SAME use case.)
  *
  * Usage:
  *   npm run billing:close -- --year 2026 --month 6
@@ -46,26 +47,8 @@ await database.connect();
 try {
   const result = await makeCloseBillingPeriodUseCase().close(year, month);
 
-  console.log(
-    `✔ Mês ${year}-${String(month).padStart(2, '0')} FECHADO — ` +
-      `total final R$ ${formatBrlFromCents(result.totalDisplayCents)} ` +
-      `(${result.stampedTraceCount} execuções, snapshot v${result.snapshotVersion}` +
-      `${result.ingestionWatermark ? `, dados até ${result.ingestionWatermark.toISOString()}` : ''}).`,
-  );
-  console.log(
-    'O extrato congelado é a base da fatura: GET /api/v1/billing/summary' +
-      `?year=${year}&month=${month} (export: /billing/statement?format=csv|html).`,
-  );
-
-  // Decision 100 — the snapshot adjudicates: report what the post-close
-  // reconciliation did (stragglers flagged / quarentenados absorvidos).
-  if (result.quarantine.flaggedStragglers > 0 || result.quarantine.absorbed > 0) {
-    console.log(
-      `Quarentena reconciliada: ${result.quarantine.flaggedStragglers} ` +
-        'trace(s) retardatário(s) sinalizado(s) fora da fatura; ' +
-        `${result.quarantine.absorbed} quarentenado(s) absorvido(s) pelo ` +
-        `snapshot v${result.snapshotVersion} (agora faturados).`,
-    );
+  for (const line of formatCloseSuccess(result)) {
+    console.log(line);
   }
 } catch (error) {
   if (

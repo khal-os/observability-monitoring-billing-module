@@ -9,7 +9,10 @@ import {
   TraceRepository,
 } from './billing-lifecycle-protocols.js';
 import { BillingSnapshotModel } from '@observability/core/domain/models/billing-snapshot-model.js';
-import { monthWindow } from '@observability/core/domain/models/billing-period-model.js';
+import {
+  BillingLifecycleTrigger,
+  monthWindow,
+} from '@observability/core/domain/models/billing-period-model.js';
 import {
   clientCalendarOf,
   clientTimezone,
@@ -92,6 +95,11 @@ export class CloseBillingPeriodDbUseCase implements CloseBillingPeriodUseCase {
     'reconcileQuarantineAfterClose'
   >;
   private readonly now: () => Date;
+  // The door this instance is composed behind (decision 131): 'runbook'
+  // for the CLI job, 'scheduled' for the auto-close sidecar. A property
+  // of the composition, not of the call — the domain interface stays
+  // close(year, month).
+  private readonly trigger: BillingLifecycleTrigger;
 
   constructor(args: {
     billingQueryRepository: BillingQueryRepository;
@@ -99,12 +107,14 @@ export class CloseBillingPeriodDbUseCase implements CloseBillingPeriodUseCase {
     billingSnapshotRepository: BillingSnapshotRepository;
     traceRepository: Pick<TraceRepository, 'reconcileQuarantineAfterClose'>;
     now?: () => Date;
+    trigger?: BillingLifecycleTrigger;
   }) {
     this.billingQueryRepository = args.billingQueryRepository;
     this.billingPeriodRepository = args.billingPeriodRepository;
     this.billingSnapshotRepository = args.billingSnapshotRepository;
     this.traceRepository = args.traceRepository;
     this.now = args.now ?? (() => new Date());
+    this.trigger = args.trigger ?? 'runbook';
   }
 
   async close(year: number, month: number): Promise<CloseBillingPeriodResult> {
@@ -228,7 +238,7 @@ export class CloseBillingPeriodDbUseCase implements CloseBillingPeriodUseCase {
             month,
             version,
             createdAt: closedAt,
-            trigger: 'runbook',
+            trigger: this.trigger,
             ingestionWatermark,
             logicVersion: STATEMENT_LOGIC_VERSION,
             timezone: clientTimezone(),
@@ -249,7 +259,7 @@ export class CloseBillingPeriodDbUseCase implements CloseBillingPeriodUseCase {
           audit: {
             at: closedAt,
             action: 'close',
-            trigger: 'runbook',
+            trigger: this.trigger,
             snapshotVersion: version,
           },
         },

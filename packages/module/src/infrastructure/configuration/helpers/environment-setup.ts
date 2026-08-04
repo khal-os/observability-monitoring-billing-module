@@ -7,6 +7,7 @@ import {
   toMongoDbEnvironment,
 } from '@observability/core/common/config/parse-mongo-env.js';
 import {
+  BillingSchedulerEnvironmentVariables,
   MongoDbEnvironmentVariables,
   ServerEnvironmentVariables,
 } from '../interfaces/index.js';
@@ -20,7 +21,9 @@ const environmentEnum = {
 type Environment = (typeof environmentEnum)[keyof typeof environmentEnum];
 
 export interface EnvironmentVariables
-  extends ServerEnvironmentVariables, MongoDbEnvironmentVariables {
+  extends ServerEnvironmentVariables,
+    MongoDbEnvironmentVariables,
+    BillingSchedulerEnvironmentVariables {
   Environment: Environment;
 }
 
@@ -34,6 +37,31 @@ const optionalNonEmptyString = z
   .string()
   .optional()
   .transform((value) => value || undefined);
+
+/**
+ * Bounded numeric knob (the connector's audit F-4 guard, same rationale):
+ * a knob typo'd to 0 or garbage must fail the boot loudly, not configure a
+ * busy-loop or a midnight-sharp close nobody chose. The resolved values
+ * are echoed at scheduler startup so a misconfiguration is in the first
+ * lines of the log.
+ */
+const optionalBoundedIntString = (name: string, max: number) =>
+  z
+    .string()
+    .regex(/^\d+$/, `${name} must be a decimal integer string`)
+    .optional()
+    .superRefine((value, ctx) => {
+      if (value === undefined) return;
+
+      const parsed = Number(value);
+
+      if (parsed < 1 || parsed > max) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `${name} must be between 1 and ${max} (audit F-4)`,
+        });
+      }
+    });
 
 const envSchema = z
   .object({
@@ -56,12 +84,30 @@ const envSchema = z
     CORS_ALLOWED_ORIGINS: optionalNonEmptyString,
     AUTH_SYSTEM_CLIENT_ID: optionalNonEmptyString,
     AUTH_SYSTEM_CLIENT_SECRET: optionalNonEmptyString,
+    // Decision 131: knobs of the opt-in billing-close scheduler. Bounds:
+    // delay up to 7 days, interval up to 24h — beyond either the operator
+    // wants a different mechanism, not a bigger number.
+    BILLING_AUTO_CLOSE_DELAY_MINUTES: optionalBoundedIntString(
+      'BILLING_AUTO_CLOSE_DELAY_MINUTES',
+      10_080,
+    ),
+    BILLING_AUTO_CLOSE_CHECK_INTERVAL_SECONDS: optionalBoundedIntString(
+      'BILLING_AUTO_CLOSE_CHECK_INTERVAL_SECONDS',
+      86_400,
+    ),
     // audit C-6: the Mongo env is core's — one reader for both images.
     ...mongoEnvSchemaShape,
   })
   .transform((env) => ({
     ...env,
     SERVER_PORT: parseInt(env.SERVER_PORT, 10),
+    BILLING_AUTO_CLOSE_DELAY_MINUTES: env.BILLING_AUTO_CLOSE_DELAY_MINUTES
+      ? parseInt(env.BILLING_AUTO_CLOSE_DELAY_MINUTES, 10)
+      : undefined,
+    BILLING_AUTO_CLOSE_CHECK_INTERVAL_SECONDS:
+      env.BILLING_AUTO_CLOSE_CHECK_INTERVAL_SECONDS
+        ? parseInt(env.BILLING_AUTO_CLOSE_CHECK_INTERVAL_SECONDS, 10)
+        : undefined,
   }));
 
 const narrowedEnv = Object.values(environmentEnum).includes(
@@ -99,5 +145,8 @@ export const environment: EnvironmentVariables = {
   corsAllowedOrigins: safeEnvironment.CORS_ALLOWED_ORIGINS,
   authSystemClientId: safeEnvironment.AUTH_SYSTEM_CLIENT_ID,
   authSystemClientSecret: safeEnvironment.AUTH_SYSTEM_CLIENT_SECRET,
+  billingAutoCloseDelayMinutes: safeEnvironment.BILLING_AUTO_CLOSE_DELAY_MINUTES,
+  billingAutoCloseCheckIntervalSeconds:
+    safeEnvironment.BILLING_AUTO_CLOSE_CHECK_INTERVAL_SECONDS,
   ...toMongoDbEnvironment(safeEnvironment),
 };
