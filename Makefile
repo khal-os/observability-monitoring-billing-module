@@ -17,6 +17,7 @@
 #   make down CLIENT=claro                      # stop one client (volumes preserved)
 #   make ps                                     # all compose projects on this host
 #   make deploy-smoke                           # regressão dos scripts de deploy (sem docker)
+#   make test                                   # as três suítes (core+module+connector) + typecheck
 #
 # Continuous ingestion: once LANGWATCH_PROJECT_ID is set in the client env
 # (scripts/3-onboard-langwatch.sh writes it), the trace-ingestion-worker
@@ -70,7 +71,7 @@ JOB = $(COMPOSE_PROD) run --rm --no-deps api node
 # prod form otherwise.
 SYNC_COMPOSE = $(if $(wildcard demo-data/$(CLIENT)/*.json),$(COMPOSE_DEV),$(COMPOSE_PROD))
 
-.PHONY: help build up up-prod down logs ps backup migrate migrate-up seed-prices sync price reprocess rebuild-filter-counters rebuild-session-summaries billing-close billing-reopen deploy-smoke require-client
+.PHONY: help build test up up-prod down logs ps backup migrate migrate-up seed-prices sync price reprocess rebuild-filter-counters rebuild-session-summaries billing-close billing-reopen deploy-smoke require-client
 
 help:
 	@grep -E '^#( |$$)' Makefile | sed 's/^# \?//'
@@ -82,6 +83,12 @@ help:
 # port vars are omitted from the env file, as the contract invites.
 deploy-smoke:
 	@./scripts/deploy-smoke-test.sh
+
+# The whole gate, one door (audit E-1): every workspace suite plus the
+# typecheck the jest source-mapping cannot replace.
+test:
+	npm run typecheck
+	npm run test
 
 require-client:
 	@test "$(origin CLIENT)" = "command line" || { echo "pass CLIENT=<name> explicitly on the make command line (env file: clients/<name>.env)"; exit 1; }

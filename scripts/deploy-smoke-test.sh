@@ -243,6 +243,31 @@ else
   sed 's/^/    | /' <<< "$NUL_FILES"
 fi
 
+# ---------- E · o portão de teste existe (E-1 da auditoria pós-split) ----------
+# O split apagou o único comando que rodava a suíte inteira: `npm test` na
+# raiz respondia "Missing script" — erro de USO, que lê como ruído de
+# ferramenta, então uma mudança no core quebrava 37 suítes do module sem
+# ninguém rodá-las. Este check falha se o portão sumir de novo.
+case_ "E · npm test/typecheck existem na raiz e cobrem os workspaces"
+ROOT_SCRIPTS="$(node -e '
+const s = require("./package.json").scripts ?? {};
+const need = { test: "--workspaces", typecheck: "--workspaces", "test:ci": "packaging-check" };
+const missing = Object.entries(need)
+  .filter(([name, marker]) => !(s[name] ?? "").includes(marker))
+  .map(([name]) => name);
+console.log(missing.join(" "));
+')"
+if [[ -z "$ROOT_SCRIPTS" ]]; then
+  ok "raiz tem test/typecheck em --workspaces e test:ci passa pelo packaging-check"
+else
+  bad "scripts da raiz ausentes/errados: $ROOT_SCRIPTS"
+fi
+if [[ -f scripts/packaging-check.mjs ]] && node --check scripts/packaging-check.mjs 2>/dev/null; then
+  ok "packaging-check.mjs presente e sintaticamente válido"
+else
+  bad "scripts/packaging-check.mjs ausente ou inválido"
+fi
+
 echo
 if (( FAILURES == 0 )); then
   printf '\033[32m✔\033[0m deploy smoke: tudo verde\n'

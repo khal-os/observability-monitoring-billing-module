@@ -6,7 +6,10 @@
   "scripts": {
     "build": "npm run build --workspaces",
     "bump": "./scripts/bump-version.sh",
-    "register-module": "./scripts/register-module.sh"
+    "register-module": "./scripts/register-module.sh",
+    "test": "npm run test --workspaces --if-present",
+    "test:ci": "npm run build && node scripts/packaging-check.mjs && npm run test:ci --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "keywords": [],
   "author": "",
