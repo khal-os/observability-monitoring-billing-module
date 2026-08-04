@@ -31,6 +31,10 @@
 name: ${CLIENT_NAME}
 
 services:
+  # `api` on purpose (decision 129): the service is named for its ROLE
+  # (it serves /api/v1 — the name operators type), while `module` /
+  # `platform-module` name the package/image it is built from. Not a
+  # leftover from the pre-split layout — do not "fix" it.
   api:
     image: ${MODULE_IMAGE:-platform-module:local}
     container_name: ${CLIENT_NAME:?set CLIENT_NAME via --env-file (see clients/example.env)}-api
