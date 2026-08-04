@@ -29,8 +29,17 @@ export const hasUniqueTraceIdIndex = (indexes: IndexDescription[]): boolean =>
   );
 
 export const assertIngestionIndexes = async (): Promise<void> => {
-  const indexes = (await MongoDb.getCollection(TRACES_COLLECTION).indexes()) as
-    IndexDescription[];
+  let indexes: IndexDescription[] = [];
+
+  try {
+    indexes = (await MongoDb.getCollection(
+      TRACES_COLLECTION,
+    ).indexes()) as IndexDescription[];
+  } catch {
+    // A fresh database has no traces collection at all ("ns does not
+    // exist") — the exact state the G-2 deploy race produces. Fall
+    // through to the guided refusal instead of a raw namespace error.
+  }
 
   if (!hasUniqueTraceIdIndex(indexes)) {
     throw new Error(

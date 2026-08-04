@@ -49,8 +49,15 @@ const config = {
   //   "clover"
   // ],
 
-  // An object that configures minimum threshold enforcement for coverage results
-  // coverageThreshold: undefined,
+  // Ratchet, not aspiration (audit E-5): set just under the measured value
+  // so a real coverage DROP fails test:ci while today's tree passes.
+  // Raise it as coverage grows — never lower it to make a red run green.
+  coverageThreshold: {
+    global: {
+      lines: 88,
+      statements: 88,
+    },
+  },
 
   // A path to a custom dependency extractor
   // dependencyExtractor: undefined,

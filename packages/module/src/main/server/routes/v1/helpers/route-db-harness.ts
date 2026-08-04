@@ -7,6 +7,8 @@ import { migrations } from '@observability/core/infrastructure/database/mongodb/
 import { seedPocPrices } from '@observability/core/infrastructure/database/mongodb/priceVersion/poc-price-seed.js';
 import { PRICE_VERSIONS_COLLECTION } from '@observability/core/infrastructure/database/mongodb/priceVersion/mongodb-price-version-repository.js';
 import {
+  INGEST_FAILURES_COLLECTION,
+  POISON_ROWS_COLLECTION,
   SESSION_SUMMARIES_COLLECTION,
   TRACES_COLLECTION,
   TRACE_FILTER_COUNTERS_COLLECTION,
@@ -59,6 +61,8 @@ export const routeDbHarness = {
       BILLING_PERIODS_COLLECTION,
       BILLING_SNAPSHOTS_COLLECTION,
       BILLING_SNAPSHOT_USAGE_COLLECTION,
+      INGEST_FAILURES_COLLECTION,
+      POISON_ROWS_COLLECTION,
     ]) {
       await MongoDb.getCollection(collection).deleteMany({});
     }

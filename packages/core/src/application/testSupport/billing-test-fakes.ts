@@ -448,15 +448,40 @@ export class StubBillingQueryRepository implements BillingQueryRepository {
     );
   }
 
-  async ingestionWatermark(monthStart: Date): Promise<Date | null> {
+  async ingestionWatermark(
+    monthStart: Date,
+    _monthEnd: Date,
+  ): Promise<Date | null> {
+    // Full port ARITY (audit E-2) — the fake used to truncate the window
+    // parameters entirely, which silently type-checked. The fixture is
+    // keyed per month, so the window itself is exercised against the REAL
+    // adapter in mongodb-billing-query-windows.test.ts.
     return this.watermarkByMonth.get(this.monthKey(monthStart)) ?? null;
   }
 
-  async countQuarantined(monthStart: Date): Promise<number> {
+  async countQuarantined(monthStart: Date, _monthEnd: Date): Promise<number> {
     return this.quarantinedByMonth.get(this.monthKey(monthStart)) ?? 0;
   }
 
-  async accruedCostMicrocents(): Promise<number> {
+  async accruedCostMicrocents(from: Date, toExclusive: Date): Promise<number> {
+    // Window-honoring (audit E-2): the zero-arg fake returned `accrued`
+    // whatever the ask, so dropping `startOfToday` from the projection's
+    // numerator — inflating every current-month run-rate with today's
+    // partial day — kept every spec green. When usage fixtures exist they
+    // are the truth; the scalar stays as the simple seeding knob.
+    const records = [...this.usageByMonth.values()]
+      .flat()
+      .filter(
+        (record) => record.startedAt >= from && record.startedAt < toExclusive,
+      );
+
+    if (records.length > 0) {
+      return records.reduce(
+        (sum, record) => sum + record.totalCostMicrocents,
+        0,
+      );
+    }
+
     return this.accrued;
   }
 
