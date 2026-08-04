@@ -2,6 +2,10 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { z } from 'zod';
 import {
+  mongoEnvSchemaShape,
+  toMongoDbEnvironment,
+} from '@observability/core/common/config/parse-mongo-env.js';
+import {
   MongoDbEnvironmentVariables,
   ServerEnvironmentVariables,
 } from '../interfaces/index.js';
@@ -47,27 +51,12 @@ const envSchema = z
     CORS_ALLOWED_ORIGINS: optionalNonEmptyString,
     AUTH_SYSTEM_CLIENT_ID: optionalNonEmptyString,
     AUTH_SYSTEM_CLIENT_SECRET: optionalNonEmptyString,
-    MONGO_DB_PORT: z
-      .string()
-      .regex(/^\d+$/, 'MONGO_DB_PORT must be a valid integer string')
-      .optional(),
-    // env vars are always strings — a boolean here would reject every set
-    // value and crash the boot; the transform below maps to boolean.
-    MONGO_DB_ATLAS: z.enum(['true', 'false']).optional(),
-    MONGO_DB_HOST: z.string().optional(),
-    MONGO_DB_NAME: z.string().optional(),
-    MONGO_DB_PASSWORD: z.string().optional(),
-    MONGO_DB_USER: z.string().optional(),
+    // audit C-6: the Mongo env is core's — one reader for both images.
+    ...mongoEnvSchemaShape,
   })
   .transform((env) => ({
     ...env,
     SERVER_PORT: parseInt(env.SERVER_PORT, 10),
-    MONGO_DB_PORT: env.MONGO_DB_PORT
-      ? parseInt(env.MONGO_DB_PORT, 10)
-      : undefined,
-    MONGO_DB_ATLAS: env.MONGO_DB_ATLAS
-      ? env.MONGO_DB_ATLAS === 'true'
-      : undefined,
   }));
 
 const narrowedEnv = Object.values(environmentEnum).includes(
@@ -100,10 +89,5 @@ export const environment: EnvironmentVariables = {
   corsAllowedOrigins: safeEnvironment.CORS_ALLOWED_ORIGINS,
   authSystemClientId: safeEnvironment.AUTH_SYSTEM_CLIENT_ID,
   authSystemClientSecret: safeEnvironment.AUTH_SYSTEM_CLIENT_SECRET,
-  mongoDbAtlas: safeEnvironment.MONGO_DB_ATLAS,
-  mongoDbHost: safeEnvironment.MONGO_DB_HOST,
-  mongoDbName: safeEnvironment.MONGO_DB_NAME,
-  mongoDbPassword: safeEnvironment.MONGO_DB_PASSWORD,
-  mongoDbPort: safeEnvironment.MONGO_DB_PORT,
-  mongoDbUser: safeEnvironment.MONGO_DB_USER,
+  ...toMongoDbEnvironment(safeEnvironment),
 };

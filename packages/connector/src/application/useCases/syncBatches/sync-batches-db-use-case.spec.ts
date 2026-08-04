@@ -76,6 +76,10 @@ class TraceBatchSourceStub implements TraceBatchSource {
 
     return this.batch;
   }
+
+  async assertCompatibleSchema(): Promise<void> {
+    // No-op stub — the schema tripwire is the real adapter's business.
+  }
 }
 
 /** audit C-6.4: a source that CAN serve its own clock (skewed from the worker's). */

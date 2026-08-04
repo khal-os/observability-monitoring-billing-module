@@ -95,6 +95,36 @@ describe('Architecture boundaries (@observability/connector)', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('MUST confine vendor-adapter imports to the composition root (audit C-7 — a leaf must not bind to a concrete adapter)', () => {
+    // The schema tripwire now lives on the TraceBatchSource port and the
+    // factory returns the port, so main/jobs no longer imports the
+    // ClickHouse class. Enforce it structurally: only the adapter dir and
+    // the composition root may reach infrastructure/traceSource/langwatch.
+    const ADAPTER_IMPORT_ALLOWED = [
+      'infrastructure/traceSource/',
+      'main/factories/sync-factory.ts',
+    ];
+
+    const offenders = allFiles
+      .filter((file) => {
+        const path = posixRelative(file);
+
+        if (/\.(spec|test)\.ts$/.test(path)) return false;
+        if (ADAPTER_IMPORT_ALLOWED.some((prefix) => path.startsWith(prefix))) {
+          return false;
+        }
+
+        return importsOf(file).some((specifier) =>
+          resolvedPathOf(file, specifier)?.startsWith(
+            'infrastructure/traceSource/langwatch/',
+          ),
+        );
+      })
+      .map(posixRelative);
+
+    expect(offenders).toEqual([]);
+  });
+
   it('MUST NOT import @observability/module — the source side never depends on the read API', () => {
     const offenders = allFiles
       .filter((file) =>

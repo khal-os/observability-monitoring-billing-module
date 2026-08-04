@@ -6,7 +6,10 @@
   "private": true,
   "exports": {
     "./package.json": "./package.json",
-    "./*": "./dist/*"
+    "./domain/*": "./dist/domain/*",
+    "./application/*": "./dist/application/*",
+    "./common/*": "./dist/common/*",
+    "./infrastructure/*": "./dist/infrastructure/*"
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",

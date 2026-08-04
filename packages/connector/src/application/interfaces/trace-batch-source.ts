@@ -54,4 +54,14 @@ export interface TraceBatchSource {
    * queryable clock fall back to the worker's clock.
    */
   sourceNow?(): Promise<Date>;
+
+  /**
+   * FATAL startup tripwire (audit C-7 — a source-contract concern, so it
+   * lives on the PORT, not on one adapter): a source whose internal schema
+   * drifted (e.g. a vendor image upgrade) must abort the worker BEFORE it
+   * stamps traces from an unverified shape, immutably. Because it is on the
+   * port, the composition root returns the PORT and the worker no longer
+   * binds to a concrete adapter class.
+   */
+  assertCompatibleSchema(): Promise<void>;
 }

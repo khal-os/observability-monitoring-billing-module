@@ -69,9 +69,24 @@ const resolvedPathOf = (file: string, specifier: string): string | null => {
 const layerOfImport = (file: string, specifier: string): string | null =>
   resolvedPathOf(file, specifier)?.split('/')[0] ?? null;
 
-const VENDOR = /langwatch/i;
+const VENDOR = /langwatch|clickhouse/i;
 
 describe('Architecture boundaries (@observability/module)', () => {
+  it('MUST declare no trace-source vendor dependency in package.json (audit C-3/C-4 — the src grep cannot see node_modules)', () => {
+    const manifest = JSON.parse(
+      readFileSync(join(process.cwd(), 'package.json'), 'utf-8'),
+    ) as { dependencies?: Record<string, string> };
+    const deps = Object.keys(manifest.dependencies ?? {});
+
+    // The connector may only ever be a devDependency (test seeding) — a
+    // production dependency would ship the LangWatch adapters into the
+    // vendor-blind image, and --omit=dev does NOT prune workspace links.
+    expect(deps).not.toContain('@observability/connector');
+    // No vendor SDK: @clickhouse/client shipped here unused for weeks,
+    // invisible to the src-only grep above.
+    expect(deps.filter((dep) => VENDOR.test(dep))).toEqual([]);
+  });
+
   it('MUST keep the whole package vendor-blind (the adapter lives in the connector)', () => {
     const offenders = allFiles
       .filter(

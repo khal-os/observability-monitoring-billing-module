@@ -2,7 +2,6 @@
   "name": "@observability/module",
   "version": "1.0.0",
   "description": "",
-  "main": "main/index.js",
   "scripts": {
     "build": "rm -rf dist && tsc -b tsconfig.build.json",
     "start": "ENVIRONMENT=development node dist/main/index.js",
@@ -40,13 +39,15 @@
   },
   "dependencies": {
     "@observability/core": "*",
-    "@clickhouse/client": "^1.23.1",
     "dotenv": "^17.4.2",
     "express": "^4.21.2",
-    "fast-glob": "^3.3.3",
     "mongodb": "^7.2.0",
     "swagger-ui-express": "^5.0.1",
     "zod": "^4.3.6"
   },
-  "private": true
+  "private": true,
+  "exports": {
+    "./package.json": "./package.json",
+    "./*": "./dist/*"
+  }
 }

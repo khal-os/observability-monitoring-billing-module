@@ -4,6 +4,8 @@ import { ReprocessPendingDbUseCase } from '@observability/core/application/useCa
 import { TraceSourceClient } from '../../application/interfaces/trace-source-client.js';
 import { FakeTraceSourceClient } from '../../infrastructure/traceSource/fake-trace-source-client.js';
 import { ClickHouseLangWatchClient } from '../../infrastructure/traceSource/langwatch/clickhouse/clickhouse-langwatch-client.js';
+import { IngestFailureRepository } from '../../application/interfaces/ingest-failure-repository.js';
+import { TraceBatchSource } from '../../application/interfaces/trace-batch-source.js';
 import { MongoDbPriceVersionRepository } from '@observability/core/infrastructure/database/mongodb/priceVersion/mongodb-price-version-repository.js';
 import { MongoDbTraceRepository } from '@observability/core/infrastructure/database/mongodb/trace/mongodb-trace-repository.js';
 import { MongoDbSyncStateRepository } from '../../infrastructure/database/mongodb/syncState/mongodb-sync-state-repository.js';
@@ -108,7 +110,7 @@ export const makeReprocessPendingUseCase = (): ReprocessPendingDbUseCase =>
  * was a pass-through `countDeadLetters()` on the batch-sync use case,
  * which has nothing to do with syncing one batch.
  */
-export const makeIngestFailureRepository = (): MongoDbIngestFailureRepository =>
+export const makeIngestFailureRepository = (): IngestFailureRepository =>
   new MongoDbIngestFailureRepository();
 
 export const traceIngestionWorkerSettings = {
@@ -126,7 +128,7 @@ export const traceIngestionWorkerSettings = {
  * TRACE_SOURCE=fixtures remains the demo path).
  */
 export const makeSyncBatchesUseCase = ():
-  | { useCase: SyncBatchesDbUseCase; source: ClickHouseLangWatchClient }
+  | { useCase: SyncBatchesDbUseCase; source: TraceBatchSource }
   | undefined => {
   const source = makeClickHouseClient();
 

@@ -4,6 +4,10 @@ import { BillingPeriodModel } from './billing-period-model.js';
 export const monthKeyOf = (date: Date): string =>
   `${date.getUTCFullYear()}-${date.getUTCMonth() + 1}`;
 
+/** The same key from year/month components (audit H-2 — one spelling, everywhere). */
+export const monthKeyOfYearMonth = (year: number, month: number): string =>
+  `${year}-${month}`;
+
 /**
  * audit C-7.3: closed months are resolved ONCE per sync cycle (one
  * listAll) and passed into every ingest — the per-trace period lookup was

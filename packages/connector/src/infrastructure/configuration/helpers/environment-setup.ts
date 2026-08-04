@@ -1,6 +1,10 @@
 import dotenv from 'dotenv';
 import path from 'path';
 import { z } from 'zod';
+import {
+  mongoEnvSchemaShape,
+  toMongoDbEnvironment,
+} from '@observability/core/common/config/parse-mongo-env.js';
 import { MongoDbEnvironmentVariables } from '@observability/core/infrastructure/configuration/interfaces/mongodb-environment-variables.js';
 import { TraceIngestionWorkerEnvironmentVariables } from '../interfaces/index.js';
 
@@ -61,17 +65,8 @@ const envSchema = z
       environmentEnum.DEVELOPMENT,
     ] as const),
     CLIENT_NAME: z.string().optional(),
-    MONGO_DB_PORT: z
-      .string()
-      .regex(/^\d+$/, 'MONGO_DB_PORT must be a valid integer string')
-      .optional(),
-    // env vars are always strings — a boolean here would reject every set
-    // value and crash the boot; the transform below maps to boolean.
-    MONGO_DB_ATLAS: z.enum(['true', 'false']).optional(),
-    MONGO_DB_HOST: z.string().optional(),
-    MONGO_DB_NAME: z.string().optional(),
-    MONGO_DB_PASSWORD: z.string().optional(),
-    MONGO_DB_USER: z.string().optional(),
+    // audit C-6: the Mongo env is core's — one reader for both images.
+    ...mongoEnvSchemaShape,
     // Decision 127: ClickHouse is the ONLY real source — the HTTP client
     // (LANGWATCH_ENDPOINT/LANGWATCH_API_KEY) no longer exists here. The
     // API key still lives in the CLIENT env file as the agents'/vault
@@ -94,12 +89,6 @@ const envSchema = z
   })
   .transform((env) => ({
     ...env,
-    MONGO_DB_PORT: env.MONGO_DB_PORT
-      ? parseInt(env.MONGO_DB_PORT, 10)
-      : undefined,
-    MONGO_DB_ATLAS: env.MONGO_DB_ATLAS
-      ? env.MONGO_DB_ATLAS === 'true'
-      : undefined,
     TRACE_INGESTION_INTERVAL_SECONDS: env.TRACE_INGESTION_INTERVAL_SECONDS
       ? parseInt(env.TRACE_INGESTION_INTERVAL_SECONDS, 10)
       : undefined,
@@ -138,12 +127,7 @@ const safeEnvironment = parsedEnv.data;
 export const environment: EnvironmentVariables = {
   Environment: safeEnvironment.ENVIRONMENT,
   clientName: safeEnvironment.CLIENT_NAME || undefined,
-  mongoDbAtlas: safeEnvironment.MONGO_DB_ATLAS,
-  mongoDbHost: safeEnvironment.MONGO_DB_HOST,
-  mongoDbName: safeEnvironment.MONGO_DB_NAME,
-  mongoDbPassword: safeEnvironment.MONGO_DB_PASSWORD,
-  mongoDbPort: safeEnvironment.MONGO_DB_PORT,
-  mongoDbUser: safeEnvironment.MONGO_DB_USER,
+  ...toMongoDbEnvironment(safeEnvironment),
   traceSource: safeEnvironment.TRACE_SOURCE,
   langwatchClickhouseUrl: safeEnvironment.LANGWATCH_CLICKHOUSE_URL,
   langwatchClickhouseUser: safeEnvironment.LANGWATCH_CLICKHOUSE_USER,

@@ -8,6 +8,11 @@
  * every prior snapshot version is preserved, and the next close writes
  * version + 1. `audit` is append-only.
  */
+import {
+  closedMonthKeys,
+  monthKeyOfYearMonth,
+} from './month-key.js';
+
 export type BillingPeriodLifecycleStatus = 'open' | 'closed';
 
 export interface BillingPeriodAuditEntry {
@@ -182,9 +187,11 @@ export const firstOpenMonthStart = (
 
   if (closed.length === 0) return null;
 
-  const closedKeys = new Set(
-    closed.map((period) => `${period.year}-${period.month}`),
-  );
+  // audit H-2: the same closed-month key set closedMonthKeys builds — one
+  // spelling, not a hand-copy that drifts (a padded variant here would
+  // silently break the walk's Set.has, in the function the scan bound
+  // leans on).
+  const closedKeys = closedMonthKeys(periods);
   const earliestClosed = [...closed].sort(
     (a, b) => a.year - b.year || a.month - b.month,
   )[0] as BillingPeriodModel;
@@ -207,7 +214,7 @@ export const firstOpenMonthStart = (
 
   let { year, month } = anchor;
 
-  while (closedKeys.has(`${year}-${month}`)) {
+  while (closedKeys.has(monthKeyOfYearMonth(year, month))) {
     month += 1;
 
     if (month === 13) {
