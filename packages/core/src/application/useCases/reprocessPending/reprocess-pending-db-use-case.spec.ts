@@ -92,7 +92,9 @@ class TraceRepositoryStub implements TraceRepository {
   async updateAttribution(
     _traceId: string,
     _attribution: TraceAttribution,
-  ): Promise<void> {}
+  ): Promise<{ modelPinnedByStamp: boolean }> {
+    return { modelPinnedByStamp: false };
+  }
 
   async reconcileQuarantineAfterClose(): Promise<{
     flaggedStragglers: number;

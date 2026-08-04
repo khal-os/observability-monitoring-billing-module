@@ -189,6 +189,50 @@ export const runTraceRepositoryContract = (
         expect(stored?.['stampedCosts']).toHaveLength(1);
       });
 
+      it("MUST refuse the MODEL half of a refresh on a STAMPED trace — the stored model is part of the stamp's meaning (audit A-5)", async () => {
+        // The default contract trace is stamped at gpt-5-mini's prices.
+        // Re-sync is the steady state, and a later cycle reporting a
+        // corrected model must NOT re-attribute the frozen money: billing
+        // groups by model, and the stamp does not record which model key
+        // its prices were resolved for — the drift would be undetectable.
+        await harness.repository.insertIfAbsent(makeContractTrace());
+
+        const update = await harness.repository.updateAttribution(
+          'trace-001',
+          {
+            agent: { id: 'agent-corrigido' },
+            model: { id: 'claude-sonnet-5', provider: 'anthropic' },
+          },
+        );
+
+        expect(update.modelPinnedByStamp).toBe(true);
+
+        const stored = await harness.readTrace('trace-001');
+
+        // The model the prices were resolved for survives; the mutable
+        // half of the refresh (invariant 7) still lands.
+        expect(stored?.['model']).toEqual({ id: 'gpt-5-mini', provider: 'openai' });
+        expect((stored?.['agent'] as AgentRecord)?.id).toBe('agent-corrigido');
+        expect(stored?.['totalCostMicrocents']).toBe(330_000);
+      });
+
+      it('MUST still accept a model refresh while the trace is PENDING — that is how it becomes stampable', async () => {
+        await harness.repository.insertIfAbsent(
+          makePending({ traceId: 'trace-pending-model', model: undefined }),
+        );
+
+        const update = await harness.repository.updateAttribution(
+          'trace-pending-model',
+          { model: { id: 'gpt-5-mini', provider: 'openai' } },
+        );
+
+        expect(update.modelPinnedByStamp).toBe(false);
+
+        const stored = await harness.readTrace('trace-pending-model');
+
+        expect(stored?.['model']).toEqual({ id: 'gpt-5-mini', provider: 'openai' });
+      });
+
       it('MUST clear the unclassified flag once attribution is complete', async () => {
         await harness.repository.insertIfAbsent(
           makeContractTrace({

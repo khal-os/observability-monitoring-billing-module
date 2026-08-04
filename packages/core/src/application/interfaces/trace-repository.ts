@@ -39,6 +39,11 @@ export interface TraceAttribution {
   subdomain?: string;
 }
 
+export interface AttributionUpdateResult {
+  /** True when the model half of the refresh was refused because the trace is stamped (audit A-5). */
+  modelPinnedByStamp: boolean;
+}
+
 export interface PendingStamp {
   stampedCosts: StampedTokenCost[];
   totalCostMicrocents: number;
@@ -85,10 +90,20 @@ export interface TraceRepository {
    * revert a correction back to the source's stale value (the source
    * still holds the wrong attribution; that is WHY it was corrected).
    */
+  /**
+   * Merges a source refresh into the stored attribution. THE RULE THE
+   * STAMP DEPENDS ON (audit A-5): once a trace is stamped, its stored
+   * MODEL is part of the stamp's meaning — /billing groups frozen money
+   * by it, and the stamp does not record which model key its prices were
+   * resolved for. A stamped trace therefore refuses the model half of a
+   * refresh (`modelPinnedByStamp: true` reports it, so the caller can
+   * count a modelDivergence exactly like tokenDivergence); agent/domain/
+   * subdomain stay mutable in open periods (invariant 7).
+   */
   updateAttribution(
     traceId: string,
     attribution: TraceAttribution,
-  ): Promise<void>;
+  ): Promise<AttributionUpdateResult>;
 
   /**
    * Stamps a pending_price trace. Guarded: writes ONLY while the trace is

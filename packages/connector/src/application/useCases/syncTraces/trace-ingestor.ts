@@ -30,6 +30,13 @@ export interface IngestOutcome {
    * neither the stamp (invariant 1) nor the stored counts are mutated.
    */
   tokenDivergence: boolean;
+  /**
+   * audit A-5, tokenDivergence's twin for the MODEL: the source refreshed
+   * a stamped trace with a different model and the store refused it —
+   * the stored model is part of the stamp's meaning (billing groups
+   * frozen money by it). Logged + counted only.
+   */
+  modelDivergence: boolean;
 }
 
 export interface IngestDeps {
@@ -255,6 +262,7 @@ export const ingestSourceTrace = async (
       pendingPrice: stamp.pricingStatus === 'pending_price',
       quarantined,
       tokenDivergence: false,
+      modelDivergence: false,
     };
   }
 
@@ -284,14 +292,38 @@ export const ingestSourceTrace = async (
   // corrections go through the audited reopen flow). A pending trace
   // whose model arrives here becomes stampable by the reprocess job
   // (as-of rule, // QA19 above).
+  let modelDivergence = false;
+
   if (!quarantined) {
-    await deps.traceRepository.updateAttribution(trace.traceId, {
+    const update = await deps.traceRepository.updateAttribution(trace.traceId, {
       agent: trace.agent,
       model,
       domain: trace.domain,
       subdomain: trace.subdomain,
     });
+
+    // audit A-5, same treatment as tokenDivergence: the store refused the
+    // model half of the refresh because the trace is STAMPED — /billing
+    // groups frozen money by model, so rewriting it would re-attribute the
+    // stamp to a model whose price it never used. Visible here, never
+    // repaired here.
+    modelDivergence = update.modelPinnedByStamp;
+
+    if (modelDivergence) {
+      console.warn(
+        `Sync: trace ${trace.traceId} re-synced with a DIFFERENT model, ` +
+          'refused — the trace is stamped and the stored model is part of ' +
+          "the stamp's meaning (audit A-5; corrections to a stamped month " +
+          'go through the audited reopen flow).',
+      );
+    }
   }
 
-  return { outcome: 'skipped', pendingPrice: false, quarantined, tokenDivergence };
+  return {
+    outcome: 'skipped',
+    pendingPrice: false,
+    quarantined,
+    tokenDivergence,
+    modelDivergence,
+  };
 };

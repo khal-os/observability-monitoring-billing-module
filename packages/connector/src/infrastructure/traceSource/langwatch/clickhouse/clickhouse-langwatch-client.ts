@@ -326,6 +326,22 @@ export class ClickHouseLangWatchClient
         return;
       }
 
+      // Strict monotonicity or crash (audit A-3): a cursor that fails to
+      // advance re-reads the same page forever — a silent spin the epoch-0
+      // coercion bug reached once. A future regression must be a loud
+      // error, never an infinite backfill.
+      if (
+        next.occurredAtMs < afterOccurredAtMs ||
+        (next.occurredAtMs === afterOccurredAtMs && next.traceId <= afterTraceId)
+      ) {
+        throw new Error(
+          `Sync: window cursor failed to advance (${context}) — ` +
+            `page cursor (${next.occurredAtMs}, ${next.traceId}) is not ` +
+            `strictly after (${afterOccurredAtMs}, ${afterTraceId}). ` +
+            'Refusing to loop on the same page (audit A-3).',
+        );
+      }
+
       afterOccurredAtMs = next.occurredAtMs;
       afterTraceId = next.traceId;
     }
@@ -493,19 +509,23 @@ const assertNotAllPoison = (rowCount: number, traceCount: number): void => {
 
 /**
  * The cursor advances over RAW rows — a poison row moves it forward like
- * any other, so it can never stall the loop. Raw field access is guarded:
- * a row too broken to even carry (updatedAtMs, traceId) is unrepresentable
- * in the cursor and simply skipped here (the batch still advances via the
- * later well-formed rows; an all-poison batch below the circuit-breaker
- * threshold keeps the cursor put, which only re-logs the same skips next
- * tick — safe, if noisy; at the threshold the breaker throws instead).
+ * any other, so it can never stall the loop. Raw field access REJECTS
+ * non-numeric timestamps outright (audit A-3): the old guard coerced with
+ * Number(), and Number(null) === 0 passes isFinite — so a page whose last
+ * row carried a JSON null timestamp built an EPOCH-0 cursor, and the sync
+ * re-read the same window forever with no error and no backoff. A row too
+ * broken to carry (updatedAtMs, traceId) is skipped here; the batch still
+ * advances via the later well-formed rows.
  */
+const cursorTimestamp = (raw: unknown): number | null =>
+  typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
+
 const nextCursorOf = (rawRows: unknown[]): SyncCursor | null => {
   for (let i = rawRows.length - 1; i >= 0; i -= 1) {
     const row = rawRows[i] as { updatedAtMs?: unknown; traceId?: unknown };
-    const updatedAtMs = Number(row?.updatedAtMs);
+    const updatedAtMs = cursorTimestamp(row?.updatedAtMs);
 
-    if (Number.isFinite(updatedAtMs) && typeof row.traceId === 'string') {
+    if (updatedAtMs !== null && typeof row.traceId === 'string') {
       return { updatedAt: new Date(updatedAtMs), traceId: row.traceId };
     }
   }
@@ -523,9 +543,9 @@ const windowCursorOf = (
 ): { occurredAtMs: number; traceId: string } | null => {
   for (let i = rawRows.length - 1; i >= 0; i -= 1) {
     const row = rawRows[i] as { occurredAtMs?: unknown; traceId?: unknown };
-    const occurredAtMs = Number(row?.occurredAtMs);
+    const occurredAtMs = cursorTimestamp(row?.occurredAtMs);
 
-    if (Number.isFinite(occurredAtMs) && typeof row.traceId === 'string') {
+    if (occurredAtMs !== null && typeof row.traceId === 'string') {
       return { occurredAtMs, traceId: row.traceId };
     }
   }

@@ -555,4 +555,97 @@ describe('ClickHouseLangWatchClient', () => {
       );
     });
   });
+
+  describe('cursor integrity (audit A-3 — null timestamps and stalled cursors)', () => {
+    const WINDOW = {
+      from: new Date(T0 - 10_000),
+      to: new Date(T0 + 10_000),
+    };
+
+    it('MUST build the batch cursor from the last WELL-FORMED row — a JSON null timestamp is not epoch 0', async () => {
+      // Number(null) === 0 passes isFinite, so the old guard turned a
+      // null-timestamped last row into an epoch-0 cursor: the CAS refused
+      // the regression, the watermark froze, and the drain loop re-fetched
+      // the identical batch forever with no error and no backoff.
+      const poisonTail = {
+        ...summaryRow('trace-null-ts', T0 + 2_000),
+        occurredAtMs: null,
+        updatedAtMs: null,
+      };
+      const { queryFn } = makeQueryStub([
+        [summaryRow('trace-good', T0), poisonTail],
+        [], // spans
+      ]);
+      const sut = makeSut(queryFn, undefined, new PoisonRowRepositoryStub());
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const batch = await sut.fetchBatch({
+        after: null,
+        limit: 2,
+        updatedBefore: new Date(SOURCE_NOW_MS),
+      });
+
+      expect(batch.nextCursor).toEqual({
+        updatedAt: new Date(T0),
+        traceId: 'trace-good',
+      });
+
+      warn.mockRestore();
+    });
+
+    it('MUST terminate the windowed pager when the page tail is null-timestamped — skip, never spin', async () => {
+      // Param-driven stub: serves the full page while the cursor is at the
+      // window start, empty after a real advance. Pre-fix, the epoch-0
+      // cursor kept the query anchored at the start and this looped until
+      // the jest timeout.
+      const fullPage = Array.from({ length: WINDOW_PAGE_SIZE - 1 }, (_, i) =>
+        summaryRow(`trace-${String(i).padStart(4, '0')}`, T0 + i),
+      );
+      const nullTail = {
+        ...summaryRow('trace-zzzz', T0 + 5_000),
+        occurredAtMs: null,
+        updatedAtMs: null,
+      };
+      const pages: RecordedQuery[] = [];
+      const queryFn: QueryFn = async (query, params) => {
+        if (query.includes('now64')) return [{ nowMs: SOURCE_NOW_MS }];
+        if (query.includes('SpanAttributes') || query.includes('span')) return [];
+        pages.push({ query, params });
+
+        return (params['afterOccurredAtMs'] as number) === 0
+          ? [...fullPage, nullTail]
+          : [];
+      };
+      const sut = makeSut(queryFn, undefined, new PoisonRowRepositoryStub());
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const traces = await fetchAll(sut, WINDOW);
+
+      expect(traces).toHaveLength(WINDOW_PAGE_SIZE - 1);
+      expect(pages).toHaveLength(2); // full page, then the empty terminator
+
+      warn.mockRestore();
+    });
+
+    it('MUST crash — not loop — when a source keeps serving a page that does not advance the window cursor', async () => {
+      const fullPage = Array.from({ length: WINDOW_PAGE_SIZE }, (_, i) =>
+        summaryRow(`trace-${String(i).padStart(4, '0')}`, T0 + i),
+      );
+      const queryFn: QueryFn = async (query) => {
+        if (query.includes('now64')) return [{ nowMs: SOURCE_NOW_MS }];
+        if (query.includes('SpanAttributes') || query.includes('span')) return [];
+
+        return fullPage; // malicious/broken source: same page forever
+      };
+      const sut = makeSut(queryFn, undefined, new PoisonRowRepositoryStub());
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await expect(fetchAll(sut, WINDOW)).rejects.toThrow(
+        /cursor failed to advance/,
+      );
+
+      warn.mockRestore();
+    });
+  });
+
 });

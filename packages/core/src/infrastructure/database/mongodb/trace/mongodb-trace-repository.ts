@@ -3,6 +3,7 @@ import {
   PendingPriceTrace,
   PendingStamp,
   QuarantineReconciliation,
+  AttributionUpdateResult,
   TraceAttribution,
   TraceRepository,
 } from '../../../../application/interfaces/trace-repository.js';
@@ -124,8 +125,9 @@ export class MongoDbTraceRepository implements TraceRepository {
   async updateAttribution(
     traceId: string,
     attribution: TraceAttribution,
-  ): Promise<void> {
+  ): Promise<AttributionUpdateResult> {
     const traces = MongoDb.getCollection(TRACES_COLLECTION);
+    let modelPinnedByStamp = false;
 
     // The whole read-modify-write runs in ONE transaction (decision 81):
     // the before-snapshot, the attribution merge, the counter delta and
@@ -160,11 +162,24 @@ export class MongoDbTraceRepository implements TraceRepository {
         }
 
         if (attribution.model !== undefined) {
-          // Canonical block: provider always present (null when unknown).
-          set['model'] = {
-            id: attribution.model.id,
-            provider: attribution.model.provider ?? null,
-          };
+          // audit A-5: the MODEL is the one attribution field the immutable
+          // stamp depends on — /billing groups money by it, and the stamp
+          // records the applied price but NOT the model key it was resolved
+          // for, so a post-stamp rewrite re-attributes frozen money to a
+          // model whose price it never used, undetectably. stampPendingTrace
+          // pins the model on the write side (audit B-5); this is the same
+          // pin on the refresh side: once stamped, the stored model is part
+          // of the stamp's meaning and a source refresh may not touch it.
+          // (Token counts got this treatment first — tokenDivergence, Q3.)
+          if (before.pricingStatus === 'stamped') {
+            modelPinnedByStamp = true;
+          } else {
+            // Canonical block: provider always present (null when unknown).
+            set['model'] = {
+              id: attribution.model.id,
+              provider: attribution.model.provider ?? null,
+            };
+          }
         }
 
         for (const field of ['domain', 'subdomain'] as const) {
@@ -214,6 +229,8 @@ export class MongoDbTraceRepository implements TraceRepository {
     // rationale as insertIfAbsent (self-healing by design, failures
     // warned and swallowed — the committed correction stands).
     await recomputeSessionOf(sessionId);
+
+    return { modelPinnedByStamp };
   }
 
   async stampPendingTrace(

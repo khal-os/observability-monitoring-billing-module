@@ -94,6 +94,32 @@ export class SyncBatchesDbUseCase implements SyncBatchesUseCase {
       updatedBefore: new Date(now.getTime() - this.quietPeriodMs),
     });
 
+    // Strict monotonicity or crash (audit A-3). fetchBatch queries
+    // strictly AFTER the cursor tuple, so a legitimate next cursor is
+    // always strictly greater; anything else means the source built a
+    // broken cursor (the epoch-0 coercion once did), and without this
+    // guard the drain loop re-fetches the identical batch forever with
+    // no error, no backoff and no dead letter — the CAS below protects
+    // the STORED watermark, not the loop. Throwing hands the worker's
+    // transient-backoff path a visible, retryable failure instead.
+    if (cursor && batch.nextCursor) {
+      const previousMs = cursor.updatedAt.getTime();
+      const nextMs = batch.nextCursor.updatedAt.getTime();
+
+      if (
+        nextMs < previousMs ||
+        (nextMs === previousMs && batch.nextCursor.traceId <= cursor.traceId)
+      ) {
+        throw new Error(
+          `Sync: batch cursor failed to advance — next ` +
+            `(${batch.nextCursor.updatedAt.toISOString()}, ${batch.nextCursor.traceId}) ` +
+            `is not strictly after ` +
+            `(${cursor.updatedAt.toISOString()}, ${cursor.traceId}). ` +
+            'Refusing to re-drain the same batch (audit A-3).',
+        );
+      }
+    }
+
     const report: BatchSyncReport = {
       scanned: batch.scanned,
       inserted: 0,

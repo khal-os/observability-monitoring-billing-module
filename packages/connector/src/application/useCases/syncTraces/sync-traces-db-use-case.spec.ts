@@ -91,11 +91,15 @@ class TraceRepositoryStub implements TraceRepository {
     return this.insertResult;
   }
 
+  modelPinnedByStamp = false;
+
   async updateAttribution(
     traceId: string,
     attribution: TraceAttribution,
-  ): Promise<void> {
+  ): Promise<{ modelPinnedByStamp: boolean }> {
     this.attributionUpdates.push({ traceId, attribution });
+
+    return { modelPinnedByStamp: this.modelPinnedByStamp };
   }
 
   async stampPendingTrace(

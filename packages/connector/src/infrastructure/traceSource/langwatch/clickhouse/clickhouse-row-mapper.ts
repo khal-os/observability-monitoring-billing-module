@@ -56,6 +56,19 @@ const attributeTokenCount = (
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined;
 };
 
+/**
+ * A declared count is authoritative only when POSITIVE (audit A-2).
+ * LangWatch's summary counters are non-nullable: an un-aggregated or
+ * failed roll-up reads 0, not null — and `0 ?? fallback` keeps the 0,
+ * so the span usage that could rebuild the real count was silently
+ * discarded and the trace stamped R$ 0,00, immutably, as `stamped`
+ * (not pending — reprocess never revisits it). Everything else in this
+ * file already treats 0 as absent (`> 0` in the sums); this makes the
+ * one inverted site follow the same convention.
+ */
+const declared = (count: number | null | undefined): number | undefined =>
+  typeof count === 'number' && count > 0 ? count : undefined;
+
 const sumSpanTokens = (
   spans: SourceSpan[],
   tokenType: keyof TokenCounts,
@@ -248,15 +261,19 @@ export const mapSummaryTrace = (
   // when THIS `?? sumSpanTokens(...)` rebuilds a real number for it —
   // see unreconstructedTokenCounts in token-salvage-gate.ts.
   const tokens = cleanTokens({
-    input: summary.promptTokens ?? sumSpanTokens(spans, 'input'),
-    output: summary.completionTokens ?? sumSpanTokens(spans, 'output'),
+    input: declared(summary.promptTokens) ?? sumSpanTokens(spans, 'input'),
+    output:
+      declared(summary.completionTokens) ?? sumSpanTokens(spans, 'output'),
     cache_read:
-      attributeTokenCount(metadata, 'langwatch.reserved.cache_read_tokens') ??
-      sumSpanTokens(spans, 'cache_read'),
+      declared(
+        attributeTokenCount(metadata, 'langwatch.reserved.cache_read_tokens'),
+      ) ?? sumSpanTokens(spans, 'cache_read'),
     cache_write:
-      attributeTokenCount(
-        metadata,
-        'langwatch.reserved.cache_creation_tokens',
+      declared(
+        attributeTokenCount(
+          metadata,
+          'langwatch.reserved.cache_creation_tokens',
+        ),
       ) ?? sumSpanTokens(spans, 'cache_write'),
   });
 

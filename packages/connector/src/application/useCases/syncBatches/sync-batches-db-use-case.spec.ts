@@ -145,8 +145,10 @@ class TraceRepositoryStub implements TraceRepository {
   async updateAttribution(
     traceId: string,
     attribution: TraceAttribution,
-  ): Promise<void> {
+  ): Promise<{ modelPinnedByStamp: boolean }> {
     this.attributionUpdates.push({ traceId, attribution });
+
+    return { modelPinnedByStamp: false };
   }
 
   async stampPendingTrace(
@@ -493,4 +495,23 @@ describe('SyncBatchesDbUseCase', () => {
 
     warn.mockRestore();
   });
+
+  it('MUST crash — not re-drain — when the source returns a cursor that does not advance (audit A-3)', async () => {
+    // The CAS on the stored watermark refuses a regression, but the LOOP
+    // used to keep going: caughtUp stayed false and the worker re-fetched
+    // the identical batch forever with no error, no backoff and no dead
+    // letter. A non-advancing cursor is a broken source (the epoch-0
+    // coercion built one once) and must surface as a retryable failure.
+    const { sut, traceBatchSourceStub, syncStateRepositoryStub } = makeSut();
+
+    syncStateRepositoryStub.cursor = cursorOf('trace-001');
+    traceBatchSourceStub.batch = {
+      traces: [makeTrace('trace-001')],
+      nextCursor: cursorOf('trace-001'), // identical tuple: zero progress
+      scanned: 1,
+    };
+
+    await expect(sut.syncNextBatch()).rejects.toThrow(/failed to advance/);
+  });
+
 });

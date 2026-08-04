@@ -194,6 +194,26 @@ describe.each([clickHouseAdapter])(
       ]);
     });
 
+    it('MUST fall back to span usage when the source DECLARES zero — a 0 counter is "not measured", never "free" (audit A-2)', async () => {
+      // LangWatch's summary counters are non-nullable: an un-aggregated
+      // roll-up reads 0, not null. `0 ?? spans` kept the 0, so a trace
+      // with real span usage was stamped R$ 0,00 as `stamped` (not
+      // pending — reprocess never revisits it), immutably. The declared
+      // count is authoritative only when POSITIVE.
+      const { traces, records } = await adapter.run({
+        declared: { prompt: 0, completion: 0 },
+        spanUsage: { input: 1200, output: 350 },
+      });
+
+      expect(traces.map((trace) => trace.traceId)).toEqual([TRACE_ID]);
+      expect(traces[0]?.tokens).toMatchObject({
+        input: 1200,
+        output: 350,
+      });
+      // A healthy zero is not corruption: no poison row, no salvage row.
+      expect(records).toEqual([]);
+    });
+
     it('MUST leave a healthy trace untouched — the gate never fires on measured counts', async () => {
       const { traces, records } = await adapter.run({
         declared: { prompt: 120_000, completion: 8_000 },
