@@ -72,7 +72,10 @@ const VENDOR = /langwatch/i;
 const VENDOR_ALLOWED_PREFIXES = [
   'infrastructure/traceSource/langwatch/',
   'infrastructure/configuration/',
+  // The composition root SELECTS the vendor source (decision 127: declared,
+  // never inferred) — its spec pins that selection, so both name the vendor.
   'main/factories/sync-factory.ts',
+  'main/factories/sync-factory.spec.ts',
   'architecture-boundaries.spec.ts',
 ];
 

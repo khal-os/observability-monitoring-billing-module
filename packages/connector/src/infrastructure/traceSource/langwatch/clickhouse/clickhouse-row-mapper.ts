@@ -13,10 +13,11 @@ import {
   SummaryRow,
 } from './clickhouse-row-schema.js';
 
-// decision 59 — raw-row counterpart of langwatch-api-mapper.ts. The API is
-// itself a projection of these rows; this mapper replicates the same
-// translation (verified by fetching one trace through BOTH paths against
-// the live 3.5.0 instance), so either source yields the same SourceTrace:
+// decision 59 — maps LangWatch's raw ClickHouse rows to SourceTrace. The
+// field translation mirrors what LangWatch's own HTTP API projects from
+// these rows (verified at the time by fetching one trace through BOTH
+// paths against the live 3.5.0 instance; the HTTP adapter itself was
+// removed by decision 127 — ClickHouse is the only real source):
 //   thread_id            ← Attributes['gen_ai.conversation.id']
 //   input/output.value   ← ComputedInput / ComputedOutput
 //   metrics.*_tokens     ← TotalPromptTokenCount / TotalCompletionTokenCount

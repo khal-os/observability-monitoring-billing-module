@@ -1,5 +1,4 @@
 import { ClickHouseLangWatchClient } from './clickhouse/clickhouse-langwatch-client.js';
-import { HttpLangWatchClient } from './http-langwatch-client.js';
 import {
   PoisonRowRecord,
   PoisonRowRepository,
@@ -12,15 +11,17 @@ import {
 
 /**
  * Re-audit iteration 2, findings 3/11 — the ARCHITECTURAL half of the fix.
- * The invariant-2 salvage rule used to live INSIDE one of the two
- * TraceSourceClient adapters, so the guarantee was only as strong as which
- * adapter happened to be wired: the sibling ingested the same corrupt row
- * and stamped its unknown usage at R$ 0,00, immutably.
+ * The invariant-2 salvage rule used to live INSIDE one adapter, so the
+ * guarantee was only as strong as which adapter happened to be wired: the
+ * sibling ingested the same corrupt row and stamped its unknown usage at
+ * R$ 0,00, immutably.
  *
- * This suite drives BOTH real adapters through the SAME scenarios and
- * asserts the SAME outcome contract, so a third adapter (or a change to
- * either of these two) cannot reintroduce the hole on one side only.
- * The third client, FakeTraceSourceClient, has no salvage path by
+ * This suite drives EVERY real adapter through the SAME scenarios and
+ * asserts the SAME outcome contract — the adapter table below is the
+ * tripwire: a new adapter joins it or reintroduces the hole on one side
+ * only. Since decision 127 (no client will ever ingest over HTTP; the
+ * HttpLangWatchClient was deleted) the table has one row, ClickHouse.
+ * The other client, FakeTraceSourceClient, has no salvage path by
  * construction: sourceTraceListSchema rejects a corrupt count outright
  * (`int().nonnegative()`), so a fixture can never reach the stamper with
  * an unknown usage either.
@@ -130,60 +131,8 @@ const clickHouseAdapter: AdapterUnderTest = {
   },
 };
 
-const httpAdapter: AdapterUnderTest = {
-  name: 'HttpLangWatchClient (detail payloads)',
-  kind: 'http-detail',
-  run: async (scenario) => {
-    const poisonRepo = new PoisonRowRepositoryStub();
-    const detail = {
-      trace_id: TRACE_ID,
-      metadata: { 'service.name': 'martino' },
-      timestamps: { started_at: T0 },
-      metrics: {
-        total_time_ms: 1000,
-        prompt_tokens: scenario.declared.prompt,
-        completion_tokens: scenario.declared.completion,
-      },
-      error: null,
-      input: { value: 'oi' },
-      output: { value: 'olá' },
-      spans: [
-        {
-          span_id: `${TRACE_ID}-llm`,
-          type: 'llm',
-          model: 'anthropic/claude-sonnet-4-5',
-          timestamps: { started_at: T0, finished_at: T0 + 1_000 },
-          metrics: {
-            ...(scenario.spanUsage.input === undefined
-              ? {}
-              : { prompt_tokens: scenario.spanUsage.input }),
-            ...(scenario.spanUsage.output === undefined
-              ? {}
-              : { completion_tokens: scenario.spanUsage.output }),
-          },
-        },
-      ],
-    };
-    const fetchFn = (async (url: unknown) => ({
-      ok: true,
-      status: 200,
-      json: async () =>
-        String(url).includes('/api/traces/search')
-          ? { traces: [{ trace_id: TRACE_ID }], pagination: { totalHits: 1 } }
-          : detail,
-    })) as unknown as typeof fetch;
-    const sut = new HttpLangWatchClient({
-      endpoint: 'https://langwatch.example.com',
-      apiKey: 'sk-lw-test',
-      poisonRowRepository: poisonRepo,
-      fetchFn,
-    });
 
-    return { traces: await drain(sut), records: poisonRepo.records };
-  },
-};
-
-describe.each([clickHouseAdapter, httpAdapter])(
+describe.each([clickHouseAdapter])(
   'Invariant-2 token salvage gate — $name',
   (adapter: AdapterUnderTest) => {
     let warn: jest.SpyInstance;

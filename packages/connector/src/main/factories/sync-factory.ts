@@ -3,7 +3,6 @@ import { SyncBatchesDbUseCase } from '../../application/useCases/syncBatches/syn
 import { ReprocessPendingDbUseCase } from '@observability/core/application/useCases/reprocessPending/reprocess-pending-db-use-case.js';
 import { TraceSourceClient } from '../../application/interfaces/trace-source-client.js';
 import { FakeTraceSourceClient } from '../../infrastructure/traceSource/fake-trace-source-client.js';
-import { HttpLangWatchClient } from '../../infrastructure/traceSource/langwatch/http-langwatch-client.js';
 import { ClickHouseLangWatchClient } from '../../infrastructure/traceSource/langwatch/clickhouse/clickhouse-langwatch-client.js';
 import { MongoDbPriceVersionRepository } from '@observability/core/infrastructure/database/mongodb/priceVersion/mongodb-price-version-repository.js';
 import { MongoDbTraceRepository } from '@observability/core/infrastructure/database/mongodb/trace/mongodb-trace-repository.js';
@@ -42,20 +41,47 @@ const makeClickHouseClient = (): ClickHouseLangWatchClient | undefined =>
       })
     : undefined;
 
-// QA14 resolvido: cadeia ClickHouse → HTTP → fake. O cliente HTTP entra
-// quando LANGWATCH_ENDPOINT/API_KEY estão configurados; sem nada (testes,
-// demo offline), o fake de fixtures continua valendo.
-const makeTraceSourceClient = (): TraceSourceClient =>
-  makeClickHouseClient() ??
-  (config.langwatchEndpoint && config.langwatchApiKey
-    ? new HttpLangWatchClient({
-        endpoint: config.langwatchEndpoint,
-        apiKey: config.langwatchApiKey,
-        quietPeriodMs: quietPeriodMs(),
-        // audit C-6.2: same durable poison trail as the ClickHouse path.
-        poisonRowRepository: new MongoDbPoisonRowRepository(),
-      })
-    : new FakeTraceSourceClient());
+/**
+ * Decision 127: the source is DECLARED, never inferred. ClickHouse is the
+ * only real source (the HTTP client is gone — no client will ever ingest
+ * over HTTP), and the fixture fake exists only behind the explicit
+ * `TRACE_SOURCE=fixtures` opt-in (or jest's test environment, where the
+ * module's route harness seeds through it).
+ *
+ * "No source configured" is a CRASH, not a fall-through: the old
+ * inference chain ended in `: new FakeTraceSourceClient()`, so one empty
+ * env var made `make sync` "ingest" the shipped demo fixtures into a real
+ * client's permanent archive — stamped, billed, and reported as success
+ * (post-split audit A-1). Every branch logs its choice for the same
+ * reason: the run's own output must say where the traces came from.
+ */
+export const makeTraceSourceClient = (): TraceSourceClient => {
+  if (config.traceSource === 'fixtures') {
+    console.log('Trace source: FIXTURE FAKE (TRACE_SOURCE=fixtures — demo/offline)');
+
+    return new FakeTraceSourceClient();
+  }
+
+  const clickHouse = makeClickHouseClient();
+
+  if (clickHouse) {
+    console.log('Trace source: ClickHouse (direct read, decision 59)');
+
+    return clickHouse;
+  }
+
+  if (config.Environment === 'test') {
+    return new FakeTraceSourceClient();
+  }
+
+  throw new Error(
+    'No trace source configured: set LANGWATCH_PROJECT_ID (onboarding fills ' +
+      'it — scripts/3-onboard-langwatch.sh) so the direct-ClickHouse source ' +
+      'is enabled, or TRACE_SOURCE=fixtures for an offline fixture demo. ' +
+      'Refusing to guess (decision 127): a backfill that silently syncs ' +
+      'fixture data into the permanent archive is worse than a crash.',
+  );
+};
 
 export const makeSyncTracesUseCase = (): SyncTracesDbUseCase =>
   new SyncTracesDbUseCase({
@@ -94,10 +120,10 @@ export const traceIngestionWorkerSettings = {
 } as const;
 
 /**
- * Continuous sync exists ONLY with a ClickHouse source (decision 59): the
- * fixture fake and the capped HTTP search have no cursor to page on.
- * `undefined` → the worker idles (pre-onboarding / offline demo stacks,
- * where `make sync` over fixtures remains the path).
+ * Continuous sync exists ONLY with a ClickHouse source (decisions 59/127):
+ * the fixture fake has no cursor to page on. `undefined` → the worker
+ * idles (pre-onboarding / offline demo stacks, where `make sync` with
+ * TRACE_SOURCE=fixtures remains the demo path).
  */
 export const makeSyncBatchesUseCase = ():
   | { useCase: SyncBatchesDbUseCase; source: ClickHouseLangWatchClient }

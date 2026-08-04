@@ -1,8 +1,11 @@
 export interface TraceIngestionWorkerEnvironmentVariables {
   /**
-   * LangWatch's OWN ClickHouse store (decision 59). When absent, the
-   * ClickHouse source is disabled — the factory falls through to the HTTP
-   * client (endpoint+key) or the fixture fake, and the worker idles.
+   * The ONLY real trace source (decisions 59 + 127): LangWatch's OWN
+   * ClickHouse store. When absent, the continuous worker idles and
+   * `make sync` refuses to run — there is no fallback source. The HTTP
+   * LangWatch client was removed by decision 127 (no client will ever
+   * ingest over HTTP); the fixture fake exists but only behind the
+   * EXPLICIT `traceSource: 'fixtures'` opt-in below.
    */
   langwatchClickhouseUrl?: string;
   langwatchClickhouseUser?: string;
@@ -10,6 +13,14 @@ export interface TraceIngestionWorkerEnvironmentVariables {
   langwatchClickhouseDatabase?: string;
   /** LangWatch project id — row filter when the instance hosts more than one project. */
   langwatchProjectId?: string;
+  /**
+   * EXPLICIT fixture opt-in (decision 127): 'fixtures' selects the
+   * FakeTraceSourceClient for offline demos. It is never inferred — a
+   * missing real source is a crash, not a silent fall-through: the old
+   * inference chain once let an empty API key "sync" nine fabricated demo
+   * traces into a real client's permanent archive with exit code 0.
+   */
+  traceSource?: 'fixtures';
   /** Seconds between catch-up cycles once caught up (default 60). */
   traceIngestionIntervalSeconds?: number;
   /** Max rows per batch — the loop's memory bound (default 1000). */

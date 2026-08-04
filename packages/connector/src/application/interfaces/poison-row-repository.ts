@@ -13,6 +13,10 @@
  * usage. Every one of them records the repair under `${kind}_salvaged` —
  * the rule itself is ONE shared gate (re-audit iteration 2), so its
  * durable trail follows one naming rule too.
+ *
+ * 'http-detail' is LEGACY (decision 127 removed the HTTP adapter): no
+ * writer produces it anymore, but stored poison rows may carry it, so the
+ * type keeps the member for readers of the durable trail.
  */
 export type SalvageablePoisonKind = 'summary' | 'http-detail';
 

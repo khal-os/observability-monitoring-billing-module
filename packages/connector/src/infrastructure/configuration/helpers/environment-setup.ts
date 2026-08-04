@@ -2,10 +2,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { z } from 'zod';
 import { MongoDbEnvironmentVariables } from '@observability/core/infrastructure/configuration/interfaces/mongodb-environment-variables.js';
-import {
-  LangWatchEnvironmentVariables,
-  TraceIngestionWorkerEnvironmentVariables,
-} from '../interfaces/index.js';
+import { TraceIngestionWorkerEnvironmentVariables } from '../interfaces/index.js';
 
 const environmentEnum = {
   PRODUCTION: 'production',
@@ -23,7 +20,6 @@ type Environment = (typeof environmentEnum)[keyof typeof environmentEnum];
 export interface EnvironmentVariables
   extends
     MongoDbEnvironmentVariables,
-    LangWatchEnvironmentVariables,
     TraceIngestionWorkerEnvironmentVariables {
   Environment: Environment;
   /** Deployment display name (single-tenant instance) — optional, logs only. */
@@ -56,8 +52,16 @@ const envSchema = z
     MONGO_DB_NAME: z.string().optional(),
     MONGO_DB_PASSWORD: z.string().optional(),
     MONGO_DB_USER: z.string().optional(),
-    LANGWATCH_ENDPOINT: z.string().optional(),
-    LANGWATCH_API_KEY: z.string().optional(),
+    // Decision 127: ClickHouse is the ONLY real source — the HTTP client
+    // (LANGWATCH_ENDPOINT/LANGWATCH_API_KEY) no longer exists here. The
+    // API key still lives in the CLIENT env file as the agents'/vault
+    // hand-off, but no container of this component reads it.
+    // Compose forwards '' when the env file omits the var — same
+    // ''-means-unset rule as the module's optionalNonEmptyString.
+    TRACE_SOURCE: z.preprocess(
+      (value) => (value === '' ? undefined : value),
+      z.enum(['fixtures']).optional(),
+    ),
     LANGWATCH_CLICKHOUSE_URL: z.string().optional(),
     LANGWATCH_CLICKHOUSE_USER: z.string().optional(),
     LANGWATCH_CLICKHOUSE_PASSWORD: z.string().optional(),
@@ -120,8 +124,7 @@ export const environment: EnvironmentVariables = {
   mongoDbPassword: safeEnvironment.MONGO_DB_PASSWORD,
   mongoDbPort: safeEnvironment.MONGO_DB_PORT,
   mongoDbUser: safeEnvironment.MONGO_DB_USER,
-  langwatchEndpoint: safeEnvironment.LANGWATCH_ENDPOINT,
-  langwatchApiKey: safeEnvironment.LANGWATCH_API_KEY,
+  traceSource: safeEnvironment.TRACE_SOURCE,
   langwatchClickhouseUrl: safeEnvironment.LANGWATCH_CLICKHOUSE_URL,
   langwatchClickhouseUser: safeEnvironment.LANGWATCH_CLICKHOUSE_USER,
   langwatchClickhousePassword: safeEnvironment.LANGWATCH_CLICKHOUSE_PASSWORD,
