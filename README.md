@@ -35,16 +35,20 @@ via `localhost` unless the client env sets `API_BIND`/`LANGWATCH_BIND`/
 act; the UI reaches the api over the compose network, not the host port).
 
 Ingestion is **continuous and automatic**: once the client is onboarded
-(`LANGWATCH_API_KEY` set), the `trace-ingestion-worker` sidecar reads new traces
-straight from the LangWatch stack's ClickHouse (no API caps), stamps
-prices at write time, and stays ~15–16 min behind live (15-min quiet
-period so incrementally-built traces settle before their immutable price
-stamp — `TRACE_INGESTION_*` knobs in the env contract). Before onboarding the
-worker idles and `make sync` over fixtures is the demo path.
+(`LANGWATCH_PROJECT_ID` set — onboarding writes it), the
+`trace-ingestion-worker` sidecar reads new traces straight from the
+LangWatch stack's ClickHouse — the ONLY real source (decision 127) —
+stamps prices at write time, and stays ~15–16 min behind live (15-min
+quiet period so incrementally-built traces settle before their immutable
+price stamp — `TRACE_INGESTION_*` knobs in the env contract). Before
+onboarding the worker idles; offline demos run `make sync` with the
+explicit `TRACE_SOURCE=fixtures` in the client env.
 
 The env file is the whole contract and the client's **deployment state** —
-identity, ports, mongo credentials, LangWatch key + per-instance secrets,
-image pin. [clients/example.env](clients/example.env) is the committed
+identity, ports, mongo credentials, LangWatch project id + per-instance
+secrets, image pin (the LangWatch API key deliberately lives elsewhere —
+decision 127: it is the agents' credential, kept in LangWatch's own
+Postgres and copied from the UI into the platform vault). [clients/example.env](clients/example.env) is the committed
 template; real files are gitignored and treated as the single source of
 truth for every operation (lose one and you lose the stack's operational
 identity — the LangWatch admin password is only recorded there).
@@ -64,7 +68,7 @@ auto-allocated free ports → images (built if missing) → 9-container stack �
 health waits → migrations → **automatic LangWatch onboarding** (registers
 `admin@<name>.com` with a random password — printed in the summary and noted
 in the env file — creates organization + project via the instance's own API,
-wires the project API key into the env, recreates the api with real sync
+stamps the project id into the env, recreates the worker with real sync
 enabled) → **demo data** (deterministic traffic generated for this client,
 PoC price table via `make seed-prices` + premium-model prices, pushed into
 its LangWatch, ingested through the real
@@ -73,9 +77,8 @@ UI, API, LangWatch and Compass URLs plus the login credentials.
 
 Options: `--api-port/--ui-port/--langwatch-port/--mongo-host-port` to pin
 ports, `--mongo-user/--mongo-pass` for an auth-enabled mongo (before first
-boot), `--image REF` to pin the api image, `--langwatch-key` to wire a
-manually created key. Re-running completes/updates a deployment — secrets
-are never regenerated, data is never duplicated.
+boot), `--image REF` to pin the api image. Re-running completes/updates a
+deployment — secrets are never regenerated, data is never duplicated.
 
 ## Production deployment
 
@@ -160,11 +163,10 @@ permanent archive:
 `docker compose -f compose.module.yml -f compose.connector.yml -f compose.mongodb.yml --env-file clients/<name>.env down -v`
 plus deleting `clients/<name>.env` and `demo-data/<name>/`.
 
-Manual `make sync` uses the direct-ClickHouse source when the client is
-onboarded — no window cap. Only the legacy HTTP path (no ClickHouse
-configured) still needs windows under ~100 traces (QA14 finding:
-LangWatch's search API ignores `pageOffset`, silently capping at the
-newest 100).
+Manual `make sync` uses the direct-ClickHouse source — the only real one
+(decision 127) — with no window cap. Without a configured source it
+refuses to run: there is no HTTP fallback anymore, and the fixture fake
+requires the explicit `TRACE_SOURCE=fixtures` (offline demos only).
 
 ## API auth (env-gated, off by default)
 
@@ -186,9 +188,12 @@ deployments for now.
 Each client's stack carries its own LangWatch (pinned
 `langwatch/langwatch:3.5.0` + postgres/redis/clickhouse, mirroring the
 official upstream compose). Onboarding is automated by the deploy script;
-the manual path still works (sign up in the browser, then re-run with
-`--langwatch-key`). While the key is empty the sync falls back to the
-fixture-backed fake client (offline dev).
+the manual path still works (sign up in the browser, create org+project,
+then re-run `3-onboard-langwatch.sh` — it backfills the project id, which
+is what turns ingestion on; decision 127). The API key never enters the
+env file: agents get it from the vault, the demo push reads it from
+LangWatch's Postgres, and offline fixture demos use the explicit
+`TRACE_SOURCE=fixtures` instead.
 
 LangWatch retains ~49 days and serves span detail per its plan window — the
 platform's own store is the permanent archive (invariant 6).

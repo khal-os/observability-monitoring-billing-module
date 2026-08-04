@@ -87,11 +87,13 @@ imports count as the layer they name (`@observability/core/<layer>/…`).
 ## PoC scope (see docs/produto/poc.md for details)
 
 IN: T4 price table (seeded via the dev-only `make seed-prices` job — decision
-74; migrations carry only index bootstrap) · T2 sync (QA14 RESOLVED — real
-clients ship: direct-ClickHouse reads preferred, HTTP LangWatch as fallback
-with a code-level guard on the ~100-trace search cap, and the fixture-backed
-`FakeTraceSourceClient` for offline demos/tests; chain composed in the
-connector's `sync-factory.ts`) · T5 stamping · T3 store (traces/spans/content) ·
+74; migrations carry only index bootstrap) · T2 sync (QA14 RESOLVED; decision
+127: direct-ClickHouse reads are the ONLY real source — no client ever
+ingests over HTTP, that adapter was removed. The fixture-backed
+`FakeTraceSourceClient` serves offline demos/tests behind the EXPLICIT
+`TRACE_SOURCE=fixtures` opt-in; with no source configured the sync CRASHES
+instead of guessing. Selection composed and logged in the connector's
+`sync-factory.ts`) · T5 stamping · T3 store (traces/spans/content) ·
 endpoints `GET /traces`, `GET /traces/:id`, `GET /sessions`,
 `GET /sessions/:id` (session = derived read-model grouped by `session_id`) ·
 one billing aggregate endpoint (month × agent × model) that visibly equals
