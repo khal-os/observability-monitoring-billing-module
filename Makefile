@@ -17,28 +17,27 @@
 #   make ps                                     # all compose projects on this host
 #   make deploy-smoke                           # regressão dos scripts de deploy (sem docker)
 #
-# Continuous ingestion: once LANGWATCH_API_KEY is set in the client env,
-# the trace-ingestion-worker sidecar (part of the stack) syncs
-# automatically via direct ClickHouse reads — no window cap. `make sync`
-# remains for manual backfills and fixture-backed demos.
-#
-# Keep MANUAL sync windows under ~100 traces ONLY on the HTTP path (QA14:
-# LangWatch search ignores pageOffset — a bigger window silently caps at
-# the newest 100). The ClickHouse path has no such cap.
+# Continuous ingestion: once LANGWATCH_PROJECT_ID is set in the client env
+# (scripts/3-onboard-langwatch.sh writes it), the trace-ingestion-worker
+# sidecar syncs automatically via direct ClickHouse reads — the ONLY real
+# source (decision 127; the HTTP ingestion path no longer exists).
+# `make sync` remains for manual backfills (same ClickHouse source, no
+# window cap) and for offline fixture demos, which require the EXPLICIT
+# TRACE_SOURCE=fixtures in the client env — without a source, sync
+# crashes instead of guessing.
 
 .DEFAULT_GOAL := help
 
 ENVFILE = clients/$(CLIENT).env
 # `env -u`: compose interpolation ranks the OS environment ABOVE --env-file,
-# so an exported LANGWATCH_API_KEY (e.g. from seeding a LangWatch instance)
-# would leak into every stack — and an exported COMPOSE_PROJECT_NAME would
-# collapse two clients into one project. The env file is the only source of
-# truth for these.
+# so an exported LANGWATCH_PROJECT_ID (e.g. from onboarding a LangWatch
+# instance) would leak into every stack — and an exported
+# COMPOSE_PROJECT_NAME would collapse two clients into one project. The
+# env file is the only source of truth for these.
 # EVERY variable a compose file interpolates must be listed here — a var
 # that escapes the scrub silently overrides all client env files at once.
 SCRUB = env -u COMPOSE_PROJECT_NAME -u CLIENT_NAME -u API_PORT \
-          -u LANGWATCH_PORT -u LANGWATCH_API_KEY -u LANGWATCH_ENDPOINT \
-          -u LANGWATCH_PROJECT_ID \
+          -u LANGWATCH_PORT -u LANGWATCH_PROJECT_ID -u TRACE_SOURCE \
           -u API_BIND -u LANGWATCH_BIND -u UI_BIND \
           -u AUTH_SYSTEM_URL -u AUTH_SYSTEM_CLIENT_ID -u AUTH_SYSTEM_CLIENT_SECRET \
           -u MONGO_DB_HOST -u MONGO_DB_PORT -u MONGO_MEMORY_LIMIT \
@@ -64,9 +63,10 @@ COMPOSE_DEV  = $(SCRUB) docker compose $(COMPOSE_FILES) -f compose.dev.yml --env
 # form's config and recreates a dev-form mongo (dropping its Compass port).
 # Jobs therefore require the stack to be up (`make up` first).
 JOB = $(COMPOSE_PROD) run --rm --no-deps api node
-# sync is the exception: the fixture-backed fake client (empty
-# LANGWATCH_API_KEY) needs this client's demo fixtures mounted — use the dev
-# form exactly when generated fixtures exist, the prod form otherwise.
+# sync is the exception: the fixture-backed fake client (explicit
+# TRACE_SOURCE=fixtures, decision 127) needs this client's demo fixtures
+# mounted — use the dev form exactly when generated fixtures exist, the
+# prod form otherwise.
 SYNC_COMPOSE = $(if $(wildcard demo-data/$(CLIENT)/*.json),$(COMPOSE_DEV),$(COMPOSE_PROD))
 
 .PHONY: help build up up-prod down logs ps backup migrate seed-prices sync price reprocess rebuild-filter-counters rebuild-session-summaries billing-close billing-reopen deploy-smoke require-client

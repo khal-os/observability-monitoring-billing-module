@@ -1,15 +1,16 @@
-# THE CONNECTOR — the client's own LangWatch stack, its trace ingestor
-# (the trace-ingestion-worker), plus the couplings it introduces on the
-# module (env fragment on api). See compose.module.yml for how the role
+# THE CONNECTOR — the client's own LangWatch stack plus its trace ingestor
+# (the trace-ingestion-worker). See compose.module.yml for how the role
 # files assemble into one project (decision 65). The worker lives HERE,
 # not in the module: it exists to drain THIS connector's ClickHouse, so
 # its horizontal-scaling granularity is the LangWatch stack's — another
 # LangWatch instance means another ingestor, and removing this file
-# removes both (the module still composes; `make sync` over fixtures
-# remains the offline-demo path). The file is named for the ROLE, not
-# the vendor: a different connector in the future = a different
-# compose.connector.yml filling the same slot in the chain, with its
-# own ingestor + coupling fragments.
+# removes both (the module still composes; `make sync` with
+# TRACE_SOURCE=fixtures remains the offline-demo path). The MODULE gets
+# NO fragment here (decision 127): it consumes already-ingested traces
+# and must know nothing of LangWatch — no env, no credentials. The file
+# is named for the ROLE, not the vendor: a different connector in the
+# future = a different compose.connector.yml filling the same slot in
+# the chain, with its own ingestor.
 #
 # LangWatch services mirror the OFFICIAL upstream compose.yml (ClickHouse
 # stack — no OpenSearch), with two deliberate deviations: (1) app image
@@ -65,31 +66,18 @@ x-langwatch-deps: &langwatch-deps
     condition: service_healthy
 
 services:
-  # ---- couplings onto the module (merged into compose.module.yml) ----
+  # ---- the connector's ingestor ----
 
-  api:
-    environment:
-      # Internal DNS — server-to-server sync never leaves the project network.
-      # While LANGWATCH_API_KEY is empty (pre-onboarding), the sync factory
-      # falls back to the fixture-backed fake client.
-      LANGWATCH_ENDPOINT: ${LANGWATCH_API_KEY:+http://langwatch:5560}
-      LANGWATCH_API_KEY: ${LANGWATCH_API_KEY:-}
-      # Manual `make sync` runs in the api service — give it the same direct-
-      # ClickHouse source the trace-ingestion-worker uses (decision 59), so backfills
-      # skip the ~100-trace search cap. Same onboarding gate as above.
-      LANGWATCH_CLICKHOUSE_URL: ${LANGWATCH_API_KEY:+http://clickhouse:8123}
-      LANGWATCH_CLICKHOUSE_USER: default
-      LANGWATCH_CLICKHOUSE_PASSWORD: langwatch
-      LANGWATCH_CLICKHOUSE_DATABASE: langwatch
-      LANGWATCH_PROJECT_ID: ${LANGWATCH_PROJECT_ID:-}
-
-  # ---- the connector's ingestor (module image, connector lifecycle) ----
-
-  # Continuous ingestion (T2): the watermark loop in a sidecar — same image
-  # as the api, different command. Reads this connector's OWN ClickHouse
-  # (decision 59) and writes to the client's mongo. Gated by onboarding:
-  # while LANGWATCH_API_KEY is empty the ClickHouse URL interpolates to
-  # empty and the worker idles.
+  # Continuous ingestion (T2): the watermark loop, in the connector image.
+  # Reads this connector's OWN ClickHouse (decision 59 — the ONLY real
+  # source, decision 127) and writes to the client's mongo. Manual
+  # `make sync` runs in THIS service too (same image, run-sync.js).
+  # Gated by onboarding: while LANGWATCH_PROJECT_ID is empty — it is
+  # written by scripts/3-onboard-langwatch.sh, and it is the value the
+  # ClickHouse queries actually filter by — the URL interpolates to empty
+  # and the worker idles. (The old gate keyed on LANGWATCH_API_KEY, a
+  # credential no container of this component reads: agents get it from
+  # the vault, and the HTTP ingestion path it belonged to is gone.)
   #
   # No depends_on for mongo here — this file must not name a service
   # another optional role file provides (an external database drops
@@ -125,11 +113,15 @@ services:
       TRACE_INGESTION_BATCH_SIZE: ${TRACE_INGESTION_BATCH_SIZE:-1000}
       TRACE_INGESTION_QUIET_PERIOD_SECONDS: ${TRACE_INGESTION_QUIET_PERIOD_SECONDS:-900}
       REPROCESS_INTERVAL_SECONDS: ${REPROCESS_INTERVAL_SECONDS:-3600}
-      LANGWATCH_CLICKHOUSE_URL: ${LANGWATCH_API_KEY:+http://clickhouse:8123}
+      # Explicit fixture opt-in for offline demos (decision 127) — a real
+      # client's env file never sets this; without a source the sync
+      # CRASHES instead of guessing.
+      TRACE_SOURCE: ${TRACE_SOURCE:-}
+      LANGWATCH_CLICKHOUSE_URL: ${LANGWATCH_PROJECT_ID:+http://clickhouse:8123}
       LANGWATCH_CLICKHOUSE_USER: default
       LANGWATCH_CLICKHOUSE_PASSWORD: langwatch
       LANGWATCH_CLICKHOUSE_DATABASE: langwatch
-      # Optional row filter (LangWatch project id) — see clients/example.env.
+      # The row filter AND the onboarding gate above — see clients/example.env.
       LANGWATCH_PROJECT_ID: ${LANGWATCH_PROJECT_ID:-}
     depends_on:
       clickhouse:
