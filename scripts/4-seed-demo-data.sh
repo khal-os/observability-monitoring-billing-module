@@ -64,13 +64,15 @@ fi
 
 # ---------- traces ----------
 if [[ "$DO_TRACES" -eq 1 ]]; then
-  KEY_NOW="$(get LANGWATCH_API_KEY)"
-  [[ -n "$KEY_NOW" ]] || die "LangWatch sem API key — rode ./scripts/3-onboard-langwatch.sh ${NAME} antes"
+  # Decisão 127: a key não mora no env do cliente — o push a lê do Postgres
+  # do LangWatch na hora (mesma fonte de onde o onboarding lê o project id).
+  KEY_NOW="$(lw_project_key || true)"
+  [[ -n "$KEY_NOW" ]] || die "LangWatch sem projeto/API key — rode ./scripts/3-onboard-langwatch.sh ${NAME} antes"
 
   step "demo: enviando o tráfego para o LangWatch do cliente"
   # tr '\r' '\n': o push reporta progresso com \r; via gutter cada tick
   # vira uma linha visível em vez de um carriage return perdido.
-  live bash -c "set -o pipefail; node packages/connector/scripts/push-demo-to-langwatch.mjs '${NAME}' | tr '\r' '\n' | grep --line-buffered ." \
+  live bash -c "set -o pipefail; LANGWATCH_API_KEY='${KEY_NOW}' node packages/connector/scripts/push-demo-to-langwatch.mjs '${NAME}' | tr '\r' '\n' | grep --line-buffered ." \
     || die "push para o LangWatch falhou"
 
   EXPECTED=$(python3 -c "import json,glob; print(sum(len(json.load(open(f))) for f in glob.glob('demo-data/${NAME}/*.json')))")

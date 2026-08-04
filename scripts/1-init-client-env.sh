@@ -3,8 +3,8 @@
 # STEP 1 — env: materialize clients/<name>.env (the client's whole contract
 # and deployment state). Creates it once — secrets minted here, ports
 # auto-allocated skipping other clients and live listeners — and NEVER
-# regenerates secrets on re-run. Idempotent extras that do apply to an
-# existing file: --langwatch-key and --env overrides.
+# regenerates secrets on re-run. Idempotent extra that does apply to an
+# existing file: --env overrides.
 #
 #   ./scripts/1-init-client-env.sh <name> [options]
 #
@@ -14,7 +14,6 @@
 #   --mongo-host-port N   dev-only Compass port        (default: first free from 27018)
 #   --mongo-user U        enable mongo auth (with --mongo-pass; BEFORE first boot)
 #   --mongo-pass P
-#   --langwatch-key KEY   LangWatch project API key (can be applied later by re-running)
 #   --image REF           module image reference       (default: platform-module:local)
 #   --connector-image REF connector image reference    (default: platform-connector:local)
 #   --env KEY=VALUE       set/override ANY contract var (repeatable) — e.g.
@@ -28,7 +27,7 @@ require_name "${1:-}"; shift || true
 banner 1 "env — contrato do cliente"
 
 API_PORT="" LANGWATCH_PORT="" UI_PORT="" MONGO_HOST_PORT="" MONGO_USER="" MONGO_PASS=""
-LANGWATCH_KEY="" IMAGE="platform-module:local" CONNECTOR_IMAGE_REF="platform-connector:local"
+IMAGE="platform-module:local" CONNECTOR_IMAGE_REF="platform-connector:local"
 declare -a ENV_OVERRIDES=()
 
 while [[ $# -gt 0 ]]; do
@@ -39,7 +38,6 @@ while [[ $# -gt 0 ]]; do
     --mongo-host-port) MONGO_HOST_PORT="$2"; shift 2 ;;
     --mongo-user)      MONGO_USER="$2"; shift 2 ;;
     --mongo-pass)      MONGO_PASS="$2"; shift 2 ;;
-    --langwatch-key)   LANGWATCH_KEY="$2"; shift 2 ;;
     --image)           IMAGE="$2"; shift 2 ;;
     --connector-image) CONNECTOR_IMAGE_REF="$2"; shift 2 ;;
     --env)             [[ "$2" =~ ^[A-Z_]+=.*$ ]] || die "--env espera KEY=VALUE: '$2'"
@@ -85,7 +83,6 @@ UI_PORT=${UI_PORT}
 MONGO_DB_USER=${MONGO_USER}
 MONGO_DB_PASSWORD=${MONGO_PASS}
 
-LANGWATCH_API_KEY=${LANGWATCH_KEY}
 
 LW_NEXTAUTH_SECRET=$(openssl rand -base64 32)
 LW_API_TOKEN_JWT_SECRET=$(openssl rand -base64 32)
@@ -107,13 +104,6 @@ EOF
   # Secrets live here (LangWatch secrets now, admin password later) —
   # owner-only from the first write.
   chmod 600 "$ENVFILE"
-fi
-
-# Apply --langwatch-key to an existing deployment (the idempotent second run).
-# sed_escape: the replacement side treats & \ | as metacharacters.
-if [[ -n "$LANGWATCH_KEY" ]]; then
-  sed -i "s|^LANGWATCH_API_KEY=.*|LANGWATCH_API_KEY=$(sed_escape "$LANGWATCH_KEY")|" "$ENVFILE"
-  step "LANGWATCH_API_KEY aplicado em ${ENVFILE}"
 fi
 
 # Apply --env overrides: replace the var's line if present, append otherwise.

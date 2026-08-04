@@ -71,7 +71,7 @@ if [[ -n "$LW_ADMIN_PASSWORD" ]]; then
   row "senha" "${B}${LW_ADMIN_PASSWORD}${RST}   ${DIM}(também em ${ENVFILE})${RST}"
 fi
 echo
-if [[ -n "$(get LANGWATCH_API_KEY)" ]]; then
+if [[ -n "$(get LANGWATCH_PROJECT_ID)" ]]; then
   # total_display (não total): passado o teto de contagem da decisão 77/79
   # a API responde "10.000+" — o número cru mentiria sobre o arquivo.
   TOT=$(curl -s -m 8 "http://localhost:${API_PORT}/api/v1/traces?page=1&page_size=1" | python3 -c 'import json,sys; print(json.load(sys.stdin)["total_display"])' 2>/dev/null || echo '?')

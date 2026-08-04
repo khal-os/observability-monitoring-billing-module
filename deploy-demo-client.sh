@@ -27,8 +27,6 @@
 #   --mongo-host-port N   dev-only Compass port        (default: first free from 27018)
 #   --mongo-user U        enable mongo auth (with --mongo-pass; BEFORE first boot)
 #   --mongo-pass P
-#   --langwatch-key KEY   LangWatch project API key (from onboarding; can be
-#                         applied later by re-running with this flag)
 #   --image REF           module image reference       (default: platform-module:local)
 #   --connector-image REF connector image reference    (default: platform-connector:local)
 #   --env KEY=VALUE       set/override ANY contract var (repeatable) — e.g.
@@ -65,7 +63,7 @@ DEMO_TRACES=1 DEMO_PRICES=1
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --api-port|--langwatch-port|--ui-port|--mongo-host-port|--mongo-user|--mongo-pass|--langwatch-key|--image|--connector-image|--env)
+    --api-port|--langwatch-port|--ui-port|--mongo-host-port|--mongo-user|--mongo-pass|--image|--connector-image|--env)
       INIT_ARGS+=("$1" "$2"); shift 2 ;;
     --demo-traces)     DEMO_TRACES=1; shift ;;
     --no-demo-traces)  DEMO_TRACES=0; shift ;;

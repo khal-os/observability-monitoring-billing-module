@@ -7,7 +7,10 @@
  *   node packages/module/scripts/push-demo-to-langwatch.mjs            # all clients
  *   node packages/module/scripts/push-demo-to-langwatch.mjs vivo      # one client
  *
- * Reads LANGWATCH_API_KEY + LANGWATCH_PORT from clients/<name>.env.
+ * Reads LANGWATCH_PORT from clients/<name>.env; the API key arrives via
+ * the LANGWATCH_API_KEY process env var (decisão 127: the key lives only
+ * in LangWatch's own Postgres — scripts/4-seed-demo-data.sh fetches and
+ * passes it; for a hand run, copy it from the LangWatch UI and export it).
  *
  * Round-trip mapping (mirrors langwatch-api-mapper expectations):
  * - metadata.thread_id            -> platform sessionId
@@ -34,7 +37,7 @@ const readEnv = (client) => {
   const content = readFileSync(path.join(ROOT, 'clients', `${client}.env`), 'utf-8');
   const get = (key) => content.match(new RegExp(`^${key}=(.*)$`, 'm'))?.[1]?.trim() ?? '';
   // Port default mirrors compose.connector.yml (${LANGWATCH_PORT:-5560}).
-  return { apiKey: get('LANGWATCH_API_KEY'), port: get('LANGWATCH_PORT') || '5560' };
+  return { apiKey: process.env.LANGWATCH_API_KEY ?? '', port: get('LANGWATCH_PORT') || '5560' };
 };
 
 const spanTypeMap = { retrieval: 'rag' };
@@ -147,7 +150,7 @@ const pushClient = async (client) => {
   }
 
   if (!apiKey) {
-    console.error(`${client}: LANGWATCH_API_KEY vazio em clients/${client}.env — pulei.`);
+    console.error(`${client}: LANGWATCH_API_KEY ausente no ambiente — rode via scripts/4-seed-demo-data.sh (ou exporte a key copiada da UI do LangWatch). Pulei.`);
     return { client, pushed: 0, failed: 0, skipped: true };
   }
 

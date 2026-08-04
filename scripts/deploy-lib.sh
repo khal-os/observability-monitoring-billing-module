@@ -153,6 +153,20 @@ host_port() {
 # there — an API key containing any of them would corrupt the write.
 sed_escape() { printf '%s' "$1" | sed -e 's/[&\|]/\\&/g'; }
 
+# LangWatch's own Postgres is the source of truth for project id and API
+# key (decisão 127: nada disso mora em contêiner nosso; a key nem no env —
+# o pipeline de demo a lê daqui na hora do push, e um cliente real copia
+# da UI para o vault).
+lw_project_id() {
+  docker exec "${NAME}-langwatch-postgres" psql -U prisma -d mydb -t -A \
+    -c 'SELECT id FROM mydb."Project" ORDER BY "createdAt" DESC LIMIT 1' 2>/dev/null | head -1
+}
+
+lw_project_key() {
+  docker exec "${NAME}-langwatch-postgres" psql -U prisma -d mydb -t -A \
+    -c 'SELECT "apiKey" FROM mydb."Project" ORDER BY "createdAt" DESC LIMIT 1' 2>/dev/null | head -1
+}
+
 # Append a line to the env file, healing a missing trailing newline first —
 # appending onto a file whose last line lacks \n would CONCATENATE onto it
 # (seen in the wild: REPROCESS_INTERVAL_SECONDS=3600# LangWatch admin ...,
