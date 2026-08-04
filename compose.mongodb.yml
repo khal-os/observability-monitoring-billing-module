@@ -24,6 +24,12 @@ services:
   mongo:
     image: mongo:7
     container_name: ${CLIENT_NAME}-mongo
+    # audit G-4: the ONE container whose data cannot be re-fetched
+    # (invariant 6 — the permanent archive). Docker's default 10s SIGKILL
+    # can hit mongod mid-checkpoint on a large dirty cache (a 4g client),
+    # forcing journal recovery and, on a replica set, a rollback of
+    # unacknowledged writes. Give the checkpoint room.
+    stop_grace_period: 120s
     # Empty values are treated as unset by the mongo entrypoint: with
     # credentials the server enforces auth, without them it is open — but
     # only inside the project network either way (no host port published;

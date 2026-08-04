@@ -9,15 +9,15 @@
 <body>
   <main class="page">
     <nav class="tabs" role="tablist" aria-label="Seções">
-      <button id="tab-traces" class="tab active" role="tab" aria-selected="true">Traces</button>
-      <button id="tab-sessions" class="tab" role="tab" aria-selected="false">Sessões</button>
-      <button id="tab-billing" class="tab" role="tab" aria-selected="false">Faturas</button>
+      <button id="tab-traces" class="tab active" role="tab" aria-selected="true" aria-controls="view-traces" tabindex="0">Traces</button>
+      <button id="tab-sessions" class="tab" role="tab" aria-selected="false" aria-controls="view-sessions" tabindex="-1">Sessões</button>
+      <button id="tab-billing" class="tab" role="tab" aria-selected="false" aria-controls="view-billing" tabindex="-1">Faturas</button>
       <span id="client-name" class="client-name"></span>
     </nav>
 
     <div id="error" class="error hidden" role="alert"></div>
 
-    <section id="view-traces">
+    <section id="view-traces" role="tabpanel" aria-labelledby="tab-traces" tabindex="0">
       <header class="page-header">
         <h1>Traces</h1>
         <span id="total-label" class="total-label"></span>
@@ -68,7 +68,7 @@
       </footer>
     </section>
 
-    <section id="view-sessions" class="hidden">
+    <section id="view-sessions" role="tabpanel" aria-labelledby="tab-sessions" tabindex="0" class="hidden">
       <header class="page-header">
         <h1>Sessões</h1>
         <span id="sessions-total-label" class="total-label"></span>
@@ -110,7 +110,7 @@
       </footer>
     </section>
 
-    <section id="view-billing" class="hidden">
+    <section id="view-billing" role="tabpanel" aria-labelledby="tab-billing" tabindex="0" class="hidden">
       <header class="page-header">
         <h1>Faturas</h1>
         <span id="bills-total-label" class="total-label"></span>

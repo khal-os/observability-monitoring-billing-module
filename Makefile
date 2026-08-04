@@ -130,8 +130,10 @@ ps:
 # mongo container into backups/<client>-<timestamp>.gz; auth flags expand
 # inside the container from its own MONGO_INITDB_ROOT_* env, so this works
 # with or without mongo credentials. Run it before any `down -v`.
-# Restore into a running stack:
-#   docker exec -i <client>-mongo sh -c 'mongorestore --archive --gzip \
+# Restore into a running stack — --drop replaces existing collections, so
+# this restores into an EMPTY database or overwrites (audit G-4: without
+# --drop, mongorestore merges and a re-run silently double-inserts):
+#   docker exec -i <client>-mongo sh -c 'mongorestore --archive --gzip --drop \
 #     ${MONGO_INITDB_ROOT_USERNAME:+-u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin}' \
 #     < backups/<file>.gz
 # then `make rebuild-filter-counters` + `make rebuild-session-summaries`.

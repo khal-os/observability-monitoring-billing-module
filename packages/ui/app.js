@@ -58,7 +58,11 @@ const TOKEN_TYPE_LABELS = {
 };
 
 const statusBadge = (status) => {
-  const label = STATUS_LABELS[status];
+  /* Object.hasOwn (audit I-5): STATUS_LABELS is a plain object, so a status
+     like 'constructor'/'__proto__' is NOT undefined and would reach the
+     unescaped branch. Not exploitable today (closed server-side enum), but
+     one schema change from mattering. */
+  const label = Object.hasOwn(STATUS_LABELS, status) ? STATUS_LABELS[status] : undefined;
   if (label === undefined) {
     return `<span class="status status-other">${escapeHtml(status)}</span>`;
   }
@@ -961,7 +965,7 @@ const renderCacheSavings = (cache) => {
 
 const renderBillPanel = (data) => {
   const legend = Object.entries(TOKEN_TYPE_LABELS).map(([type, label]) =>
-    `<span><span class="tk-swatch" style="background:${TOKEN_TYPE_COLORS[type]}"></span>${label}</span>`,
+    `<span><span class="tk-swatch" style="background:${Object.hasOwn(TOKEN_TYPE_COLORS, type) ? TOKEN_TYPE_COLORS[type] : 'var(--tk-input)'}"></span>${label}</span>`,
   ).join('');
 
   const agentGroups = data.agents.map((group) => {
@@ -1225,7 +1229,7 @@ const renderBillingChart = () => {
   ).join('');
 
   billingChartLegend.innerHTML = Object.entries(TOKEN_TYPE_LABELS).map(([type, label]) =>
-    `<span><span class="tk-swatch" style="background:${TOKEN_TYPE_COLORS[type]}"></span>${label}</span>`,
+    `<span><span class="tk-swatch" style="background:${Object.hasOwn(TOKEN_TYPE_COLORS, type) ? TOKEN_TYPE_COLORS[type] : 'var(--tk-input)'}"></span>${label}</span>`,
   ).join('');
 };
 
@@ -1331,12 +1335,19 @@ const TABS = {
   },
 };
 
-const activateTab = (name) => {
+const TAB_ORDER = ['traces', 'sessions', 'billing'];
+
+const activateTab = (name, { focus = false } = {}) => {
   for (const [key, tab] of Object.entries(TABS)) {
-    tab.button.classList.toggle('active', key === name);
-    tab.button.setAttribute('aria-selected', key === name ? 'true' : 'false');
-    tab.view.classList.toggle('hidden', key !== name);
+    const selected = key === name;
+    tab.button.classList.toggle('active', selected);
+    tab.button.setAttribute('aria-selected', selected ? 'true' : 'false');
+    // Roving tabindex (audit I-5): only the selected tab is in the tab
+    // order; arrows move between them, per the WAI-ARIA tabs pattern.
+    tab.button.tabIndex = selected ? 0 : -1;
+    tab.view.classList.toggle('hidden', !selected);
   }
+  if (focus) TABS[name].button.focus();
   errorBox.classList.add('hidden');
   closePanel();
   const tab = TABS[name];
@@ -1350,6 +1361,23 @@ const activateTab = (name) => {
 for (const [name, tab] of Object.entries(TABS)) {
   tab.button.addEventListener('click', () => activateTab(name));
 }
+
+/* Arrow/Home/End navigation across the tablist (audit I-5): required once
+   role="tab" is asserted. */
+document.querySelector('.tabs')?.addEventListener('keydown', (event) => {
+  const current = TAB_ORDER.indexOf(
+    document.activeElement?.id?.replace('tab-', ''),
+  );
+  if (current === -1) return;
+  let next = current;
+  if (event.key === 'ArrowRight') next = (current + 1) % TAB_ORDER.length;
+  else if (event.key === 'ArrowLeft') next = (current - 1 + TAB_ORDER.length) % TAB_ORDER.length;
+  else if (event.key === 'Home') next = 0;
+  else if (event.key === 'End') next = TAB_ORDER.length - 1;
+  else return;
+  event.preventDefault();
+  activateTab(TAB_ORDER[next], { focus: true });
+});
 
 /* Deployment identity: /client.json is served by this stack's nginx with the
    client name from the env. Cosmetic — absence (e.g. serving the files

@@ -79,7 +79,11 @@ UI, API, LangWatch and Compass URLs plus the login credentials.
 
 Options: `--api-port/--ui-port/--langwatch-port/--mongo-host-port` to pin
 ports, `--mongo-user/--mongo-pass` for an auth-enabled mongo (before first
-boot), `--image REF` to pin the api image. Re-running completes/updates a
+boot), `--image REF` to pin the MODULE image and `--connector-image REF`
+the CONNECTOR image (defaults `platform-module:local` /
+`platform-connector:local` — pin BOTH for a released deploy, or the worker
+falls back to a local tag that exists on no fresh host and crash-loops
+while api+ui stay healthy). Re-running completes/updates a
 deployment — secrets are never regenerated, data is never duplicated.
 
 ## Production deployment

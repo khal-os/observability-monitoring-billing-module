@@ -15,10 +15,13 @@
 #   and crashes.
 # - The local dist/ is often stale — tsc ALWAYS runs in-image (tsc -b builds
 #   core first via project references).
-# - This image is VENDOR-FREE BY CONSTRUCTION: no trace-source code, no
-#   fixtures — ingestion ships in platform-connector (connector.Dockerfile).
-#   @observability/connector is a devDependency (test seeding only); --omit=dev keeps
-#   it out of the runtime stage.
+# - This image is VENDOR-FREE BY CONSTRUCTION (audit G-5): the runtime
+#   stage copies ONLY packages/{core,module}/dist; packages/connector/
+#   receives its package.json but no code, so the workspace symlink npm
+#   creates (it does so EVEN under --omit=dev — verified) resolves to a
+#   code-less directory. The RUN assertion at the end of the build stage
+#   makes this a build failure, not a comment: no connector dist, no
+#   vendor string in the module dist.
 # - Every workspace package.json must be present for npm ci to resolve the
 #   workspace graph, even packages this image never runs.
 
@@ -36,7 +39,10 @@ COPY packages/module/tsconfig.json packages/module/tsconfig.build.json packages/
 COPY packages/module/src packages/module/src
 RUN npm run build --workspace=@observability/module \
   && find packages/core/dist packages/module/dist \
-       \( -name '*.spec.js' -o -name '*.test.js' -o -name '*.map' \) -delete
+       \( -name '*.spec.js' -o -name '*.test.js' -o -name '*.map' \) -delete \
+  && test ! -e packages/connector/dist \
+  && ! grep -rqiE 'langwatch|clickhouse' packages/module/dist \
+  || (echo 'VENDOR LEAK: connector code or a vendor string is in the module image (audit G-5)'; exit 1)
 
 FROM node:22-alpine AS runtime
 ENV NODE_ENV=production \

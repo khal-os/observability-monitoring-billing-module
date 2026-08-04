@@ -35,6 +35,9 @@ services:
     image: ${MODULE_IMAGE:-platform-module:local}
     container_name: ${CLIENT_NAME:?set CLIENT_NAME via --env-file (see clients/example.env)}-api
     init: true # not for signals (the app drains SIGTERM itself, C-5.4): PID-1 zombie reaping + backstop if node is ever shell-wrapped
+    # audit G-4: the graceful HTTP drain (C-5.4) has the same 10s default
+    # ceiling as mongo — give it room to finish in-flight requests.
+    stop_grace_period: 30s
     environment:
       ENVIRONMENT: production
       SERVER_PORT: "3000"

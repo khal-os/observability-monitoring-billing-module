@@ -35,7 +35,8 @@ OS; a component = **module + connector** (hence the npm scope
   no `langwatch` string anywhere; `@observability/connector` is a devDependency for
   test seeding ONLY (route harness + pipeline test), enforced by test.
 - `packages/connector` (`@observability/connector`) — the trace-source side:
-  LangWatch adapters (ClickHouse/HTTP/fake+fixtures), syncTraces/
+  the LangWatch ClickHouse adapter + the fixture fake (decision 127 —
+  no HTTP adapter; ClickHouse is the only real source), syncTraces/
   syncBatches, ingestion bookkeeping repos, worker loop + `run-sync` job.
 - `packages/ui` (`@observability/ui`) — static client UI.
 
@@ -101,7 +102,8 @@ the sum of stamped costs.
 
 OUT: RBAC, voice, masking/retention, admin UIs, alerts.
 
-Billing épicos 5–8 (added post-PoC, decisions 87–109 —
+Billing épicos 5–8 (added post-PoC, decisions 87–123; the package
+layout above is decisions 124–127 —
 `docs/produto/billing-implementacao.md` is the working doc): T6 month
 lifecycle (open→closed; runbook-only `make billing-close`/`billing-reopen`;
 close blocked while pending_price exists; snapshot = inputs + outputs +
