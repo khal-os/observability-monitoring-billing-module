@@ -1,36 +1,52 @@
 #!/usr/bin/env bash
-# DEV-ONLY: (re-)registers the LangWatch OTLP connector in a LOCAL khal
-# connector-register, so the agent can resolve `monitoring.trace`/`write`
-# against the real register instead of any mock. (Moved here from
-# martino-agent — the connector is provisioned by this module's stack, so its
-# scripts live with it.)
+# (Re-)registers the LangWatch OTLP connector in the khal Connector Catalog,
+# so the agent can resolve `monitoring.trace`/`write` against the real
+# catalog instead of any mock. (Moved here from martino-agent — the connector
+# is provisioned by this module's stack, so its scripts live with it.)
 #
 # The manifest's `version` is read from scripts/connector/version — bump with
 # scripts/connector/bump-version.sh and re-run this.
 #
-# The local register stores manifests IN MEMORY — run this again after every
+# Auth is identity-only (valid token + right tenant) — there are NO scopes in
+# the M2M model. Token precedence:
+#   1. TOKEN                     — explicit token, used as-is
+#   2. M2M_CLIENT_ID/SECRET      — with AUTH_SYSTEM_URL: a session is requested
+#                                  from the M2M Auth System (client_credentials;
+#                                  sessions expire — each run requests a fresh
+#                                  one, there is no renew)
+#   3. dev claims token          — minted below (base64url JSON, no scopes)
+#
+# LEGACY-COMPAT: today's local catalog still guards routes by scope; a
+# scopeless PUT answers 403. When that happens (and only for the minted dev
+# token) the script retries ONCE with the legacy scoped claims and warns.
+# Delete the fallback when the platform drops scope checks.
+#
+# The local catalog stores manifests IN MEMORY — run this again after every
 # dev-server restart. Idempotent: an existing connector is updated in place
 # (ETag/If-Match handled automatically).
 #
-# For the resolved credential to be REAL (not dev-secret-*), start the register
+# For the resolved credential to be REAL (not dev-secret-*), start the catalog
 # with the vault seed (see khal-platform docs/platform/connector-register/sops.md):
 #   VAULT_CREDENTIALS_JSON='{"workos-vault://langwatch-cliente":"<api key>"}' \
-#     pnpm --filter @observability/connector-register dev
+#     pnpm --filter @khal/connector-register dev
 #
 # Env overrides (all optional):
-#   REGISTER_URL   default http://127.0.0.1:7103
+#   CATALOG_URL    default http://127.0.0.1:7103 (the Connector Catalog;
+#                  legacy spelling REGISTER_URL still honored)
 #   TENANT         default acme
 #   CONNECTOR_ID   default langwatch-cliente
 #   OTLP_ENDPOINT  default http://localhost:5562/api/otel/v1/traces
 #   CREDENTIAL_REF default workos-vault://<CONNECTOR_ID> — MUST match a key of
-#                  the register's VAULT_CREDENTIALS_JSON for the resolved
+#                  the catalog's VAULT_CREDENTIALS_JSON for the resolved
 #                  credential to be real
 #   VERSION        default: contents of scripts/connector/version
-#   TOKEN          a USER token for the PUT (registration is a user action).
-#                  Unset → dev claims token minted below.
+#   AUTH_SYSTEM_URL    the M2M Auth System base URL (enables the session path)
+#   M2M_CLIENT_ID      the connector's M2M credential id
+#   M2M_CLIENT_SECRET  the connector's M2M credential secret
+#   TOKEN          explicit token for the PUT (wins over everything)
 set -euo pipefail
 
-REGISTER_URL="${REGISTER_URL:-http://127.0.0.1:7103}"
+CATALOG_URL="${CATALOG_URL:-${REGISTER_URL:-http://127.0.0.1:7103}}"
 TENANT="${TENANT:-acme}"
 CONNECTOR_ID="${CONNECTOR_ID:-langwatch-cliente}"
 OTLP_ENDPOINT="${OTLP_ENDPOINT:-http://localhost:5562/api/otel/v1/traces}"
@@ -44,11 +60,42 @@ VERSION="${VERSION:-$(tr -d '[:space:]' <"$(dirname "$0")/version")}"
 [[ "$OTLP_ENDPOINT" =~ ^https?://[^/:]+(:[0-9]+)?/ ]] \
   || { echo "ERROR: OTLP_ENDPOINT '$OTLP_ENDPOINT' is malformed (empty \$LANGWATCH_PORT?)"; exit 1; }
 
-# LEGACY until SPEC-3 lands: the local register still guards routes by scope,
-# so the dev claims token carries them. Once the platform removes scopes,
-# drop the scope field here. A real user token can be passed via TOKEN.
-TOKEN="${TOKEN:-$(python3 -c "import base64,json,sys;print(base64.urlsafe_b64encode(json.dumps({'tenant':sys.argv[1],'client_id':'connector-register.sh','scope':'connectors.registry:read connectors.registry:write'}).encode()).decode().rstrip('='))" "$TENANT")}"
+# Session from the M2M Auth System (the target platform flow): credentials in,
+# short-lived session out. No scopes are requested — identity only.
+m2m_session() {
+  curl -sS -X POST "${AUTH_SYSTEM_URL%/}/token" \
+    -H 'content-type: application/x-www-form-urlencoded' \
+    --data-urlencode 'grant_type=client_credentials' \
+    --data-urlencode "client_id=${M2M_CLIENT_ID}" \
+    --data-urlencode "client_secret=${M2M_CLIENT_SECRET}" \
+    | python3 -c "import json,sys;print(json.load(sys.stdin)['access_token'])"
+}
 
+# Dev claims token (base64url JSON read verbatim by the local catalog).
+# scope argument: empty = the real model (no scopes); non-empty = LEGACY-COMPAT.
+dev_token() {
+  python3 -c "
+import base64, json, sys
+claims = {'tenant': sys.argv[1], 'client_id': 'connector-register.sh'}
+if sys.argv[2]:
+    claims['scope'] = sys.argv[2]
+print(base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip('='))" "$TENANT" "$1"
+}
+
+MINTED=""
+if [[ -n "${TOKEN:-}" ]]; then
+  :
+elif [[ -n "${AUTH_SYSTEM_URL:-}" && -n "${M2M_CLIENT_ID:-}" && -n "${M2M_CLIENT_SECRET:-}" ]]; then
+  TOKEN="$(m2m_session)"
+  echo "session obtained from the M2M Auth System (${AUTH_SYSTEM_URL})"
+else
+  TOKEN="$(dev_token "")"
+  MINTED=1
+fi
+
+# `protocolVersion` completes the capability tuple (signal, operation,
+# transport, protocol, protocol version, encoding) — the agent's intent sends
+# the same value, and the catalog only matches bindings that declare it.
 BASE_URL="${OTLP_ENDPOINT%/api/otel/v1/traces}"
 MANIFEST=$(cat <<EOF
 {
@@ -65,6 +112,7 @@ MANIFEST=$(cat <<EOF
         {
           "transport": "http",
           "protocol": "otlp",
+          "protocolVersion": "1.0",
           "encoding": "protobuf",
           "endpoint": "${OTLP_ENDPOINT}",
           "auth": { "placement": "header", "name": "authorization", "scheme": "Bearer" }
@@ -79,16 +127,31 @@ MANIFEST=$(cat <<EOF
 EOF
 )
 
-# Existing connector? Grab its ETag so the update satisfies If-Match.
-ETAG=$(curl -s -o /dev/null -w '%{header_json}' \
-  -H "Authorization: Bearer ${TOKEN}" \
-  "${REGISTER_URL}/connectors/${CONNECTOR_ID}" \
-  | python3 -c "import json,sys;h=json.load(sys.stdin);print((h.get('etag') or [''])[0])")
+# One registration attempt with the given token; prints the body, returns the
+# HTTP status via the global CODE. Existing connector → ETag satisfies If-Match.
+BODY_FILE="$(mktemp)"
+trap 'rm -f "$BODY_FILE"' EXIT
+attempt() {
+  local token="$1"
+  local etag
+  etag=$(curl -s -o /dev/null -w '%{header_json}' \
+    -H "Authorization: Bearer ${token}" \
+    "${CATALOG_URL}/connectors/${CONNECTOR_ID}" \
+    | python3 -c "import json,sys;h=json.load(sys.stdin);print((h.get('etag') or [''])[0])")
+  local args=(-sS -X PUT "${CATALOG_URL}/connectors/${CONNECTOR_ID}"
+    -H "Authorization: Bearer ${token}" -H 'content-type: application/json'
+    -o "$BODY_FILE" -w '%{http_code}' -d "${MANIFEST}")
+  [[ -n "$etag" ]] && args+=(-H "If-Match: ${etag}")
+  CODE=$(curl "${args[@]}")
+}
 
-ARGS=(-sS -X PUT "${REGISTER_URL}/connectors/${CONNECTOR_ID}"
-  -H "Authorization: Bearer ${TOKEN}" -H 'content-type: application/json'
-  -w '\nHTTP %{http_code}\n' -d "${MANIFEST}")
-[[ -n "$ETAG" ]] && ARGS+=(-H "If-Match: ${ETAG}")
+attempt "$TOKEN"
+if [[ "$CODE" == "403" && -n "$MINTED" ]]; then
+  echo "WARN: catalog still guards routes by scope (LEGACY) — retrying with scoped dev claims" >&2
+  attempt "$(dev_token "connectors.registry:read connectors.registry:write")"
+fi
 
-curl "${ARGS[@]}"
-echo "connector '${CONNECTOR_ID}' v${VERSION} registered at ${REGISTER_URL} (tenant ${TENANT}) → ${OTLP_ENDPOINT}"
+cat "$BODY_FILE"; echo
+echo "HTTP ${CODE}"
+[[ "$CODE" =~ ^2 ]] || { echo "ERROR: registration failed"; exit 1; }
+echo "connector '${CONNECTOR_ID}' v${VERSION} registered at ${CATALOG_URL} (tenant ${TENANT}) → ${OTLP_ENDPOINT}"

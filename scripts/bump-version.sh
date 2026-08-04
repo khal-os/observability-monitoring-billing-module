@@ -2,7 +2,7 @@
 # Bumps the MODULE version — package.json at the root and in packages/core +
 # packages/module + packages/connector + packages/ui, kept in sync (one
 # logical module, one version). After bumping,
-# push it to the platform with scripts/register-module.sh (the module-register
+# push it to the platform with scripts/register-module.sh (the Module Catalog
 # is the source of truth for the deployed module version).
 #
 # Usage: scripts/bump-version.sh <major|minor|patch>
