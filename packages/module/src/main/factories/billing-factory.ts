@@ -8,7 +8,10 @@ import { ListBillsDbUseCase } from '../../application/useCases/billingSummary/li
 import { GetBillingSeriesDbUseCase } from '../../application/useCases/billingSeries/get-billing-series-db-use-case.js';
 import { GetBillingProjectionDbUseCase } from '../../application/useCases/billingSeries/get-billing-projection-db-use-case.js';
 import { CloseBillingPeriodDbUseCase } from '../../application/useCases/billingLifecycle/close-billing-period-db-use-case.js';
+import { CloseDueBillingPeriodsDbUseCase } from '../../application/useCases/billingLifecycle/close-due-billing-periods-db-use-case.js';
 import { ReopenBillingPeriodDbUseCase } from '../../application/useCases/billingLifecycle/reopen-billing-period-db-use-case.js';
+import { config } from '../../infrastructure/index.js';
+import { BillingLifecycleTrigger } from '@observability/core/domain/models/billing-period-model.js';
 import { MongoDbBillingQueryRepository } from '@observability/core/infrastructure/database/mongodb/billing/mongodb-billing-query-repository.js';
 import { MongoDbBillingPeriodRepository } from '@observability/core/infrastructure/database/mongodb/billing/mongodb-billing-period-repository.js';
 import { MongoDbBillingSnapshotRepository } from '@observability/core/infrastructure/database/mongodb/billing/mongodb-billing-snapshot-repository.js';
@@ -56,17 +59,53 @@ export const makeExportStatementController = (): ExportStatementController =>
     getBillingSummary: makeGetBillingSummaryUseCase(),
   });
 
-/** Runbook jobs (decision 87): the lifecycle exists ONLY as jobs in v1. */
-export const makeCloseBillingPeriodUseCase = (): CloseBillingPeriodDbUseCase =>
+/**
+ * The ONE close path (decisions 87 + 131): the runbook job composes it
+ * with the default 'runbook' trigger, the auto-close scheduler with
+ * 'scheduled' — the trigger is the door's identity in the audit trail,
+ * never a per-call choice.
+ */
+export const makeCloseBillingPeriodUseCase = (
+  trigger: BillingLifecycleTrigger = 'runbook',
+): CloseBillingPeriodDbUseCase =>
   new CloseBillingPeriodDbUseCase({
     billingQueryRepository: new MongoDbBillingQueryRepository(),
     billingPeriodRepository: new MongoDbBillingPeriodRepository(),
     billingSnapshotRepository: new MongoDbBillingSnapshotRepository(),
     // Post-close quarantine reconciliation (audit B-1, decision 100).
     traceRepository: new MongoDbTraceRepository(),
+    trigger,
   });
 
 export const makeReopenBillingPeriodUseCase = (): ReopenBillingPeriodDbUseCase =>
   new ReopenBillingPeriodDbUseCase({
     billingPeriodRepository: new MongoDbBillingPeriodRepository(),
+  });
+
+/**
+ * Decision 131 knobs, resolved once: env override or default — the same
+ * dual-default convention as the connector's INGESTION_DEFAULTS (the
+ * compose `:-` defaults must mirror these numbers).
+ */
+const SCHEDULER_DEFAULTS = {
+  delayMinutes: 60,
+  checkIntervalSeconds: 900,
+} as const;
+
+export const billingCloseSchedulerSettings = {
+  delayMs:
+    (config.billingAutoCloseDelayMinutes ?? SCHEDULER_DEFAULTS.delayMinutes) *
+    60_000,
+  checkIntervalMs:
+    (config.billingAutoCloseCheckIntervalSeconds ??
+      SCHEDULER_DEFAULTS.checkIntervalSeconds) * 1000,
+} as const;
+
+/** The scheduler's cycle runner (decision 131) — trigger 'scheduled'. */
+export const makeCloseDueBillingPeriodsUseCase = (): CloseDueBillingPeriodsDbUseCase =>
+  new CloseDueBillingPeriodsDbUseCase({
+    billingPeriodRepository: new MongoDbBillingPeriodRepository(),
+    billingQueryRepository: new MongoDbBillingQueryRepository(),
+    closeBillingPeriod: makeCloseBillingPeriodUseCase('scheduled'),
+    delayMs: billingCloseSchedulerSettings.delayMs,
   });

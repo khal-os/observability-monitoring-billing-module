@@ -19,11 +19,18 @@ import {
 
 export type BillingPeriodLifecycleStatus = 'open' | 'closed';
 
+/**
+ * Who opened the door: 'runbook' = a human-run job (decision 87);
+ * 'scheduled' = the opt-in auto-close sidecar (decision 131). Reopen is
+ * runbook-only — the scheduler never reopens and never re-closes a
+ * reopened month.
+ */
+export type BillingLifecycleTrigger = 'runbook' | 'scheduled';
+
 export interface BillingPeriodAuditEntry {
   at: Date;
   action: 'close' | 'reopen';
-  /** v1: lifecycle actions exist only as runbook jobs (decision 87). */
-  trigger: 'runbook';
+  trigger: BillingLifecycleTrigger;
   /** Required on reopen (T6: audited) — absent on close. */
   reason?: string;
   /** The snapshot version the action produced (close) or set aside (reopen). */

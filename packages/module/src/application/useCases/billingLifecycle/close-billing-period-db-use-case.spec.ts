@@ -728,4 +728,49 @@ describe('CloseBillingPeriodDbUseCase (T6)', () => {
       );
     });
   });
+
+  describe('trigger honesty (decision 131 — the door signs the audit trail)', () => {
+    it("defaults to 'runbook' in both the snapshot and the period audit", async () => {
+      const {
+        sut,
+        billingQueryRepository,
+        billingPeriodRepository,
+        billingSnapshotRepository,
+      } = makeSut();
+      billingQueryRepository.usageByMonth.set('2026-6', JUNE);
+
+      await sut.close(2026, 6);
+
+      const snapshot = await billingSnapshotRepository.findCurrent(2026, 6);
+      const period = await billingPeriodRepository.find(2026, 6);
+      expect(snapshot?.trigger).toBe('runbook');
+      expect(period?.audit.at(-1)?.trigger).toBe('runbook');
+    });
+
+    it("composed with 'scheduled', stamps 'scheduled' into both records", async () => {
+      const {
+        billingQueryRepository,
+        billingPeriodRepository,
+        billingSnapshotRepository,
+        traceRepository,
+      } = makeSut();
+      billingQueryRepository.usageByMonth.set('2026-6', JUNE);
+
+      const scheduled = new CloseBillingPeriodDbUseCase({
+        billingQueryRepository,
+        billingPeriodRepository,
+        billingSnapshotRepository,
+        traceRepository,
+        now: () => NOW,
+        trigger: 'scheduled',
+      });
+
+      await scheduled.close(2026, 6);
+
+      const snapshot = await billingSnapshotRepository.findCurrent(2026, 6);
+      const period = await billingPeriodRepository.find(2026, 6);
+      expect(snapshot?.trigger).toBe('scheduled');
+      expect(period?.audit.at(-1)?.trigger).toBe('scheduled');
+    });
+  });
 });

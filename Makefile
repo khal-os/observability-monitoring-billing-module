@@ -12,6 +12,9 @@
 #   make price CLIENT=vivo ARGS='--model ... --token-type ... --price-brl ... --effective-from 2026-07-01'
 #   make billing-close CLIENT=vivo YEAR=2026 MONTH=6   # T6: fecha o mês (snapshot)
 #   make billing-reopen CLIENT=vivo YEAR=2026 MONTH=6 REASON='...'
+#     (auto-close opt-in: COMPOSE_PROFILES=billing-auto-close no env do
+#     cliente sobe o sidecar billing-close-scheduler — decisão 131; `make
+#     logs` o inclui quando ativo)
 #   make logs CLIENT=vivo
 #   make backup CLIENT=vivo                     # mongodump of the permanent archive -> backups/
 #   make down CLIENT=claro                      # stop one client (volumes preserved)
@@ -49,6 +52,8 @@ SCRUB = env -u COMPOSE_PROJECT_NAME -u CLIENT_NAME -u CLIENT_TIMEZONE -u API_POR
           -u LW_NEXTAUTH_SECRET -u LW_API_TOKEN_JWT_SECRET -u LW_CREDENTIALS_SECRET \
           -u TRACE_INGESTION_INTERVAL_SECONDS -u TRACE_INGESTION_BATCH_SIZE \
           -u TRACE_INGESTION_QUIET_PERIOD_SECONDS -u REPROCESS_INTERVAL_SECONDS \
+          -u COMPOSE_PROFILES -u BILLING_AUTO_CLOSE_DELAY_MINUTES \
+          -u BILLING_AUTO_CLOSE_CHECK_INTERVAL_SECONDS \
           -u LANGWATCH_WORKERS_REPLICAS -u LANGWATCH_MEMORY_LIMIT \
           -u LANGWATCH_WORKERS_MEMORY_LIMIT -u LW_POSTGRES_MEMORY_LIMIT \
           -u LW_REDIS_MEMORY_LIMIT -u LW_CLICKHOUSE_MEMORY_LIMIT \
