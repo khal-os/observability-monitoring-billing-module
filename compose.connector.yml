@@ -43,9 +43,13 @@ x-langwatch-env: &langwatch-env
   LANGWATCH_ENDPOINT: http://langwatch:5560 # in-project callbacks (workers -> app)
   # These three must all equal the browser-visible URL of THIS instance,
   # or CLI/session auth fails with "Unauthorized: Invalid credentials".
-  BASE_HOST: http://localhost:${LANGWATCH_PORT:-5560}
-  NEXTAUTH_URL: http://localhost:${LANGWATCH_PORT:-5560}
-  LANGWATCH_API_URL: http://localhost:${LANGWATCH_PORT:-5560}
+  # One knob, no fallback: a workstation stack sets the localhost URL, a
+  # public deploy sets the reverse-proxy URL (deploy/RUNBOOK-VM.md) — a
+  # silent localhost default here is exactly the config that breaks login
+  # the moment anyone browses LangWatch from another machine.
+  BASE_HOST: ${LANGWATCH_PUBLIC_URL:?set LANGWATCH_PUBLIC_URL in clients/<name>.env — the browser-visible URL of this LangWatch (http://localhost:<LANGWATCH_PORT> local; https://langwatch.<host> behind a proxy)}
+  NEXTAUTH_URL: ${LANGWATCH_PUBLIC_URL}
+  LANGWATCH_API_URL: ${LANGWATCH_PUBLIC_URL}
   NEXTAUTH_PROVIDER: email # plain email+password signup, no verification step
   # `:?` — fail at compose time, not at runtime: LangWatch sets
   # SKIP_ENV_VALIDATION and will happily boot with EMPTY secrets (forgeable

@@ -54,10 +54,13 @@ line
 printf '  %s\n' "${GRN}✔${RST} ${B}Cliente '${NAME}' no ar${RST}"
 echo
 printf '  %s\n' "${CYN}ACESSOS${RST}"
-row "UI"        "http://localhost:${UI_PORT}"
-row "API"       "http://localhost:${API_PORT}/api/v1"
+# Public URLs from the env file — MODULE_PUBLIC_URL print-only (absent =
+# localhost), LANGWATCH_PUBLIC_URL required by compose.
+UI_URL="$(get MODULE_PUBLIC_URL)"; LW_URL="$(get LANGWATCH_PUBLIC_URL)"
+row "UI"        "${UI_URL:-http://localhost:${UI_PORT}}"
+row "API"       "http://localhost:${API_PORT}/api/v1   ${DIM}(loopback — não exposto)${RST}"
 row "API docs"  "http://localhost:${API_PORT}/api/v1/docs/"
-row "LangWatch" "http://localhost:${LANGWATCH_PORT}"
+row "LangWatch" "${LW_URL:-${YLW}defina LANGWATCH_PUBLIC_URL em ${ENVFILE}${RST}}"
 MONGO_HOST_PORT="$(get MONGO_HOST_PORT)"
 if [[ -n "$MONGO_HOST_PORT" ]]; then
   row "Mongo dev" "mongodb://localhost:${MONGO_HOST_PORT}/?directConnection=true   ${DIM}(db: ${NAME})${RST}"

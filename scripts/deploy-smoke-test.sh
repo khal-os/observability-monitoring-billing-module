@@ -58,13 +58,15 @@ printf '#!/bin/sh\nexit 0\n' > "${STUBS}/docker"
 chmod +x "${STUBS}/docker"
 
 # The minimal env file the contract sanctions: identity + the required
-# client clock (decision 130). No API_PORT,
+# client clock (decision 130) + the required browser-visible LangWatch URL
+# (compose refuses to interpolate without it). No API_PORT,
 # no LANGWATCH_PORT, no UI_PORT — exactly the "dedicated host, omit them"
 # case of clients/example.env.
 cat > "$ENVFILE" <<EOF
 COMPOSE_PROJECT_NAME=${SLUG}
 CLIENT_NAME=${SLUG}
 CLIENT_TIMEZONE=America/Sao_Paulo
+LANGWATCH_PUBLIC_URL=http://localhost:5560
 EOF
 
 # ---------------------------------------------------------------------------

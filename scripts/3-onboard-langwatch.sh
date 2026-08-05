@@ -25,7 +25,13 @@ require_name "${1:-}"
 require_envfile
 banner 3 "onboarding LangWatch — admin · org · projeto · project id"
 
-LANGWATCH_PORT="$(host_port LANGWATCH_PORT)"
+# The browser-visible URL (clients/<name>.env, required — the same value
+# compose feeds LangWatch as NEXTAUTH_URL): auth validates Host/Origin
+# against it, so onboarding MUST talk to this exact URL. Workstation:
+# http://localhost:<port>. Public deploy: the reverse-proxy URL — which
+# therefore must be up BEFORE this step (deploy/RUNBOOK-VM.md).
+BASE="$(get LANGWATCH_PUBLIC_URL)"
+[[ -n "$BASE" ]] || die "LANGWATCH_PUBLIC_URL ausente em ${ENVFILE} — defina a URL do LangWatch visível no navegador (local: http://localhost:$(host_port LANGWATCH_PORT); público: https://langwatch.<host>)"
 
 # sed_escape: the replacement side treats & \ | as metacharacters.
 stamp_project_id() {
@@ -56,10 +62,10 @@ fi
 
 check_lw() {
   local c
-  c=$(curl -s -o /dev/null -m 3 -w '%{http_code}' "http://localhost:${LANGWATCH_PORT}/" 2>/dev/null || true)
+  c=$(curl -s -o /dev/null -m 3 -w '%{http_code}' "${BASE}/" 2>/dev/null || true)
   [[ "$c" == "200" || "$c" == "302" || "$c" == "307" ]]
 }
-check_lw || die "LangWatch não responde em http://localhost:${LANGWATCH_PORT} — rode ./scripts/2-provision-client-stack.sh ${NAME} antes"
+check_lw || die "LangWatch não responde em ${BASE} — rode ./scripts/2-provision-client-stack.sh ${NAME} antes; se LANGWATCH_PUBLIC_URL aponta para um reverse proxy, ele também precisa estar no ar"
 
 trpc_ok() { # $1 = tRPC batch response; fails if it carries an error
   python3 -c 'import json,sys; body=json.loads(sys.argv[1]); sys.exit(1 if "error" in body[0] else 0)' "$1"
@@ -68,8 +74,7 @@ trpc_ok() { # $1 = tRPC batch response; fails if it carries an error
 LW_ADMIN_EMAIL="admin@${NAME}.com"
 
 {
-  step "onboarding do LangWatch (admin: ${LW_ADMIN_EMAIL})"
-  BASE="http://localhost:${LANGWATCH_PORT}"
+  step "onboarding do LangWatch (admin: ${LW_ADMIN_EMAIL}) — via ${BASE}"
   JAR="$(mktemp)"
   # The jar holds an authenticated session cookie — never leave it in /tmp,
   # success or failure (every die/curl-failure path exits through this trap).

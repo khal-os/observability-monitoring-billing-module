@@ -85,6 +85,11 @@ API_PORT=${API_PORT}
 LANGWATCH_PORT=${LANGWATCH_PORT}
 UI_PORT=${UI_PORT}
 
+# OBRIGATÓRIO (compose recusa vazio): URL de LangWatch visível no NAVEGADOR.
+# Deploy público: troque pela URL do reverse proxy (deploy/RUNBOOK-VM.md),
+# ou já crie o cliente com --env LANGWATCH_PUBLIC_URL=https://langwatch.<host>
+LANGWATCH_PUBLIC_URL=http://localhost:${LANGWATCH_PORT}
+
 MONGO_DB_USER=${MONGO_USER}
 MONGO_DB_PASSWORD=${MONGO_PASS}
 
