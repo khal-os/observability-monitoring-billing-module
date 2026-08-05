@@ -91,9 +91,13 @@ deployment — secrets are never regenerated, data is never duplicated.
 ## Production deployment
 
 The script above is a workstation tool (it mints secrets locally,
-self-onboards LangWatch and injects fake traffic). A production deploy is
+self-onboards LangWatch and injects fake traffic). For a **single-VM
+public deploy** (demo-grade real infra: caddy in front, everything else
+loopback-bound) follow `deploy/RUNBOOK-VM.md`. A production deploy is
 the raw contract, driven by CI: materialize the client's env file from the
-protected variable store, then apply the production form —
+protected variable store — including the required `LANGWATCH_PUBLIC_URL`,
+the browser-visible LangWatch URL (clients/example.env) — then apply the
+production form —
 
 ```bash
 docker compose -f compose.module.yml -f compose.connector.yml -f compose.mongodb.yml --env-file <client>.env up -d mongo

@@ -1,0 +1,44 @@
+# Reverse proxy for ONE observability client on a single VM.
+# Companion of deploy/RUNBOOK-VM.md — install caddy on the HOST (not in
+# compose) and drop this at /etc/caddy/Caddyfile, filling the two
+# hostnames and the two ports from clients/<name>.env.
+#
+# Design (see clients/example.env, "Host bind address"): every container
+# keeps its LOOPBACK bind — caddy on the same host reaches 127.0.0.1 fine,
+# and nothing else is reachable from outside. Only two routes exist:
+#
+#   obs.<host>        -> module UI   (the audience-facing surface; it
+#                        proxies /api same-origin, so the auth-less API
+#                        port itself stays loopback-only)
+#   langwatch.<host>  -> LangWatch   (UI login for the operator, and
+#                        /api/otel/v1/traces for agents shipping traces
+#                        from other machines)
+#
+# NEVER add a route to API_PORT: /api/v1 serves the full unmasked trace
+# archive with no auth unless AUTH_SYSTEM_URL is set.
+#
+# No domain? sslip.io resolves the IP embedded in the name, no DNS setup:
+#   obs.203-0-113-10.sslip.io  ->  203.0.113.10
+# Caddy gets Let's Encrypt certificates automatically either way (the VM
+# needs ports 80+443 open).
+
+# ---- module UI (audience-facing) ----
+obs.example.com {
+	reverse_proxy 127.0.0.1:8081
+
+	# The UI has no login of its own. Uncomment to gate the demo behind
+	# basic auth — generate the hash with: caddy hash-password
+	# basic_auth {
+	# 	demo <hash>
+	# }
+}
+
+# ---- LangWatch (operator login + OTLP ingestion) ----
+# This hostname MUST equal LANGWATCH_PUBLIC_URL in clients/<name>.env —
+# LangWatch validates sessions against it (compose.connector.yml).
+# Signup is OPEN (NEXTAUTH_PROVIDER=email): anyone reaching this URL can
+# self-register. Keep the basic_auth below OR restrict by IP if the OTLP
+# path is not needed from outside.
+langwatch.example.com {
+	reverse_proxy 127.0.0.1:5561
+}
