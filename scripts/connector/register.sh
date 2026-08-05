@@ -16,11 +16,6 @@
 #                                  one, there is no renew)
 #   3. dev claims token          — minted below (base64url JSON, no scopes)
 #
-# LEGACY-COMPAT: today's local catalog still guards routes by scope; a
-# scopeless PUT answers 403. When that happens (and only for the minted dev
-# token) the script retries ONCE with the legacy scoped claims and warns.
-# Delete the fallback when the platform drops scope checks.
-#
 # The local catalog stores manifests IN MEMORY — run this again after every
 # dev-server restart. Idempotent: an existing connector is updated in place
 # (ETag/If-Match handled automatically).
@@ -63,7 +58,7 @@ VERSION="${VERSION:-$(tr -d '[:space:]' <"$(dirname "$0")/version")}"
 # Session from the M2M Auth System (the target platform flow): credentials in,
 # short-lived session out. No scopes are requested — identity only.
 m2m_session() {
-  curl -sS -X POST "${AUTH_SYSTEM_URL%/}/token" \
+  curl -sS -X POST "${AUTH_SYSTEM_URL%/}/oauth/token" \
     -H 'content-type: application/x-www-form-urlencoded' \
     --data-urlencode 'grant_type=client_credentials' \
     --data-urlencode "client_id=${M2M_CLIENT_ID}" \
@@ -72,25 +67,21 @@ m2m_session() {
 }
 
 # Dev claims token (base64url JSON read verbatim by the local catalog).
-# scope argument: empty = the real model (no scopes); non-empty = LEGACY-COMPAT.
+# No scopes — the M2M model is identity-only (valid token + right tenant).
 dev_token() {
   python3 -c "
 import base64, json, sys
 claims = {'tenant': sys.argv[1], 'client_id': 'connector-register.sh'}
-if sys.argv[2]:
-    claims['scope'] = sys.argv[2]
-print(base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip('='))" "$TENANT" "$1"
+print(base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip('='))" "$TENANT"
 }
 
-MINTED=""
-if [[ -n "${TOKEN:-}" ]]; then
-  :
-elif [[ -n "${AUTH_SYSTEM_URL:-}" && -n "${M2M_CLIENT_ID:-}" && -n "${M2M_CLIENT_SECRET:-}" ]]; then
-  TOKEN="$(m2m_session)"
-  echo "session obtained from the M2M Auth System (${AUTH_SYSTEM_URL})"
-else
-  TOKEN="$(dev_token "")"
-  MINTED=1
+if [[ -z "${TOKEN:-}" ]]; then
+  if [[ -n "${AUTH_SYSTEM_URL:-}" && -n "${M2M_CLIENT_ID:-}" && -n "${M2M_CLIENT_SECRET:-}" ]]; then
+    TOKEN="$(m2m_session)"
+    echo "session obtained from the M2M Auth System (${AUTH_SYSTEM_URL})"
+  else
+    TOKEN="$(dev_token)"
+  fi
 fi
 
 # `protocolVersion` completes the capability tuple (signal, operation,
@@ -146,10 +137,6 @@ attempt() {
 }
 
 attempt "$TOKEN"
-if [[ "$CODE" == "403" && -n "$MINTED" ]]; then
-  echo "WARN: catalog still guards routes by scope (LEGACY) — retrying with scoped dev claims" >&2
-  attempt "$(dev_token "connectors.registry:read connectors.registry:write")"
-fi
 
 cat "$BODY_FILE"; echo
 echo "HTTP ${CODE}"
