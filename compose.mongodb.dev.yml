@@ -1,0 +1,12 @@
+# DEV-ONLY override of the DATABASE role (decision 65 discipline: this
+# coupling names the mongo service, so it rides with compose.mongodb.yml —
+# the Makefile includes/drops the two together; MONGO_DB_ATLAS=true drops
+# both). Never part of a production deployment.
+#
+# Dev-only mongo access for Compass/mongosh from the host, bound to
+# localhost. Set MONGO_HOST_PORT in the client env file for a stable port;
+# unset, Docker picks a free ephemeral one (see `docker port <client>-mongo`).
+services:
+  mongo:
+    ports:
+      - "127.0.0.1:${MONGO_HOST_PORT:-0}:27017"

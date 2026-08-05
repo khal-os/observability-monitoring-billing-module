@@ -29,9 +29,7 @@ services:
       context: .
       dockerfile: docker/ui.Dockerfile
 
-  # Dev-only mongo access for Compass/mongosh from the host, bound to
-  # localhost. Set MONGO_HOST_PORT in the client env file for a stable port;
-  # unset, Docker picks a free ephemeral one (see `docker port <client>-mongo`).
-  mongo:
-    ports:
-      - "127.0.0.1:${MONGO_HOST_PORT:-0}:27017"
+# The dev mongo fragment (Compass/mongosh port) lives in
+# compose.mongodb.dev.yml, NOT here: this overlay must stay valid when the
+# database role is dropped from the chain (MONGO_DB_ATLAS=true) — a mongo
+# service named here with no image would invalidate the whole project.

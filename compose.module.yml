@@ -52,9 +52,13 @@ services:
       # external database = drop that file and set these in the env file.
       MONGO_DB_HOST: ${MONGO_DB_HOST:-mongo}
       MONGO_DB_PORT: ${MONGO_DB_PORT:-27017}
-      MONGO_DB_NAME: ${CLIENT_NAME}
+      MONGO_DB_NAME: ${MONGO_DB_NAME:-${CLIENT_NAME}}
       MONGO_DB_USER: ${MONGO_DB_USER:-}
       MONGO_DB_PASSWORD: ${MONGO_DB_PASSWORD:-}
+      # Atlas mode (decision 65): 'true' switches the connection to
+      # mongodb+srv://<host> with TLS; MONGO_DB_PORT is ignored and the
+      # Makefile drops compose.mongodb.yml from the chain.
+      MONGO_DB_ATLAS: ${MONGO_DB_ATLAS:-}
       # Auth System (M2M) — forwarded from the client env, or the API stays
       # open (PoC behavior). The `:-` default interpolates to EMPTY when the
       # env file omits/comments the var; environment-setup.ts treats '' as
@@ -142,9 +146,13 @@ services:
       CLIENT_TIMEZONE: ${CLIENT_TIMEZONE:?set CLIENT_TIMEZONE in the client env (IANA) — decision 130}
       MONGO_DB_HOST: ${MONGO_DB_HOST:-mongo}
       MONGO_DB_PORT: ${MONGO_DB_PORT:-27017}
-      MONGO_DB_NAME: ${CLIENT_NAME}
+      MONGO_DB_NAME: ${MONGO_DB_NAME:-${CLIENT_NAME}}
       MONGO_DB_USER: ${MONGO_DB_USER:-}
       MONGO_DB_PASSWORD: ${MONGO_DB_PASSWORD:-}
+      # Atlas mode (decision 65): 'true' switches the connection to
+      # mongodb+srv://<host> with TLS; MONGO_DB_PORT is ignored and the
+      # Makefile drops compose.mongodb.yml from the chain.
+      MONGO_DB_ATLAS: ${MONGO_DB_ATLAS:-}
       # Defaults mirror SCHEDULER_DEFAULTS in billing-factory.ts.
       BILLING_AUTO_CLOSE_DELAY_MINUTES: ${BILLING_AUTO_CLOSE_DELAY_MINUTES:-60}
       BILLING_AUTO_CLOSE_CHECK_INTERVAL_SECONDS: ${BILLING_AUTO_CLOSE_CHECK_INTERVAL_SECONDS:-900}

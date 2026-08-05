@@ -42,12 +42,13 @@ ENVFILE = clients/$(CLIENT).env
 # EVERY variable a compose file interpolates must be listed here — a var
 # that escapes the scrub silently overrides all client env files at once.
 SCRUB = env -u COMPOSE_PROJECT_NAME -u CLIENT_NAME -u CLIENT_TIMEZONE -u API_PORT \
-          -u LANGWATCH_PORT -u LANGWATCH_PROJECT_ID -u TRACE_SOURCE \
+          -u LANGWATCH_PORT -u LANGWATCH_PUBLIC_URL -u LANGWATCH_PROJECT_ID -u TRACE_SOURCE \
           -u API_BIND -u LANGWATCH_BIND -u UI_BIND \
           -u AUTH_SYSTEM_URL -u AUTH_SYSTEM_CLIENT_ID -u AUTH_SYSTEM_CLIENT_SECRET \
           -u CORS_ALLOWED_ORIGINS \
           -u MONGO_DB_HOST -u MONGO_DB_PORT -u MONGO_MEMORY_LIMIT \
-          -u MONGO_DB_USER -u MONGO_DB_PASSWORD -u MONGO_HOST_PORT \
+          -u MONGO_DB_USER -u MONGO_DB_PASSWORD -u MONGO_HOST_PORT -u MONGO_DB_ATLAS \
+          -u MONGO_DB_NAME \
           -u MODULE_IMAGE -u CONNECTOR_IMAGE -u UI_IMAGE -u UI_PORT \
           -u LW_NEXTAUTH_SECRET -u LW_API_TOKEN_JWT_SECRET -u LW_CREDENTIALS_SECRET \
           -u TRACE_INGESTION_INTERVAL_SECONDS -u TRACE_INGESTION_BATCH_SIZE \
@@ -62,9 +63,17 @@ SCRUB = env -u COMPOSE_PROJECT_NAME -u CLIENT_NAME -u CLIENT_TIMEZONE -u API_POR
 # trace-ingestion-worker) + database (mongo) merge into ONE project per
 # client. Couplings live in the file that introduces them, so dropping a
 # role (e.g. external mongo) is a change of THIS list + the client env.
-COMPOSE_FILES = -f compose.module.yml -f compose.connector.yml -f compose.mongodb.yml
+# MONGO_DB_ATLAS=true in the client env IS that drop for the database
+# role: the mongo container would just idle unused next to Atlas. The drop
+# covers BOTH mongo fragments — the role file and its dev override
+# (compose.mongodb.dev.yml): an overlay naming a dropped service would
+# invalidate the whole project ("neither an image nor a build context").
+ATLAS_MODE = $(shell grep -sqx 'MONGO_DB_ATLAS=true' $(ENVFILE) && echo y)
+COMPOSE_FILES = -f compose.module.yml -f compose.connector.yml \
+          $(if $(ATLAS_MODE),,-f compose.mongodb.yml)
 COMPOSE_PROD = $(SCRUB) docker compose $(COMPOSE_FILES) --env-file $(ENVFILE)
-COMPOSE_DEV  = $(SCRUB) docker compose $(COMPOSE_FILES) -f compose.dev.yml --env-file $(ENVFILE)
+COMPOSE_DEV  = $(SCRUB) docker compose $(COMPOSE_FILES) -f compose.dev.yml \
+          $(if $(ATLAS_MODE),,-f compose.mongodb.dev.yml) --env-file $(ENVFILE)
 # One-off jobs run in the PROD form — none of them read demo fixtures, and
 # the dev overlay would auto-create a root-owned demo-data/<client> dir.
 # --no-deps: without it, `run` reconciles the mongo service against THIS
