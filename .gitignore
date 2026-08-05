@@ -7,8 +7,9 @@ clients/*.env
 !clients/example.env
 demo-data/
 
-# Generated load-test archives (scripts/generate-loadtest-traces.mjs) — GBs
-loadtest/
+# Generated load-test archives (scripts/generate-loadtest-traces.mjs) — GBs.
+# The loadtest TOOLING (generator, watcher, README) is tracked.
+loadtest/*.archive.gz
 
 # Mongo backups (make backup) — client data, never committed
 backups/
