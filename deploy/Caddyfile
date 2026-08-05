@@ -1,44 +1,49 @@
-# Reverse proxy for ONE observability client on a single VM.
-# Companion of deploy/RUNBOOK-VM.md — install caddy on the HOST (not in
-# compose) and drop this at /etc/caddy/Caddyfile, filling the two
-# hostnames and the two ports from clients/<name>.env.
+# Caddyfile — observability module (+ agent/chat) on a single VM.
+# This is the LIVE shape of the namastex deployment (87.99.156.174); for a
+# new deployment, change the hostnames — every directive below was earned
+# in production and should be carried over:
 #
-# Design (see clients/example.env, "Host bind address"): every container
-# keeps its LOOPBACK bind — caddy on the same host reaches 127.0.0.1 fine,
-# and nothing else is reachable from outside. Only two routes exist:
+#   - CORS on the API at the PROXY layer: every response carries it,
+#     including 4xx/5xx and caddy-generated errors (502) that app-level
+#     CORS can never cover. Wildcard is acceptable while the API is
+#     public/credential-less; with AUTH_SYSTEM_URL on, prefer the module's
+#     CORS_ALLOWED_ORIGINS (exact-origin echo, audit D-1) and drop it here.
+#   - LangWatch CSP rewrite: upstream sends `frame-ancestors 'none'`,
+#     which blocks embedding in the demo desktop. Substitute ONLY that
+#     directive; scope to 'self' + the desktop origin, never '*'.
+#   - LangWatch cookie rewrite: session cookies ship SameSite=Lax, which
+#     browsers refuse to send in a cross-origin iframe — the embed loads
+#     but never keeps the session. None (cookie is already Secure) makes
+#     it travel; better-auth's Origin checks remain the CSRF guard.
 #
-#   obs.<host>        -> module UI   (the audience-facing surface; it
-#                        proxies /api same-origin, so the auth-less API
-#                        port itself stays loopback-only)
-#   langwatch.<host>  -> LangWatch   (UI login for the operator, and
-#                        /api/otel/v1/traces for agents shipping traces
-#                        from other machines)
-#
-# NEVER add a route to API_PORT: /api/v1 serves the full unmasked trace
-# archive with no auth unless AUTH_SYSTEM_URL is set.
-#
-# No domain? sslip.io resolves the IP embedded in the name, no DNS setup:
-#   obs.203-0-113-10.sslip.io  ->  203.0.113.10
-# Caddy gets Let's Encrypt certificates automatically either way (the VM
-# needs ports 80+443 open).
+# DEPLOY STATE RULE: /etc/caddy/Caddyfile on the VM is written from THIS
+# file. No module/agent redeploy may touch /etc/caddy — and any manual
+# hotfix on the VM must be copied back here, or it dies with the VM.
 
-# ---- module UI (audience-facing) ----
-obs.example.com {
-	reverse_proxy 127.0.0.1:8081
-
-	# The UI has no login of its own. Uncomment to gate the demo behind
-	# basic auth — generate the hash with: caddy hash-password
-	# basic_auth {
-	# 	demo <hash>
-	# }
+# Module API — the product surface (client integrations, docs at /api/v1/docs/)
+api.87-99-156-174.sslip.io {
+	@preflight method OPTIONS
+	handle @preflight {
+		header Access-Control-Allow-Origin "*"
+		header Access-Control-Allow-Methods "GET, POST, OPTIONS"
+		header Access-Control-Allow-Headers "Authorization, Content-Type"
+		header Access-Control-Max-Age "86400"
+		respond "" 204
+	}
+	header Access-Control-Allow-Origin "*"
+	reverse_proxy 127.0.0.1:3003
 }
 
-# ---- LangWatch (operator login + OTLP ingestion) ----
-# This hostname MUST equal LANGWATCH_PUBLIC_URL in clients/<name>.env —
-# LangWatch validates sessions against it (compose.connector.yml).
-# Signup is OPEN (NEXTAUTH_PROVIDER=email): anyone reaching this URL can
-# self-register. Keep the basic_auth below OR restrict by IP if the OTLP
-# path is not needed from outside.
-langwatch.example.com {
-	reverse_proxy 127.0.0.1:5561
+# LangWatch — trace ingestion front door + operator UI. Hostname must equal
+# LANGWATCH_PUBLIC_URL in the client env.
+langwatch.87-99-156-174.sslip.io {
+	reverse_proxy 127.0.0.1:5563 {
+		header_down Content-Security-Policy "frame-ancestors 'none'" "frame-ancestors 'self' https://khal-demo-desktop.onrender.com"
+		header_down Set-Cookie "SameSite=Lax" "SameSite=None"
+	}
+}
+
+# WhatsApp chat UI (proxies the agent internally; agent stays unpublished)
+chat.87-99-156-174.sslip.io {
+	reverse_proxy 127.0.0.1:8899
 }

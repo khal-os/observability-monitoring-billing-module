@@ -39,6 +39,24 @@ sudo apt-get install -y caddy
 git clone <repo> && cd usage-billing-component && make build
 ```
 
+> **Redeploys via rsync — the clobber rule.** If you ship code updates by
+> rsyncing a working tree instead of git-pulling, you MUST exclude the
+> VM's deploy state, or the sync silently reverts it to your laptop's
+> stale copy (this happened in production: an agent redeploy overwrote
+> `ENVIRONMENT=prod` + the minted `API_KEY` back to open dev mode):
+>
+> ```bash
+> rsync -az --exclude .git --exclude node_modules --exclude clients/ \
+>   ./ root@<vm>:/opt/usage-billing-component/
+> ```
+>
+> Authoritative ON THE VM, never to be overwritten by a deploy:
+> `clients/<name>.env` (public URLs, Atlas creds, project id, knobs,
+> COMPOSE_PROFILES), `/etc/caddy/Caddyfile` (written from deploy/Caddyfile
+> — hotfixes must flow back to the repo), and the agent's
+> `/opt/martino-agent/.env` (`ENVIRONMENT=prod`, minted `API_KEY`) — the
+> agent rsync needs `--exclude .env`.
+
 ## 3 · Caddy BEFORE the deploy
 
 The onboarding script talks to LangWatch at `LANGWATCH_PUBLIC_URL`, so the
