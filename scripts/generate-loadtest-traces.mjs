@@ -87,8 +87,8 @@ const modelRef = (key) => {
   return { id: key.slice(slash + 1), provider: key.slice(0, slash) };
 };
 
-const WINDOW_START = Date.UTC(2026, 1, 1); // 2026-02-01
-const WINDOW_END = Date.UTC(2026, 6, 29);  // 2026-07-29 -> 6 billing months
+const WINDOW_START = Date.UTC(2026, 0, 1); // 2026-01-01
+const WINDOW_END = Date.now(); // ...up to the moment of generation (all of 2026 so far)
 
 const rnd = (max) => Math.floor(Math.random() * max);
 const pick = (arr) => arr[rnd(arr.length)];
@@ -109,10 +109,10 @@ const tokenCounts = (status) => {
     return { input: null, output: null, cache_read: null, cache_write: null };
   }
   return {
-    input: 200 + rnd(19_800),
-    output: 50 + rnd(3_950),
-    cache_read: chance(0.35) ? 500 + rnd(30_000) : null,
-    cache_write: chance(0.2) ? 200 + rnd(8_000) : null,
+    input: 50 + rnd(59_950), // trace "size" spans tiny one-liners to huge contexts
+    output: 20 + rnd(11_980),
+    cache_read: chance(0.35) ? 500 + rnd(80_000) : null,
+    cache_write: chance(0.2) ? 200 + rnd(20_000) : null,
   };
 };
 
@@ -134,7 +134,7 @@ const stampCosts = (model, tokens) => {
 };
 
 const buildSpans = (trace, model, tokens) => {
-  const count = 1 + rnd(10);
+  const count = 1 + rnd(14); // waterfalls de 1 a 15 spans
   const spans = [];
   for (let i = 0; i < count; i += 1) {
     const isRoot = i === 0;
@@ -274,7 +274,7 @@ const main = async () => {
 
   while (produced < TOTAL) {
     const session = buildSession();
-    const size = session.sessionId ? 1 + rnd(8) : 1;
+    const size = session.sessionId ? 1 + rnd(20) : 1; // conversas de 1 a 20 turnos
     let cursor = WINDOW_START + rnd(WINDOW_END - WINDOW_START);
     for (let i = 0; i < size && produced < TOTAL; i += 1) {
       batch.push(buildTrace(session, cursor));
