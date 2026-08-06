@@ -90,9 +90,10 @@ const modelRef = (key) => {
 // Billing months cut at the CLIENT's midnight (decision 130), not UTC's:
 // a trace at 2026-01-01T00:30Z is 2025-12-31 21:30 in São Paulo and lands
 // in a December/2025 bill — which then blocks every close (oldest-first).
-// Start the window at the client-tz midnight of Jan 1 (UTC-3 → 03:00Z).
-const WINDOW_START = Date.UTC(2026, 0, 1, 3);
-const WINDOW_END = Date.now(); // ...up to the moment of generation (all of 2026 so far)
+// Default window: client-tz midnight of Jan 1 (UTC-3 → 03:00Z) up to now.
+// argv[5]/argv[6] (ISO datetimes) override it — e.g. a single busy day.
+const WINDOW_START = process.argv[5] ? Date.parse(process.argv[5]) : Date.UTC(2026, 0, 1, 3);
+const WINDOW_END = process.argv[6] ? Date.parse(process.argv[6]) : Date.now();
 
 const rnd = (max) => Math.floor(Math.random() * max);
 const pick = (arr) => arr[rnd(arr.length)];
