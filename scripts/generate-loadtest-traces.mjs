@@ -283,8 +283,12 @@ const main = async () => {
     let cursor = WINDOW_START + rnd(WINDOW_END - WINDOW_START);
     for (let i = 0; i < size && produced < TOTAL; i += 1) {
       batch.push(buildTrace(session, cursor));
-      cursor += 30_000 + rnd(600_000); // next trace later in the conversation
       produced += 1;
+      cursor += 30_000 + rnd(600_000); // next trace later in the conversation
+      // A conversa nunca atravessa o fim da janela: turnos que passariam de
+      // WINDOW_END (ex.: "agora") criariam traces DATADOS NO FUTURO — a
+      // sessão termina ali e a próxima recomeça dentro da janela.
+      if (cursor > WINDOW_END) break;
     }
     if (batch.length >= BATCH) {
       await collection.insertMany(batch, { ordered: false });
