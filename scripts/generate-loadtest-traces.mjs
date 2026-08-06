@@ -179,8 +179,16 @@ const buildTrace = (session, startedMs) => {
   const pending = !unclassified && chance(0.07);
   const model = unclassified ? null : pending ? UNPRICED_MODEL : session.model;
   const tokens = tokenCounts(status);
+  // Decision 128: a MODEL with zero measured tokens is no_measured_usage —
+  // cost unknown, never R$ 0,00, never pending (no price resolves it), and
+  // it does not block month close. The real ingestion stamper classifies
+  // this at write time; a direct-insert generator must speak the same
+  // dialect or it plants unresolvable pending_price / lying R$ 0,00 docs.
+  const noMeasuredUsage =
+    model !== null && Object.values(tokens).every((n) => n === null);
   const tokensTotal = Object.values(tokens).reduce((sum, n) => sum + (n ?? 0), 0);
-  const stampedCosts = pending || unclassified ? null : stampCosts(model, tokens);
+  const stampedCosts =
+    pending || unclassified || noMeasuredUsage ? null : stampCosts(model, tokens);
   const totalCostMicrocents = stampedCosts
     ? stampedCosts.reduce((sum, line) => sum + line.costMicrocents, 0)
     : null;
@@ -211,10 +219,14 @@ const buildTrace = (session, startedMs) => {
     status,
     tokens,
     tokensTotal,
-    pricingStatus: pending && !unclassified ? 'pending_price' : 'stamped',
-    stampedCosts: pending ? null : (stampedCosts ?? []),
-    totalCostMicrocents: pending ? null : (totalCostMicrocents ?? 0),
-    stampedAt: pending ? null : ingestedAt,
+    pricingStatus: noMeasuredUsage
+      ? 'no_measured_usage'
+      : pending && !unclassified
+        ? 'pending_price'
+        : 'stamped',
+    stampedCosts: pending || noMeasuredUsage ? null : (stampedCosts ?? []),
+    totalCostMicrocents: pending || noMeasuredUsage ? null : (totalCostMicrocents ?? 0),
+    stampedAt: pending || noMeasuredUsage ? null : ingestedAt,
     pendingPrice: null, // never persisted — derived at read time
     unclassified: unclassified ? { reasons: ['missing agent metadata'] } : null,
     ingestedAt,
