@@ -10,7 +10,7 @@
 # Auth is identity-only (valid token + right tenant) — there are NO scopes in
 # the M2M model. Token precedence:
 #   1. TOKEN                     — explicit token, used as-is
-#   2. M2M_CLIENT_ID/SECRET      — with AUTH_SYSTEM_URL: a session is requested
+#   2. KHAL_CLIENT_ID/SECRET     — with AUTH_SYSTEM_URL: a session is requested
 #                                  from the M2M Auth System (client_credentials;
 #                                  sessions expire — each run requests a fresh
 #                                  one, there is no renew)
@@ -26,9 +26,7 @@
 #     pnpm --filter @khal/connector-register dev
 #
 # Env overrides (all optional):
-#   CONNECTOR_CATALOG_URL  default http://127.0.0.1:7103 (the Connector
-#                  Catalog; legacy spellings CATALOG_URL/REGISTER_URL honored)
-#   TENANT         default acme
+#   CONNECTOR_CATALOG_URL  default http://127.0.0.1:7103 (the Connector Catalog)
 #   CONNECTOR_ID   default langwatch-cliente
 #   OTLP_ENDPOINT  default http://localhost:5562/api/otel/v1/traces
 #   CREDENTIAL_REF default workos-vault://<CONNECTOR_ID> — MUST match a key of
@@ -38,19 +36,19 @@
 #   KHAL_DISCOVERY_URL the silo's discovery base (ADR-97) — resolves
 #                  CONNECTOR_CATALOG_URL and AUTH_SYSTEM_URL from /.well-known/registers
 #                  (explicitly set vars win over resolved ones)
-#   KHAL_TENANT    canonical spelling of TENANT
+#   KHAL_TENANT    tenant slug (default acme)
 #   AUTH_SYSTEM_URL    the M2M Auth System base URL (enables the session path)
-#   KHAL_CLIENT_ID     the connector's M2M credential id (M2M_CLIENT_ID honored)
-#   KHAL_CLIENT_SECRET the connector's credential secret (M2M_CLIENT_SECRET too)
+#   KHAL_CLIENT_ID     the connector's M2M credential id
+#   KHAL_CLIENT_SECRET the connector's credential secret
 #   TOKEN          explicit token for the PUT (wins over everything)
 set -euo pipefail
 
-# Canonical khal spellings (decision 132); the older names keep working.
-TENANT="${KHAL_TENANT:-${TENANT:-acme}}"
-M2M_CLIENT_ID="${KHAL_CLIENT_ID:-${M2M_CLIENT_ID:-}}"
-M2M_CLIENT_SECRET="${KHAL_CLIENT_SECRET:-${M2M_CLIENT_SECRET:-}}"
+# Canonical khal spellings only (decision 133 — legacy names removed pre-prod).
+TENANT="${KHAL_TENANT:-acme}"
+M2M_CLIENT_ID="${KHAL_CLIENT_ID:-}"
+M2M_CLIENT_SECRET="${KHAL_CLIENT_SECRET:-}"
 # ADR-97: one discovery URL resolves catalog + auth. Explicit vars win.
-CONNECTOR_CATALOG_URL="${CONNECTOR_CATALOG_URL:-${CATALOG_URL:-${REGISTER_URL:-}}}"
+CONNECTOR_CATALOG_URL="${CONNECTOR_CATALOG_URL:-}"
 if [[ -n "${KHAL_DISCOVERY_URL:-}" ]]; then
   discovery_json=$(curl -sS "${KHAL_DISCOVERY_URL%/}/.well-known/registers?tenant=${TENANT}")
   [[ -z "$CONNECTOR_CATALOG_URL" ]] && CONNECTOR_CATALOG_URL=$(python3 -c \

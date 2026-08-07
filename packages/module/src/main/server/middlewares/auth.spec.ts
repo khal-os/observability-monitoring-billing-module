@@ -19,7 +19,7 @@ const authenticatorAnswering = (answer: boolean): TokenAuthenticator => ({
 });
 
 describe('Auth Middleware', () => {
-  it('MUST pass every request through when no authenticator is configured (AUTH_SYSTEM_URL unset)', async () => {
+  it('MUST pass every request through when no authenticator is configured (KHAL_DISCOVERY_URL unset)', async () => {
     await request(makeApp()).get('/test-auth').expect(200, { ok: true });
   });
 

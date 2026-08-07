@@ -4,8 +4,8 @@ import { UnauthorizedError } from '../../../presentation/errors/index.js';
 
 /**
  * Env-gated bearer auth. Built WITHOUT an authenticator (no khal platform
- * configured — neither KHAL_DISCOVERY_URL nor the legacy AUTH_SYSTEM_URL)
- * it is a passthrough — the API stays open, PoC behavior. Built WITH
+ * configured — KHAL_DISCOVERY_URL unset) it is a passthrough — the API
+ * stays open, PoC behavior. Built WITH
  * one, every request must carry `Authorization: Bearer <token>` that the
  * Auth System accepts (authenticated-or-not only).
  *

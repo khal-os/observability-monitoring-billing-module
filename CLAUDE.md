@@ -140,10 +140,10 @@ canonical config is the khal-wide quartet (decision 132):
 `KHAL_DISCOVERY_URL` + `KHAL_TENANT` (the Auth System URL is resolved at
 runtime from `/.well-known/registers` — fail closed when unresolved) +
 `KHAL_CLIENT_ID`/`KHAL_CLIENT_SECRET` (the module's own credential for the
-protected `/introspect`). The pre-discovery spellings (`AUTH_SYSTEM_URL`
-direct, `AUTH_SYSTEM_CLIENT_*`) are honored as deprecated aliases. The
-module holds no scope/tenant logic — that is a platform invariant, not an
-omission. Nothing configured → API open (PoC behavior).
+protected `/introspect`). The quartet is the ONLY spelling — the
+pre-discovery `AUTH_SYSTEM_*` names were removed pre-prod (decision 133).
+The module holds no scope/tenant logic — that is a platform invariant, not
+an omission. Nothing configured → API open (PoC behavior).
 
 ## Working agreements
 
