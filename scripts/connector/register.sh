@@ -26,8 +26,8 @@
 #     pnpm --filter @khal/connector-register dev
 #
 # Env overrides (all optional):
-#   CATALOG_URL    default http://127.0.0.1:7103 (the Connector Catalog;
-#                  legacy spelling REGISTER_URL still honored)
+#   CONNECTOR_CATALOG_URL  default http://127.0.0.1:7103 (the Connector
+#                  Catalog; legacy spellings CATALOG_URL/REGISTER_URL honored)
 #   TENANT         default acme
 #   CONNECTOR_ID   default langwatch-cliente
 #   OTLP_ENDPOINT  default http://localhost:5562/api/otel/v1/traces
@@ -36,7 +36,7 @@
 #                  credential to be real
 #   VERSION        default: contents of scripts/connector/version
 #   KHAL_DISCOVERY_URL the silo's discovery base (ADR-97) — resolves
-#                  CATALOG_URL and AUTH_SYSTEM_URL from /.well-known/registers
+#                  CONNECTOR_CATALOG_URL and AUTH_SYSTEM_URL from /.well-known/registers
 #                  (explicitly set vars win over resolved ones)
 #   KHAL_TENANT    canonical spelling of TENANT
 #   AUTH_SYSTEM_URL    the M2M Auth System base URL (enables the session path)
@@ -50,15 +50,15 @@ TENANT="${KHAL_TENANT:-${TENANT:-acme}}"
 M2M_CLIENT_ID="${KHAL_CLIENT_ID:-${M2M_CLIENT_ID:-}}"
 M2M_CLIENT_SECRET="${KHAL_CLIENT_SECRET:-${M2M_CLIENT_SECRET:-}}"
 # ADR-97: one discovery URL resolves catalog + auth. Explicit vars win.
-CATALOG_URL="${CATALOG_URL:-${REGISTER_URL:-}}"
+CONNECTOR_CATALOG_URL="${CONNECTOR_CATALOG_URL:-${CATALOG_URL:-${REGISTER_URL:-}}}"
 if [[ -n "${KHAL_DISCOVERY_URL:-}" ]]; then
   discovery_json=$(curl -sS "${KHAL_DISCOVERY_URL%/}/.well-known/registers?tenant=${TENANT}")
-  [[ -z "$CATALOG_URL" ]] && CATALOG_URL=$(python3 -c \
+  [[ -z "$CONNECTOR_CATALOG_URL" ]] && CONNECTOR_CATALOG_URL=$(python3 -c \
     "import json,sys;print(json.loads(sys.argv[1])['registers']['connectors'])" "$discovery_json")
   [[ -z "${AUTH_SYSTEM_URL:-}" ]] && AUTH_SYSTEM_URL=$(python3 -c \
     "import json,sys;print(json.loads(sys.argv[1])['registers']['auth']['url'])" "$discovery_json")
 fi
-CATALOG_URL="${CATALOG_URL:-http://127.0.0.1:7103}"
+CONNECTOR_CATALOG_URL="${CONNECTOR_CATALOG_URL:-http://127.0.0.1:7103}"
 CONNECTOR_ID="${CONNECTOR_ID:-langwatch-cliente}"
 OTLP_ENDPOINT="${OTLP_ENDPOINT:-http://localhost:5562/api/otel/v1/traces}"
 CREDENTIAL_REF="${CREDENTIAL_REF:-workos-vault://${CONNECTOR_ID}}"
@@ -143,9 +143,9 @@ attempt() {
   local etag
   etag=$(curl -s -o /dev/null -w '%{header_json}' \
     -H "Authorization: Bearer ${token}" \
-    "${CATALOG_URL}/connectors/${CONNECTOR_ID}" \
+    "${CONNECTOR_CATALOG_URL}/connectors/${CONNECTOR_ID}" \
     | python3 -c "import json,sys;h=json.load(sys.stdin);print((h.get('etag') or [''])[0])")
-  local args=(-sS -X PUT "${CATALOG_URL}/connectors/${CONNECTOR_ID}"
+  local args=(-sS -X PUT "${CONNECTOR_CATALOG_URL}/connectors/${CONNECTOR_ID}"
     -H "Authorization: Bearer ${token}" -H 'content-type: application/json'
     -o "$BODY_FILE" -w '%{http_code}' -d "${MANIFEST}")
   [[ -n "$etag" ]] && args+=(-H "If-Match: ${etag}")
@@ -157,4 +157,4 @@ attempt "$TOKEN"
 cat "$BODY_FILE"; echo
 echo "HTTP ${CODE}"
 [[ "$CODE" =~ ^2 ]] || { echo "ERROR: registration failed"; exit 1; }
-echo "connector '${CONNECTOR_ID}' v${VERSION} registered at ${CATALOG_URL} (tenant ${TENANT}) → ${OTLP_ENDPOINT}"
+echo "connector '${CONNECTOR_ID}' v${VERSION} registered at ${CONNECTOR_CATALOG_URL} (tenant ${TENANT}) → ${OTLP_ENDPOINT}"

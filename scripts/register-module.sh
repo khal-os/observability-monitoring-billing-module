@@ -36,11 +36,11 @@
 #                 (read from clients/$CLIENT.env unless API_PORT is set;
 #                 absent there, the compose default applies — see host_port)
 #   KHAL_DISCOVERY_URL the silo's discovery base (ADR-97) — resolves
-#                 CATALOG_URL and AUTH_SYSTEM_URL from /.well-known/registers
+#                 MODULE_CATALOG_URL and AUTH_SYSTEM_URL from /.well-known/registers
 #                 (explicitly set vars win over resolved ones)
 #   KHAL_TENANT   canonical spelling of TENANT (default: $CLIENT)
-#   CATALOG_URL   default http://127.0.0.1:7102 (the Module Catalog;
-#                 legacy spelling REGISTER_URL still honored)
+#   MODULE_CATALOG_URL  default http://127.0.0.1:7102 (the Module Catalog;
+#                 legacy spellings CATALOG_URL/REGISTER_URL still honored)
 #   MODULE_ID     default tracing
 #   ENDPOINT      default http://localhost:${API_PORT}
 #   AUTH_SYSTEM_URL    the M2M Auth System base URL (enables the session path)
@@ -60,15 +60,15 @@ TENANT="${KHAL_TENANT:-${TENANT:-$CLIENT}}"
 M2M_CLIENT_ID="${KHAL_CLIENT_ID:-${M2M_CLIENT_ID:-}}"
 M2M_CLIENT_SECRET="${KHAL_CLIENT_SECRET:-${M2M_CLIENT_SECRET:-}}"
 # ADR-97: one discovery URL resolves catalog + auth. Explicit vars win.
-CATALOG_URL="${CATALOG_URL:-${REGISTER_URL:-}}"
+MODULE_CATALOG_URL="${MODULE_CATALOG_URL:-${CATALOG_URL:-${REGISTER_URL:-}}}"
 if [[ -n "${KHAL_DISCOVERY_URL:-}" ]]; then
   discovery_json=$(curl -sS "${KHAL_DISCOVERY_URL%/}/.well-known/registers?tenant=${TENANT}")
-  [[ -z "$CATALOG_URL" ]] && CATALOG_URL=$(python3 -c \
+  [[ -z "$MODULE_CATALOG_URL" ]] && MODULE_CATALOG_URL=$(python3 -c \
     "import json,sys;print(json.loads(sys.argv[1])['registers']['modules'])" "$discovery_json")
   [[ -z "${AUTH_SYSTEM_URL:-}" ]] && AUTH_SYSTEM_URL=$(python3 -c \
     "import json,sys;print(json.loads(sys.argv[1])['registers']['auth']['url'])" "$discovery_json")
 fi
-CATALOG_URL="${CATALOG_URL:-http://127.0.0.1:7102}"
+MODULE_CATALOG_URL="${MODULE_CATALOG_URL:-http://127.0.0.1:7102}"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=scripts/deploy-lib.sh
@@ -173,9 +173,9 @@ attempt() {
   local etag
   etag=$(curl -s -o /dev/null -w '%{header_json}' \
     -H "Authorization: Bearer ${token}" \
-    "${CATALOG_URL}/modules/${MODULE_ID}" \
+    "${MODULE_CATALOG_URL}/modules/${MODULE_ID}" \
     | python3 -c "import json,sys;h=json.load(sys.stdin);print((h.get('etag') or [''])[0])")
-  local args=(-sS -X PUT "${CATALOG_URL}/modules/${MODULE_ID}"
+  local args=(-sS -X PUT "${MODULE_CATALOG_URL}/modules/${MODULE_ID}"
     -H "Authorization: Bearer ${token}" -H 'content-type: application/json'
     -o "$BODY_FILE" -w '%{http_code}' -d "${MANIFEST}")
   [[ -n "$etag" ]] && args+=(-H "If-Match: ${etag}")
@@ -187,12 +187,12 @@ attempt "$TOKEN"
 cat "$BODY_FILE"; echo
 echo "HTTP ${CODE}"
 [[ "$CODE" =~ ^2 ]] || { echo "ERROR: registration failed"; exit 1; }
-echo "module '${MODULE_ID}' v${VERSION} registered at ${CATALOG_URL} (tenant ${TENANT}) → ${ENDPOINT}"
+echo "module '${MODULE_ID}' v${VERSION} registered at ${MODULE_CATALOG_URL} (tenant ${TENANT}) → ${ENDPOINT}"
 
 # Fluxo Deploy, passo final: o manifesto nasce desativado — sem esta ativação
 # o module não entra em lista/resolução (Farol não o descobre).
 if [[ -z "${SKIP_ACTIVATE:-}" ]]; then
-  ACT=$(curl -sS -X POST "${CATALOG_URL}/modules/${MODULE_ID}/activate" \
+  ACT=$(curl -sS -X POST "${MODULE_CATALOG_URL}/modules/${MODULE_ID}/activate" \
     -H "Authorization: Bearer ${TOKEN}" -o "$BODY_FILE" -w '%{http_code}')
   [[ "$ACT" =~ ^2 ]] \
     || { cat "$BODY_FILE"; echo; echo "ERROR: activation failed (HTTP ${ACT})"; exit 1; }
