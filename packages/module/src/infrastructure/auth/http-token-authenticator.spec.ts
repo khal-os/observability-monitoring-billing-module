@@ -250,3 +250,50 @@ describe('HttpTokenAuthenticator', () => {
     });
   });
 });
+
+describe('HttpTokenAuthenticator — resolver-form authSystemUrl (khal discovery)', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('MUST introspect against the RESOLVED URL when authSystemUrl is a callable', async () => {
+    const mock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ active: true }),
+    });
+    withFetchReturning(mock);
+
+    const sut = new HttpTokenAuthenticator({
+      authSystemUrl: async () => 'http://resolved-auth.local',
+      clientId: 'module-client',
+      clientSecret: 'module-secret',
+    });
+
+    await expect(sut.isAuthenticated('tkn')).resolves.toBe(true);
+    expect(mock).toHaveBeenCalledWith(
+      'http://resolved-auth.local/introspect',
+      expect.anything(),
+    );
+  });
+
+  it('MUST fail closed — and NOT cache — while the resolver answers undefined (discovery down)', async () => {
+    const mock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ active: true }),
+    });
+    withFetchReturning(mock);
+
+    const urls: (string | undefined)[] = [undefined, 'http://resolved-auth.local'];
+    const sut = new HttpTokenAuthenticator({
+      authSystemUrl: async () => urls.shift(),
+      clientId: 'module-client',
+      clientSecret: 'module-secret',
+    });
+
+    await expect(sut.isAuthenticated('tkn')).resolves.toBe(false); // unresolved → 401
+    expect(mock).not.toHaveBeenCalled(); // no URL, no introspection call
+    await expect(sut.isAuthenticated('tkn')).resolves.toBe(true); // uncached: next request re-asks
+  });
+});

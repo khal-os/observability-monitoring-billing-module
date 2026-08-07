@@ -188,15 +188,20 @@ requires the explicit `TRACE_SOURCE=fixtures` (offline demos only).
 
 ## API auth (env-gated, off by default)
 
-Set `AUTH_SYSTEM_URL` (the khal Auth System base URL) in the client env and
-every `/api/v1` request must carry `Authorization: Bearer <M2M token>`. The
-module validates by **introspection** (RFC 7662): it forwards the token and
-reads only `active` — authenticated-or-not, no scope or tenant logic here
-(that's the platform's M2M model). Introspection is itself a protected
-endpoint, so the module needs its **own** M2M credential
-(`AUTH_SYSTEM_CLIENT_ID` / `AUTH_SYSTEM_CLIENT_SECRET`, sent as Basic) —
-without it, and whenever the Auth System is unreachable, requests answer 401
-(fail closed). Unset URL → the API is open, the original PoC behavior.
+Set the khal quartet in the client env — `KHAL_DISCOVERY_URL` +
+`KHAL_TENANT` (the Auth System URL is resolved at runtime from
+`/.well-known/registers`, ADR-97) + `KHAL_CLIENT_ID`/`KHAL_CLIENT_SECRET` —
+and every `/api/v1` request must carry `Authorization: Bearer <M2M token>`.
+The module validates by **introspection** (RFC 7662): it forwards the token
+and reads only `active` — authenticated-or-not, no scope or tenant logic
+here (that's the platform's M2M model). Introspection is itself a protected
+endpoint, so the module needs its **own** M2M credential (the
+`KHAL_CLIENT_*` pair, sent as Basic) — without it, and whenever the Auth
+System is unreachable or discovery never resolved, requests answer 401
+(fail closed). The pre-discovery spellings (`AUTH_SYSTEM_URL` direct +
+`AUTH_SYSTEM_CLIENT_ID`/`AUTH_SYSTEM_CLIENT_SECRET`) are honored as
+deprecated aliases (decision 132). Nothing configured → the API is open,
+the original PoC behavior.
 `/api/v1/docs` stays open either way (container healthcheck). Note: the
 bundled UI does not send a token yet — turn auth on only for API-only
 deployments for now.

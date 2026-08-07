@@ -35,14 +35,30 @@
 #                  the catalog's VAULT_CREDENTIALS_JSON for the resolved
 #                  credential to be real
 #   VERSION        default: contents of scripts/connector/version
+#   KHAL_DISCOVERY_URL the silo's discovery base (ADR-97) — resolves
+#                  CATALOG_URL and AUTH_SYSTEM_URL from /.well-known/registers
+#                  (explicitly set vars win over resolved ones)
+#   KHAL_TENANT    canonical spelling of TENANT
 #   AUTH_SYSTEM_URL    the M2M Auth System base URL (enables the session path)
-#   M2M_CLIENT_ID      the connector's M2M credential id
-#   M2M_CLIENT_SECRET  the connector's M2M credential secret
+#   KHAL_CLIENT_ID     the connector's M2M credential id (M2M_CLIENT_ID honored)
+#   KHAL_CLIENT_SECRET the connector's credential secret (M2M_CLIENT_SECRET too)
 #   TOKEN          explicit token for the PUT (wins over everything)
 set -euo pipefail
 
-CATALOG_URL="${CATALOG_URL:-${REGISTER_URL:-http://127.0.0.1:7103}}"
-TENANT="${TENANT:-acme}"
+# Canonical khal spellings (decision 132); the older names keep working.
+TENANT="${KHAL_TENANT:-${TENANT:-acme}}"
+M2M_CLIENT_ID="${KHAL_CLIENT_ID:-${M2M_CLIENT_ID:-}}"
+M2M_CLIENT_SECRET="${KHAL_CLIENT_SECRET:-${M2M_CLIENT_SECRET:-}}"
+# ADR-97: one discovery URL resolves catalog + auth. Explicit vars win.
+CATALOG_URL="${CATALOG_URL:-${REGISTER_URL:-}}"
+if [[ -n "${KHAL_DISCOVERY_URL:-}" ]]; then
+  discovery_json=$(curl -sS "${KHAL_DISCOVERY_URL%/}/.well-known/registers?tenant=${TENANT}")
+  [[ -z "$CATALOG_URL" ]] && CATALOG_URL=$(python3 -c \
+    "import json,sys;print(json.loads(sys.argv[1])['registers']['connectors'])" "$discovery_json")
+  [[ -z "${AUTH_SYSTEM_URL:-}" ]] && AUTH_SYSTEM_URL=$(python3 -c \
+    "import json,sys;print(json.loads(sys.argv[1])['registers']['auth']['url'])" "$discovery_json")
+fi
+CATALOG_URL="${CATALOG_URL:-http://127.0.0.1:7103}"
 CONNECTOR_ID="${CONNECTOR_ID:-langwatch-cliente}"
 OTLP_ENDPOINT="${OTLP_ENDPOINT:-http://localhost:5562/api/otel/v1/traces}"
 CREDENTIAL_REF="${CREDENTIAL_REF:-workos-vault://${CONNECTOR_ID}}"

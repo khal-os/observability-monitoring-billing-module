@@ -10,7 +10,13 @@ import { TokenAuthenticator } from '../../application/interfaces/token-authentic
 export const MAX_CACHE_ENTRIES = 10_000;
 
 export interface HttpTokenAuthenticatorOptions {
-  authSystemUrl: string;
+  /**
+   * The Auth System base URL — a string (direct config) or an async resolver
+   * (khal discovery, ADR-97). A resolver answering undefined means "not
+   * resolved (yet)": introspection counts it as an error — uncached, fail
+   * closed — so a broken discovery yields 401s, never an open API.
+   */
+  authSystemUrl: string | (() => Promise<string | undefined>);
   /**
    * The module's own M2M credential: /introspect is a PROTECTED endpoint
    * (RFC 7662 §2.1) — the Auth System answers invalid_client unless the
@@ -56,7 +62,7 @@ interface CachedVerdict {
  * instead of growing the heap.
  */
 export class HttpTokenAuthenticator implements TokenAuthenticator {
-  private readonly authSystemUrl: string;
+  private readonly resolveAuthSystemUrl: () => Promise<string | undefined>;
   private readonly clientId?: string;
   private readonly clientSecret?: string;
   private readonly timeoutMs: number;
@@ -67,7 +73,11 @@ export class HttpTokenAuthenticator implements TokenAuthenticator {
   private readonly inFlight = new Map<string, Promise<boolean>>();
 
   constructor(options: HttpTokenAuthenticatorOptions) {
-    this.authSystemUrl = options.authSystemUrl;
+    const { authSystemUrl } = options;
+    this.resolveAuthSystemUrl =
+      typeof authSystemUrl === 'string'
+        ? async () => authSystemUrl
+        : authSystemUrl;
     this.clientId = options.clientId;
     this.clientSecret = options.clientSecret;
     this.timeoutMs = options.timeoutMs ?? 3000;
@@ -138,6 +148,11 @@ export class HttpTokenAuthenticator implements TokenAuthenticator {
   /** true/false = definitive introspection result; undefined = error (uncached, fail closed). */
   private async introspect(token: string): Promise<boolean | undefined> {
     try {
+      const authSystemUrl = await this.resolveAuthSystemUrl();
+      // No URL (discovery hasn't answered) is an ERROR, not a negative:
+      // uncached, fails closed for this request only.
+      if (!authSystemUrl) return undefined;
+
       const headers: Record<string, string> = {
         'content-type': 'application/x-www-form-urlencoded',
       };
@@ -148,7 +163,7 @@ export class HttpTokenAuthenticator implements TokenAuthenticator {
       }
 
       const response = await fetch(
-        `${this.authSystemUrl.replace(/\/+$/, '')}/introspect`,
+        `${authSystemUrl.replace(/\/+$/, '')}/introspect`,
         {
           method: 'POST',
           headers,

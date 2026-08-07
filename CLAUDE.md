@@ -131,13 +131,19 @@ until the next close adjudicates them (decision 100); reprocess skips closed
 months. Runbook vocabulary also includes `make backup` (mongodump of the
 permanent archive — run it before any `down -v`).
 
-Auth (added post-PoC): env-gated M2M bearer auth on `/api/v1` — with
-`AUTH_SYSTEM_URL` set, every request needs a token the khal Auth System
+Auth (added post-PoC): env-gated M2M bearer auth on `/api/v1` — with the
+khal platform configured, every request needs a token the khal Auth System
 accepts (introspection, authenticated-or-not ONLY), except `/api/v1/docs*`
 and `openapi.json`, which stay open as the container healthcheck and
 integration surface (decision 103; OPTIONS preflight also bypasses). The
+canonical config is the khal-wide quartet (decision 132):
+`KHAL_DISCOVERY_URL` + `KHAL_TENANT` (the Auth System URL is resolved at
+runtime from `/.well-known/registers` — fail closed when unresolved) +
+`KHAL_CLIENT_ID`/`KHAL_CLIENT_SECRET` (the module's own credential for the
+protected `/introspect`). The pre-discovery spellings (`AUTH_SYSTEM_URL`
+direct, `AUTH_SYSTEM_CLIENT_*`) are honored as deprecated aliases. The
 module holds no scope/tenant logic — that is a platform invariant, not an
-omission. Unset → API open (PoC behavior).
+omission. Nothing configured → API open (PoC behavior).
 
 ## Working agreements
 

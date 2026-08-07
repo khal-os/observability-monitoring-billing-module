@@ -3,8 +3,9 @@ import { TokenAuthenticator } from '../../../application/interfaces/token-authen
 import { UnauthorizedError } from '../../../presentation/errors/index.js';
 
 /**
- * Env-gated bearer auth. Built WITHOUT an authenticator (AUTH_SYSTEM_URL
- * unset) it is a passthrough — the API stays open, PoC behavior. Built WITH
+ * Env-gated bearer auth. Built WITHOUT an authenticator (no khal platform
+ * configured — neither KHAL_DISCOVERY_URL nor the legacy AUTH_SYSTEM_URL)
+ * it is a passthrough — the API stays open, PoC behavior. Built WITH
  * one, every request must carry `Authorization: Bearer <token>` that the
  * Auth System accepts (authenticated-or-not only).
  *
