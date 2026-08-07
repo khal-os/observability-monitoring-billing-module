@@ -52,9 +52,10 @@ billing boundary ≡ display zone, forward-only after a close), ports, mongo
 credentials, LangWatch project id + per-instance
 secrets, image pin (the LangWatch API key deliberately lives elsewhere —
 decision 127: it is the agents' credential, kept in LangWatch's own
-Postgres and copied from the UI into the platform vault). [clients/example.env](clients/example.env) is the committed
-template; real files are gitignored and treated as the single source of
-truth for every operation (lose one and you lose the stack's operational
+Postgres and copied from the UI into the platform vault). [clients/example.production.env](clients/example.production.env)
+is the committed full contract ([clients/example.development.env](clients/example.development.env)
+is the lean workstation shape); real files are gitignored and treated as the
+single source of truth for every operation (lose one and you lose the stack's operational
 identity — the LangWatch admin password is only recorded there).
 **Back up `clients/*.env` somewhere durable after each deploy** — until a
 CI/secret store owns these values, the files are the only copy. In CI, the
@@ -96,7 +97,7 @@ public deploy** (demo-grade real infra: caddy in front, everything else
 loopback-bound) follow `deploy/RUNBOOK-VM.md`. A production deploy is
 the raw contract, driven by CI: materialize the client's env file from the
 protected variable store — including the required `LANGWATCH_PUBLIC_URL`,
-the browser-visible LangWatch URL (clients/example.env) — then apply the
+the browser-visible LangWatch URL (clients/example.production.env) — then apply the
 production form —
 
 ```bash
@@ -188,15 +189,20 @@ requires the explicit `TRACE_SOURCE=fixtures` (offline demos only).
 
 ## API auth (env-gated, off by default)
 
-Set `AUTH_SYSTEM_URL` (the khal Auth System base URL) in the client env and
-every `/api/v1` request must carry `Authorization: Bearer <M2M token>`. The
-module validates by **introspection** (RFC 7662): it forwards the token and
-reads only `active` — authenticated-or-not, no scope or tenant logic here
-(that's the platform's M2M model). Introspection is itself a protected
-endpoint, so the module needs its **own** M2M credential
-(`AUTH_SYSTEM_CLIENT_ID` / `AUTH_SYSTEM_CLIENT_SECRET`, sent as Basic) —
-without it, and whenever the Auth System is unreachable, requests answer 401
-(fail closed). Unset URL → the API is open, the original PoC behavior.
+Set the khal quartet in the client env — `KHAL_DISCOVERY_URL` +
+`KHAL_TENANT` (the Auth System URL is resolved at runtime from
+`/.well-known/registers`, ADR-97) + `KHAL_CLIENT_ID`/`KHAL_CLIENT_SECRET` —
+and every `/api/v1` request must carry `Authorization: Bearer <M2M token>`.
+The module validates by **introspection** (RFC 7662): it forwards the token
+and reads only `active` — authenticated-or-not, no scope or tenant logic
+here (that's the platform's M2M model). Introspection is itself a protected
+endpoint, so the module needs its **own** M2M credential (the
+`KHAL_CLIENT_*` pair, sent as Basic) — without it, and whenever the Auth
+System is unreachable or discovery never resolved, requests answer 401
+(fail closed). The pre-discovery spellings (`AUTH_SYSTEM_URL` direct +
+`AUTH_SYSTEM_CLIENT_ID`/`AUTH_SYSTEM_CLIENT_SECRET`) are honored as
+deprecated aliases (decision 132). Nothing configured → the API is open,
+the original PoC behavior.
 `/api/v1/docs` stays open either way (container healthcheck). Note: the
 bundled UI does not send a token yet — turn auth on only for API-only
 deployments for now.

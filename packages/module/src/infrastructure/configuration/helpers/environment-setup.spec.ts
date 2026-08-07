@@ -25,6 +25,10 @@ const loadEnvironment = async (
   delete process.env.AUTH_SYSTEM_URL;
   delete process.env.AUTH_SYSTEM_CLIENT_ID;
   delete process.env.AUTH_SYSTEM_CLIENT_SECRET;
+  delete process.env.KHAL_DISCOVERY_URL;
+  delete process.env.KHAL_TENANT;
+  delete process.env.KHAL_CLIENT_ID;
+  delete process.env.KHAL_CLIENT_SECRET;
   Object.assign(process.env, overrides);
 
   jest.resetModules();
@@ -70,11 +74,11 @@ describe('environment-setup', () => {
         AUTH_SYSTEM_CLIENT_SECRET: '',
       });
 
-      expect(environment.authSystemClientId).toBeUndefined();
-      expect(environment.authSystemClientSecret).toBeUndefined();
+      expect(environment.khalClientId).toBeUndefined();
+      expect(environment.khalClientSecret).toBeUndefined();
     });
 
-    it('MUST pass a real AUTH_SYSTEM_* trio through unchanged', async () => {
+    it('MUST honor the AUTH_SYSTEM_* spellings as aliases of the khal credential', async () => {
       const environment = await loadEnvironment({
         AUTH_SYSTEM_URL: 'http://auth-system:7105',
         AUTH_SYSTEM_CLIENT_ID: 'observability-module',
@@ -82,8 +86,50 @@ describe('environment-setup', () => {
       });
 
       expect(environment.authSystemUrl).toBe('http://auth-system:7105');
-      expect(environment.authSystemClientId).toBe('observability-module');
-      expect(environment.authSystemClientSecret).toBe('s3cret');
+      expect(environment.khalClientId).toBe('observability-module');
+      expect(environment.khalClientSecret).toBe('s3cret');
+    });
+  });
+
+  describe('KHAL_* (canonical khal consumer surface, ADR-97)', () => {
+    it('MUST pass the quartet through unchanged', async () => {
+      const environment = await loadEnvironment({
+        KHAL_DISCOVERY_URL: 'http://connectors:7103',
+        KHAL_TENANT: 'acme',
+        KHAL_CLIENT_ID: 'observability-module',
+        KHAL_CLIENT_SECRET: 's3cret',
+      });
+
+      expect(environment.khalDiscoveryUrl).toBe('http://connectors:7103');
+      expect(environment.khalTenant).toBe('acme');
+      expect(environment.khalClientId).toBe('observability-module');
+      expect(environment.khalClientSecret).toBe('s3cret');
+    });
+
+    it('MUST prefer KHAL_CLIENT_* over the AUTH_SYSTEM_CLIENT_* aliases when both are set', async () => {
+      const environment = await loadEnvironment({
+        KHAL_CLIENT_ID: 'canonical-id',
+        KHAL_CLIENT_SECRET: 'canonical-secret',
+        AUTH_SYSTEM_CLIENT_ID: 'legacy-id',
+        AUTH_SYSTEM_CLIENT_SECRET: 'legacy-secret',
+      });
+
+      expect(environment.khalClientId).toBe('canonical-id');
+      expect(environment.khalClientSecret).toBe('canonical-secret');
+    });
+
+    it("MUST treat '' (compose `${VAR:-}` defaults) as unset across the quartet", async () => {
+      const environment = await loadEnvironment({
+        KHAL_DISCOVERY_URL: '',
+        KHAL_TENANT: '',
+        KHAL_CLIENT_ID: '',
+        KHAL_CLIENT_SECRET: '',
+      });
+
+      expect(environment.khalDiscoveryUrl).toBeUndefined();
+      expect(environment.khalTenant).toBeUndefined();
+      expect(environment.khalClientId).toBeUndefined();
+      expect(environment.khalClientSecret).toBeUndefined();
     });
   });
 });

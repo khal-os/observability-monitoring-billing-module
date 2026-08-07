@@ -80,7 +80,8 @@ const errorResponse = (description: string) => ({
 
 /**
  * Shared 401 (C-4.1): auth is env-gated — active only when the deployment
- * sets AUTH_SYSTEM_URL (decision 84); without it the API answers open
+ * points at the khal platform (KHAL_DISCOVERY_URL, or the legacy
+ * AUTH_SYSTEM_URL — decision 84); without either the API answers open
  * (PoC behavior) and this response never occurs.
  */
 const unauthorizedResponse = () =>

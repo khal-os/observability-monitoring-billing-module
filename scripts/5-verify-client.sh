@@ -14,7 +14,7 @@ require_envfile
 banner 5 "verificação — saúde · dados · resumo"
 
 # host_port, never get: as três portas podem ser omitidas do env file (é o
-# contrato — clients/example.env), e uma URL "http://localhost:/…" vira
+# contrato — clients/example.production.env), e uma URL "http://localhost:/…" vira
 # porta 80 no curl. Ver deploy-lib.sh.
 API_PORT="$(host_port API_PORT)"
 LANGWATCH_PORT="$(host_port LANGWATCH_PORT)"

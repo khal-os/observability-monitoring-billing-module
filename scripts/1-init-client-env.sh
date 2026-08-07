@@ -18,7 +18,7 @@
 #   --connector-image REF connector image reference    (default: platform-connector:local)
 #   --env KEY=VALUE       set/override ANY contract var (repeatable) — e.g.
 #                         --env TRACE_INGESTION_QUIET_PERIOD_SECONDS=60 --env TRACE_INGESTION_BATCH_SIZE=200
-#                         (see clients/example.env for the full contract)
+#                         (see clients/example.production.env for the full contract)
 
 cd "$(dirname "$0")/.."
 source scripts/deploy-lib.sh
@@ -72,7 +72,7 @@ else
   step "env: criando ${ENVFILE}"
   info "portas: api ${API_PORT} · ui ${UI_PORT} · langwatch ${LANGWATCH_PORT} · mongo-dev ${MONGO_HOST_PORT}"
   cat > "$ENVFILE" << EOF
-# Gerado por 1-init-client-env.sh em $(date -u +%FT%TZ) — contrato: clients/example.env
+# Gerado por 1-init-client-env.sh em $(date -u +%FT%TZ) — contrato: clients/example.production.env
 COMPOSE_PROJECT_NAME=${NAME}
 CLIENT_NAME=${NAME}
 
@@ -102,7 +102,7 @@ MODULE_IMAGE=${IMAGE}
 CONNECTOR_IMAGE=${CONNECTOR_IMAGE_REF}
 
 # Sync-worker DEMO knobs — fast feedback for demo stacks. Production
-# defaults are 60/1000/900/3600 (see clients/example.env, decision 61).
+# defaults are 60/1000/900/3600 (see clients/example.production.env, decision 61).
 TRACE_INGESTION_INTERVAL_SECONDS=5
 TRACE_INGESTION_BATCH_SIZE=100
 TRACE_INGESTION_QUIET_PERIOD_SECONDS=5

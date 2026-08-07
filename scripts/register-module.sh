@@ -35,13 +35,17 @@
 #   CLIENT        REQUIRED — client slug; tenant AND source of API_PORT
 #                 (read from clients/$CLIENT.env unless API_PORT is set;
 #                 absent there, the compose default applies — see host_port)
-#   CATALOG_URL   default http://127.0.0.1:7102 (the Module Catalog;
-#                 legacy spelling REGISTER_URL still honored)
+#   KHAL_DISCOVERY_URL the silo's discovery base (ADR-97) — resolves
+#                 MODULE_CATALOG_URL and AUTH_SYSTEM_URL from /.well-known/registers
+#                 (explicitly set vars win over resolved ones)
+#   KHAL_TENANT   canonical spelling of TENANT (default: $CLIENT)
+#   MODULE_CATALOG_URL  default http://127.0.0.1:7102 (the Module Catalog;
+#                 legacy spellings CATALOG_URL/REGISTER_URL still honored)
 #   MODULE_ID     default tracing
 #   ENDPOINT      default http://localhost:${API_PORT}
 #   AUTH_SYSTEM_URL    the M2M Auth System base URL (enables the session path)
-#   M2M_CLIENT_ID      the module's M2M credential id
-#   M2M_CLIENT_SECRET  the module's M2M credential secret
+#   KHAL_CLIENT_ID     the module's M2M credential id (M2M_CLIENT_ID honored)
+#   KHAL_CLIENT_SECRET the module's M2M credential secret (M2M_CLIENT_SECRET too)
 #   TOKEN         explicit token for the PUT (wins over everything)
 #   SKIP_ACTIVATE any value → register only; skip the activation POST
 #   DRY_RUN       any value → print the resolved endpoint + manifest and stop
@@ -50,9 +54,21 @@
 set -euo pipefail
 
 : "${CLIENT:?export CLIENT first (client slug = tenant)}"
-CATALOG_URL="${CATALOG_URL:-${REGISTER_URL:-http://127.0.0.1:7102}}"
 MODULE_ID="${MODULE_ID:-tracing}"
-TENANT="${TENANT:-$CLIENT}"
+# Canonical khal spellings (decision 132); the older names keep working.
+TENANT="${KHAL_TENANT:-${TENANT:-$CLIENT}}"
+M2M_CLIENT_ID="${KHAL_CLIENT_ID:-${M2M_CLIENT_ID:-}}"
+M2M_CLIENT_SECRET="${KHAL_CLIENT_SECRET:-${M2M_CLIENT_SECRET:-}}"
+# ADR-97: one discovery URL resolves catalog + auth. Explicit vars win.
+MODULE_CATALOG_URL="${MODULE_CATALOG_URL:-${CATALOG_URL:-${REGISTER_URL:-}}}"
+if [[ -n "${KHAL_DISCOVERY_URL:-}" ]]; then
+  discovery_json=$(curl -sS "${KHAL_DISCOVERY_URL%/}/.well-known/registers?tenant=${TENANT}")
+  [[ -z "$MODULE_CATALOG_URL" ]] && MODULE_CATALOG_URL=$(python3 -c \
+    "import json,sys;print(json.loads(sys.argv[1])['registers']['modules'])" "$discovery_json")
+  [[ -z "${AUTH_SYSTEM_URL:-}" ]] && AUTH_SYSTEM_URL=$(python3 -c \
+    "import json,sys;print(json.loads(sys.argv[1])['registers']['auth']['url'])" "$discovery_json")
+fi
+MODULE_CATALOG_URL="${MODULE_CATALOG_URL:-http://127.0.0.1:7102}"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=scripts/deploy-lib.sh
@@ -60,7 +76,7 @@ source "$ROOT/scripts/deploy-lib.sh"
 
 # The port goes through deploy-lib's host_port, exactly like every deploy
 # step: the env contract EXPLICITLY invites omitting API_PORT on a dedicated
-# host (clients/example.env), so reading the var rawly made a contract-legal
+# host (clients/example.production.env), so reading the var rawly made a contract-legal
 # env file abort registration — stack healthy on the compose default 3000,
 # module never registered, Farol unable to discover it, and the operator told
 # to set a variable the contract told him to leave out. An explicit
@@ -157,9 +173,9 @@ attempt() {
   local etag
   etag=$(curl -s -o /dev/null -w '%{header_json}' \
     -H "Authorization: Bearer ${token}" \
-    "${CATALOG_URL}/modules/${MODULE_ID}" \
+    "${MODULE_CATALOG_URL}/modules/${MODULE_ID}" \
     | python3 -c "import json,sys;h=json.load(sys.stdin);print((h.get('etag') or [''])[0])")
-  local args=(-sS -X PUT "${CATALOG_URL}/modules/${MODULE_ID}"
+  local args=(-sS -X PUT "${MODULE_CATALOG_URL}/modules/${MODULE_ID}"
     -H "Authorization: Bearer ${token}" -H 'content-type: application/json'
     -o "$BODY_FILE" -w '%{http_code}' -d "${MANIFEST}")
   [[ -n "$etag" ]] && args+=(-H "If-Match: ${etag}")
@@ -171,12 +187,12 @@ attempt "$TOKEN"
 cat "$BODY_FILE"; echo
 echo "HTTP ${CODE}"
 [[ "$CODE" =~ ^2 ]] || { echo "ERROR: registration failed"; exit 1; }
-echo "module '${MODULE_ID}' v${VERSION} registered at ${CATALOG_URL} (tenant ${TENANT}) → ${ENDPOINT}"
+echo "module '${MODULE_ID}' v${VERSION} registered at ${MODULE_CATALOG_URL} (tenant ${TENANT}) → ${ENDPOINT}"
 
 # Fluxo Deploy, passo final: o manifesto nasce desativado — sem esta ativação
 # o module não entra em lista/resolução (Farol não o descobre).
 if [[ -z "${SKIP_ACTIVATE:-}" ]]; then
-  ACT=$(curl -sS -X POST "${CATALOG_URL}/modules/${MODULE_ID}/activate" \
+  ACT=$(curl -sS -X POST "${MODULE_CATALOG_URL}/modules/${MODULE_ID}/activate" \
     -H "Authorization: Bearer ${TOKEN}" -o "$BODY_FILE" -w '%{http_code}')
   [[ "$ACT" =~ ^2 ]] \
     || { cat "$BODY_FILE"; echo; echo "ERROR: activation failed (HTTP ${ACT})"; exit 1; }

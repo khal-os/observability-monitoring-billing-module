@@ -36,7 +36,7 @@ sudo apt-get install -y caddy
 ## 2 · Clone + build the images
 
 ```bash
-git clone <repo> && cd usage-billing-component && make build
+git clone git@github.com:khal-os/usage-component.git && cd usage-component && make build
 ```
 
 > **Redeploys via rsync — the clobber rule.** If you ship code updates by

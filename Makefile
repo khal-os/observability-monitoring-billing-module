@@ -1,6 +1,6 @@
 # Single-tenant operations. The Makefile knows NO client: every target takes
 # CLIENT=<name>, which selects clients/<name>.env (the env contract —
-# see clients/example.env). Deploying a new client = writing its env file.
+# see clients/example.production.env; dev shape in example.development.env). Deploying a new client = writing its env file.
 #
 #   make build                                  # build the module+connector+ui images locally
 #   make up CLIENT=hapvida                      # dev form (build block + demo fixtures)
@@ -107,7 +107,7 @@ test:
 
 require-client:
 	@test "$(origin CLIENT)" = "command line" || { echo "pass CLIENT=<name> explicitly on the make command line (env file: clients/<name>.env)"; exit 1; }
-	@test -f "$(ENVFILE)" || { echo "missing $(ENVFILE) — copy clients/example.env and fill it in"; exit 1; }
+	@test -f "$(ENVFILE)" || { echo "missing $(ENVFILE) — copy clients/example.production.env (or example.development.env locally) and fill it in"; exit 1; }
 	@grep -qx "CLIENT_NAME=$(CLIENT)" "$(ENVFILE)" || { echo "$(ENVFILE) must contain exactly CLIENT_NAME=$(CLIENT) — a mismatch would split the stack across two identities (e.g. \`make up\` pre-creates demo-data/$(CLIENT) while compose mounts demo-data/\$${CLIENT_NAME})"; exit 1; }
 	@grep -qx "COMPOSE_PROJECT_NAME=$(CLIENT)" "$(ENVFILE)" || { echo "$(ENVFILE) must contain exactly COMPOSE_PROJECT_NAME=$(CLIENT) — otherwise this client's containers land in another compose project"; exit 1; }
 
