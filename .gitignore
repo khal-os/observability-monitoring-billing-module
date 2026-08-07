@@ -4,7 +4,8 @@ node_modules
 
 # Real client env files carry secrets — only the template is committed
 clients/*.env
-!clients/example.env
+!clients/example.production.env
+!clients/example.development.env
 demo-data/
 
 # Generated load-test archives (scripts/generate-loadtest-traces.mjs) — GBs.

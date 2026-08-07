@@ -76,7 +76,7 @@ source "$ROOT/scripts/deploy-lib.sh"
 
 # The port goes through deploy-lib's host_port, exactly like every deploy
 # step: the env contract EXPLICITLY invites omitting API_PORT on a dedicated
-# host (clients/example.env), so reading the var rawly made a contract-legal
+# host (clients/example.production.env), so reading the var rawly made a contract-legal
 # env file abort registration — stack healthy on the compose default 3000,
 # module never registered, Farol unable to discover it, and the operator told
 # to set a variable the contract told him to leave out. An explicit

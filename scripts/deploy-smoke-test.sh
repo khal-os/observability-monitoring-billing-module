@@ -61,7 +61,7 @@ chmod +x "${STUBS}/docker"
 # client clock (decision 130) + the required browser-visible LangWatch URL
 # (compose refuses to interpolate without it). No API_PORT,
 # no LANGWATCH_PORT, no UI_PORT — exactly the "dedicated host, omit them"
-# case of clients/example.env.
+# case of clients/example.production.env.
 cat > "$ENVFILE" <<EOF
 COMPOSE_PROJECT_NAME=${SLUG}
 CLIENT_NAME=${SLUG}

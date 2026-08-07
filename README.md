@@ -52,9 +52,10 @@ billing boundary ≡ display zone, forward-only after a close), ports, mongo
 credentials, LangWatch project id + per-instance
 secrets, image pin (the LangWatch API key deliberately lives elsewhere —
 decision 127: it is the agents' credential, kept in LangWatch's own
-Postgres and copied from the UI into the platform vault). [clients/example.env](clients/example.env) is the committed
-template; real files are gitignored and treated as the single source of
-truth for every operation (lose one and you lose the stack's operational
+Postgres and copied from the UI into the platform vault). [clients/example.production.env](clients/example.production.env)
+is the committed full contract ([clients/example.development.env](clients/example.development.env)
+is the lean workstation shape); real files are gitignored and treated as the
+single source of truth for every operation (lose one and you lose the stack's operational
 identity — the LangWatch admin password is only recorded there).
 **Back up `clients/*.env` somewhere durable after each deploy** — until a
 CI/secret store owns these values, the files are the only copy. In CI, the
@@ -96,7 +97,7 @@ public deploy** (demo-grade real infra: caddy in front, everything else
 loopback-bound) follow `deploy/RUNBOOK-VM.md`. A production deploy is
 the raw contract, driven by CI: materialize the client's env file from the
 protected variable store — including the required `LANGWATCH_PUBLIC_URL`,
-the browser-visible LangWatch URL (clients/example.env) — then apply the
+the browser-visible LangWatch URL (clients/example.production.env) — then apply the
 production form —
 
 ```bash
