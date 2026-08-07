@@ -20,14 +20,14 @@ const escapeHtml = (value) =>
   }[c]));
 
 /* Shared JSON fetch: non-OK answers throw with the HTTP status attached.
-   A 401 means the platform auth gate is ON (AUTH_SYSTEM_URL set) and this
+   A 401 means the platform auth gate is ON (KHAL_DISCOVERY_URL set) and this
    UI has no token mechanism yet — its message says exactly that, instead
    of reading like an API outage. Limitation: the export links in the bill
    panel are plain <a href> downloads, outside this helper — under auth
    they surface the server's raw 401. */
 const AUTH_401_MESSAGE =
   'Autenticação ativa — esta UI ainda não envia token. ' +
-  'Acesse via um cliente autenticado ou desative AUTH_SYSTEM_URL.';
+  'Acesse via um cliente autenticado ou desative KHAL_DISCOVERY_URL.';
 
 const fetchJson = async (url) => {
   const res = await fetch(url);

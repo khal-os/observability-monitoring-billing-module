@@ -31,7 +31,7 @@ export interface EnvironmentVariables
  * Optional env string where EMPTY means unset. Compose forwards these vars
  * with `${VAR:-}` defaults, so an env file that omits them delivers '' to
  * the container — which must behave exactly like the var not existing
- * (e.g. an empty AUTH_SYSTEM_URL must not half-enable auth).
+ * (e.g. an empty KHAL_DISCOVERY_URL must not half-enable auth).
  */
 const optionalNonEmptyString = z
   .string()
@@ -78,19 +78,17 @@ const envSchema = z
     // Declared, never inferred (a fallback zone is a wrong bill); validity
     // is asserted by initializeClientClock below.
     CLIENT_TIMEZONE: z.string().min(1, 'CLIENT_TIMEZONE is required (decision 130)'),
-    // Canonical khal consumer surface (ADR-97): discovery + tenant resolve
-    // the Auth System URL at runtime; the credential authenticates
-    // /introspect. AUTH_SYSTEM_* below are the pre-discovery spellings.
+    // Canonical khal consumer surface (ADR-97; the ONLY spelling — the
+    // pre-discovery AUTH_SYSTEM_* names were removed pre-prod, decision
+    // 133): discovery + tenant resolve the Auth System URL at runtime; the
+    // credential authenticates /introspect.
     KHAL_DISCOVERY_URL: optionalNonEmptyString,
     KHAL_TENANT: optionalNonEmptyString,
     KHAL_CLIENT_ID: optionalNonEmptyString,
     KHAL_CLIENT_SECRET: optionalNonEmptyString,
-    AUTH_SYSTEM_URL: optionalNonEmptyString,
     // audit D-1: cross-origin is an explicit operator act — exact origins,
     // comma-separated; unset/empty = same-origin only (no CORS headers).
     CORS_ALLOWED_ORIGINS: optionalNonEmptyString,
-    AUTH_SYSTEM_CLIENT_ID: optionalNonEmptyString,
-    AUTH_SYSTEM_CLIENT_SECRET: optionalNonEmptyString,
     // Decision 131: knobs of the opt-in billing-close scheduler. Bounds:
     // delay up to 7 days, interval up to 24h — beyond either the operator
     // wants a different mechanism, not a bigger number.
@@ -150,12 +148,9 @@ export const environment: EnvironmentVariables = {
   // '' → undefined already guaranteed by optionalNonEmptyString above.
   khalDiscoveryUrl: safeEnvironment.KHAL_DISCOVERY_URL,
   khalTenant: safeEnvironment.KHAL_TENANT,
-  authSystemUrl: safeEnvironment.AUTH_SYSTEM_URL,
   corsAllowedOrigins: safeEnvironment.CORS_ALLOWED_ORIGINS,
-  // One credential, two spellings — the canonical KHAL_* wins when both are set.
-  khalClientId: safeEnvironment.KHAL_CLIENT_ID ?? safeEnvironment.AUTH_SYSTEM_CLIENT_ID,
-  khalClientSecret:
-    safeEnvironment.KHAL_CLIENT_SECRET ?? safeEnvironment.AUTH_SYSTEM_CLIENT_SECRET,
+  khalClientId: safeEnvironment.KHAL_CLIENT_ID,
+  khalClientSecret: safeEnvironment.KHAL_CLIENT_SECRET,
   billingAutoCloseDelayMinutes: safeEnvironment.BILLING_AUTO_CLOSE_DELAY_MINUTES,
   billingAutoCloseCheckIntervalSeconds:
     safeEnvironment.BILLING_AUTO_CLOSE_CHECK_INTERVAL_SECONDS,

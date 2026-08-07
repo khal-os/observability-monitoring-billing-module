@@ -21,7 +21,7 @@
 #
 # Token precedence:
 #   1. TOKEN                     — explicit token, used as-is
-#   2. M2M_CLIENT_ID/SECRET      — with AUTH_SYSTEM_URL: a session is requested
+#   2. KHAL_CLIENT_ID/SECRET     — with AUTH_SYSTEM_URL: a session is requested
 #                                  from the M2M Auth System (client_credentials;
 #                                  sessions expire — each run requests a fresh
 #                                  one, there is no renew)
@@ -38,14 +38,13 @@
 #   KHAL_DISCOVERY_URL the silo's discovery base (ADR-97) — resolves
 #                 MODULE_CATALOG_URL and AUTH_SYSTEM_URL from /.well-known/registers
 #                 (explicitly set vars win over resolved ones)
-#   KHAL_TENANT   canonical spelling of TENANT (default: $CLIENT)
-#   MODULE_CATALOG_URL  default http://127.0.0.1:7102 (the Module Catalog;
-#                 legacy spellings CATALOG_URL/REGISTER_URL still honored)
+#   KHAL_TENANT   tenant slug (default: $CLIENT)
+#   MODULE_CATALOG_URL  default http://127.0.0.1:7102 (the Module Catalog)
 #   MODULE_ID     default tracing
 #   ENDPOINT      default http://localhost:${API_PORT}
 #   AUTH_SYSTEM_URL    the M2M Auth System base URL (enables the session path)
-#   KHAL_CLIENT_ID     the module's M2M credential id (M2M_CLIENT_ID honored)
-#   KHAL_CLIENT_SECRET the module's M2M credential secret (M2M_CLIENT_SECRET too)
+#   KHAL_CLIENT_ID     the module's M2M credential id
+#   KHAL_CLIENT_SECRET the module's M2M credential secret
 #   TOKEN         explicit token for the PUT (wins over everything)
 #   SKIP_ACTIVATE any value → register only; skip the activation POST
 #   DRY_RUN       any value → print the resolved endpoint + manifest and stop
@@ -55,12 +54,12 @@ set -euo pipefail
 
 : "${CLIENT:?export CLIENT first (client slug = tenant)}"
 MODULE_ID="${MODULE_ID:-tracing}"
-# Canonical khal spellings (decision 132); the older names keep working.
-TENANT="${KHAL_TENANT:-${TENANT:-$CLIENT}}"
-M2M_CLIENT_ID="${KHAL_CLIENT_ID:-${M2M_CLIENT_ID:-}}"
-M2M_CLIENT_SECRET="${KHAL_CLIENT_SECRET:-${M2M_CLIENT_SECRET:-}}"
+# Canonical khal spellings only (decision 133 — legacy names removed pre-prod).
+TENANT="${KHAL_TENANT:-$CLIENT}"
+M2M_CLIENT_ID="${KHAL_CLIENT_ID:-}"
+M2M_CLIENT_SECRET="${KHAL_CLIENT_SECRET:-}"
 # ADR-97: one discovery URL resolves catalog + auth. Explicit vars win.
-MODULE_CATALOG_URL="${MODULE_CATALOG_URL:-${CATALOG_URL:-${REGISTER_URL:-}}}"
+MODULE_CATALOG_URL="${MODULE_CATALOG_URL:-}"
 if [[ -n "${KHAL_DISCOVERY_URL:-}" ]]; then
   discovery_json=$(curl -sS "${KHAL_DISCOVERY_URL%/}/.well-known/registers?tenant=${TENANT}")
   [[ -z "$MODULE_CATALOG_URL" ]] && MODULE_CATALOG_URL=$(python3 -c \

@@ -199,9 +199,9 @@ here (that's the platform's M2M model). Introspection is itself a protected
 endpoint, so the module needs its **own** M2M credential (the
 `KHAL_CLIENT_*` pair, sent as Basic) — without it, and whenever the Auth
 System is unreachable or discovery never resolved, requests answer 401
-(fail closed). The pre-discovery spellings (`AUTH_SYSTEM_URL` direct +
-`AUTH_SYSTEM_CLIENT_ID`/`AUTH_SYSTEM_CLIENT_SECRET`) are honored as
-deprecated aliases (decision 132). Nothing configured → the API is open,
+(fail closed). The `KHAL_*` quartet is the ONLY spelling — the
+pre-discovery `AUTH_SYSTEM_*` names were removed before any production
+deployment (decision 133). Nothing configured → the API is open,
 the original PoC behavior.
 `/api/v1/docs` stays open either way (container healthcheck). Note: the
 bundled UI does not send a token yet — turn auth on only for API-only

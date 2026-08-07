@@ -101,7 +101,7 @@ describe('API Docs (OpenAPI)', () => {
       );
       expect(
         response.body.components.securitySchemes.bearerAuth.description,
-      ).toContain('AUTH_SYSTEM_URL');
+      ).toContain('KHAL_DISCOVERY_URL');
       expect(response.body.security).toEqual([{ bearerAuth: [] }]);
 
       const paths = response.body.paths as Record<

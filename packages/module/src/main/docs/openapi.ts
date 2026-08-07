@@ -80,14 +80,14 @@ const errorResponse = (description: string) => ({
 
 /**
  * Shared 401 (C-4.1): auth is env-gated — active only when the deployment
- * points at the khal platform (KHAL_DISCOVERY_URL, or the legacy
- * AUTH_SYSTEM_URL — decision 84); without either the API answers open
- * (PoC behavior) and this response never occurs.
+ * points at the khal platform (KHAL_DISCOVERY_URL — decisions 84/132);
+ * without it the API answers open (PoC behavior) and this response never
+ * occurs.
  */
 const unauthorizedResponse = () =>
   errorResponse(
     'Token Bearer ausente ou rejeitado pelo Auth System. Só ocorre quando ' +
-      'AUTH_SYSTEM_URL está configurada no deployment — sem ela a API ' +
+      'KHAL_DISCOVERY_URL está configurada no deployment — sem ela a API ' +
       'responde aberta (comportamento PoC).',
   );
 
@@ -215,7 +215,7 @@ export const buildOpenApiDocument = (clientName?: string) => ({
         scheme: 'bearer',
         description:
           'Auth M2M condicionada por ambiente (decisão 84): exigida apenas ' +
-          'quando o deployment configura AUTH_SYSTEM_URL — o token é ' +
+          'quando o deployment configura KHAL_DISCOVERY_URL — o token é ' +
           'validado por introspecção no khal Auth System (autenticado ou ' +
           'não, sem escopos). Sem a variável, a API responde aberta (PoC). ' +
           'As rotas de docs (/api/v1/docs* e openapi.json) permanecem ' +
