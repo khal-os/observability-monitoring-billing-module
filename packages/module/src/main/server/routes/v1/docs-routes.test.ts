@@ -123,9 +123,7 @@ describe('API Docs (OpenAPI)', () => {
 
   describe('GET /api/v1/docs', () => {
     it('MUST serve the Swagger UI', async () => {
-      const response = await request(app)
-        .get('/api/v1/docs/')
-        .expect(200);
+      const response = await request(app).get('/api/v1/docs/').expect(200);
 
       expect(response.headers['content-type']).toContain('text/html');
       expect(response.text.toLowerCase()).toContain('swagger');
@@ -186,7 +184,9 @@ describe('API Docs (OpenAPI)', () => {
         .expect(200);
 
       expect(() => sessionListResponseSchema.parse(list.body)).not.toThrow();
-      expect(() => sessionDetailResponseSchema.parse(detail.body)).not.toThrow();
+      expect(() =>
+        sessionDetailResponseSchema.parse(detail.body),
+      ).not.toThrow();
     });
 
     it('GET /sessions/filters MUST match the published options schema (strict)', async () => {

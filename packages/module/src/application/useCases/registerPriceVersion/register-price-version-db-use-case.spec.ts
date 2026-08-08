@@ -126,15 +126,13 @@ describe('RegisterPriceVersionDbUseCase', () => {
   it('MUST propagate DuplicatePriceVersionError untouched and NOT reprocess', async () => {
     const { sut, priceVersionRepository, reprocessPending } = makeSut();
 
-    jest
-      .spyOn(priceVersionRepository, 'insertVersion')
-      .mockRejectedValueOnce(
-        new DuplicatePriceVersionError({
-          model: 'openai/gpt-5-mini',
-          tokenType: 'input',
-          effectiveFrom: JUNE_1,
-        }),
-      );
+    jest.spyOn(priceVersionRepository, 'insertVersion').mockRejectedValueOnce(
+      new DuplicatePriceVersionError({
+        model: 'openai/gpt-5-mini',
+        tokenType: 'input',
+        effectiveFrom: JUNE_1,
+      }),
+    );
 
     await expect(
       sut.register({

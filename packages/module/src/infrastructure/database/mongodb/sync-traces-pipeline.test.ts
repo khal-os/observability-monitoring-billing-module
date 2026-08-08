@@ -148,10 +148,7 @@ describe('Sync + price stamping (integration)', () => {
       // Spans are embedded in the trace documents — 8 across the window,
       // not duplicated by the re-sync.
       expect(
-        costsAfter.reduce(
-          (sum, trace) => sum + (trace.spans?.length ?? 0),
-          0,
-        ),
+        costsAfter.reduce((sum, trace) => sum + (trace.spans?.length ?? 0), 0),
       ).toBe(8);
     });
   });
@@ -169,9 +166,8 @@ describe('Sync + price stamping (integration)', () => {
       expect(beforeChange?.pricingStatus).toBe('stamped');
       expect(beforeChange?.totalCostMicrocents).toBe(715_000);
       expect(
-        beforeChange?.stampedCosts?.find(
-          (cost) => cost.tokenType === 'input',
-        )?.appliedPriceEffectiveFrom,
+        beforeChange?.stampedCosts?.find((cost) => cost.tokenType === 'input')
+          ?.appliedPriceEffectiveFrom,
       ).toEqual(JUNE_1);
 
       // Window 2 trace (June 16) → v2 prices (effective June 15, seeded
@@ -180,14 +176,12 @@ describe('Sync + price stamping (integration)', () => {
 
       expect(afterChange?.totalCostMicrocents).toBe(1_160_375);
       expect(
-        afterChange?.stampedCosts?.find(
-          (cost) => cost.tokenType === 'input',
-        )?.appliedPriceMicrocentsPerMillion,
+        afterChange?.stampedCosts?.find((cost) => cost.tokenType === 'input')
+          ?.appliedPriceMicrocentsPerMillion,
       ).toBe(brlToMicrocents('3.10'));
       expect(
-        afterChange?.stampedCosts?.find(
-          (cost) => cost.tokenType === 'input',
-        )?.appliedPriceEffectiveFrom,
+        afterChange?.stampedCosts?.find((cost) => cost.tokenType === 'input')
+          ?.appliedPriceEffectiveFrom,
       ).toEqual(JUNE_15);
     });
   });
@@ -222,10 +216,7 @@ describe('Sync + price stamping (integration)', () => {
 
       const stampsAfter = (
         await MongoDb.getCollection(TRACES_COLLECTION)
-          .find(
-            { traceId: { $regex: '^trace-w1-' } },
-            { sort: { traceId: 1 } },
-          )
+          .find({ traceId: { $regex: '^trace-w1-' } }, { sort: { traceId: 1 } })
           .toArray()
       ).map((trace) => ({
         traceId: trace.traceId,
@@ -257,7 +248,12 @@ describe('Sync + price stamping (integration)', () => {
       const pending = await findTrace('trace-w1-006');
 
       expect(pending?.pricingStatus).toBe('pending_price');
-      expect(pending?.tokens).toEqual({ input: 5000, output: 800, cache_read: null, cache_write: null });
+      expect(pending?.tokens).toEqual({
+        input: 5000,
+        output: 800,
+        cache_read: null,
+        cache_write: null,
+      });
       expect(pending?.totalCostMicrocents).toBeNull();
       expect(pending?.stampedCosts).toBeNull();
     });
@@ -344,10 +340,12 @@ describe('Sync + price stamping (integration)', () => {
 
       // Nothing stored, everything derived: the document carries no
       // snapshot (decision 51 exception), the read computes it.
-      expect((await findTrace('trace-w1-006'))?.pendingPrice ?? null).toBeNull();
       expect(
-        (await readTraceDetail.get('trace-w1-006'))?.pendingPrice,
-      ).toEqual({ missingTokenTypes: ['input', 'output'] });
+        (await findTrace('trace-w1-006'))?.pendingPrice ?? null,
+      ).toBeNull();
+      expect((await readTraceDetail.get('trace-w1-006'))?.pendingPrice).toEqual(
+        { missingTokenTypes: ['input', 'output'] },
+      );
 
       // Only ONE of the two missing prices gets registered…
       await priceVersionRepository.insertVersion({
@@ -668,7 +666,9 @@ describe('Sync + price stamping (integration)', () => {
       expect(summaryV2.statement.totalCostMicrocents).toBe(
         reclosed.totalCostMicrocents,
       );
-      expect(await dailyRollupTotal(billing)).toBe(reclosed.totalCostMicrocents);
+      expect(await dailyRollupTotal(billing)).toBe(
+        reclosed.totalCostMicrocents,
+      );
       expect(
         await billing.billingQueryRepository.countQuarantined(JUNE_1, JULY_1),
       ).toBe(0);

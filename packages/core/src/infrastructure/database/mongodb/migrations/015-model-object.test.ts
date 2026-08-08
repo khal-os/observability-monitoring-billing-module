@@ -97,9 +97,9 @@ describe('migration 015-model-object', () => {
 
   const snapshotById = async (): Promise<Record<string, Document>> =>
     Object.fromEntries(
-      (
-        await MongoDb.getCollection(TRACES_COLLECTION).find({}).toArray()
-      ).map((document) => [String(document._id), document]),
+      (await MongoDb.getCollection(TRACES_COLLECTION).find({}).toArray()).map(
+        (document) => [String(document._id), document],
+      ),
     );
 
   it('MUST rewrite ONLY legacy string models to the structured ref — stamps byte-identical, twice over', async () => {
@@ -126,9 +126,9 @@ describe('migration 015-model-object', () => {
     // ... and NOTHING else on that document moved: the stamp fields
     // (tokens, applied prices, costs, timestamps) are byte-identical —
     // 015 never re-derives a price (invariant 1).
-    expect(omitModel(afterFirstRun['legacy-string-model'] as Document)).toStrictEqual(
-      omitModel(before['legacy-string-model'] as Document),
-    );
+    expect(
+      omitModel(afterFirstRun['legacy-string-model'] as Document),
+    ).toStrictEqual(omitModel(before['legacy-string-model'] as Document));
 
     // The already-structured and the null-model documents are untouched
     // in their ENTIRETY (the filter matches string models only).

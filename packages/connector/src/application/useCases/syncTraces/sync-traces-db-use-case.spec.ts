@@ -13,9 +13,13 @@ import {
   TraceRepository,
   PendingStamp,
 } from './sync-traces-protocols.js';
-import { PriceVersionModel, TokenType } from '@observability/core/domain/models/price-version-model.js';
+import {
+  PriceVersionModel,
+  TokenType,
+} from '@observability/core/domain/models/price-version-model.js';
 import { TraceModel } from '@observability/core/domain/models/trace-model.js';
 import { SyncTracesDbUseCase } from './sync-traces-db-use-case.js';
+import { RecordingLogger } from '@observability/core/common/logging/logging-test-fakes.js';
 import { InMemoryBillingPeriodRepository } from '@observability/core/application/testSupport/billing-test-fakes.js';
 
 const WINDOW = {
@@ -26,7 +30,11 @@ const WINDOW = {
 const makeTrace = (overrides: Partial<SourceTrace> = {}): SourceTrace => ({
   traceId: 'trace-001',
   sessionId: 'sess-001',
-  agent: { id: 'agent-atendimento', version: '1.4.2', instance: 'agent-atendimento-7d9f4b-k2xp8' },
+  agent: {
+    id: 'agent-atendimento',
+    version: '1.4.2',
+    instance: 'agent-atendimento-7d9f4b-k2xp8',
+  },
   model: 'openai/gpt-5-mini',
   type: 'chat',
   channel: { type: 'whatsapp' },
@@ -44,7 +52,7 @@ const makeTrace = (overrides: Partial<SourceTrace> = {}): SourceTrace => ({
 class TraceSourceClientStub implements TraceSourceClient {
   pages: SourceTrace[][] = [[makeTrace()]];
 
-  async *fetchTracesPaged(window: SyncWindow): AsyncIterable<SourceTrace[]> {
+  async *fetchTracesPaged(_window: SyncWindow): AsyncIterable<SourceTrace[]> {
     for (const page of this.pages) {
       yield page;
     }
@@ -54,7 +62,7 @@ class TraceSourceClientStub implements TraceSourceClient {
 class PriceVersionRepositoryStub implements PriceVersionRepository {
   async findEffectivePrices(
     model: string,
-    atDate: Date,
+    _atDate: Date,
   ): Promise<EffectivePrices> {
     const price = (tokenType: TokenType): PriceVersionModel => ({
       model,
@@ -107,8 +115,8 @@ class TraceRepositoryStub implements TraceRepository {
   }
 
   async stampPendingTrace(
-    traceId: string,
-    stamp: PendingStamp,
+    _traceId: string,
+    _stamp: PendingStamp,
   ): Promise<'stamped' | 'skipped'> {
     return 'skipped';
   }
@@ -167,6 +175,7 @@ const makeSut = (args?: { estimateDocumentBytes?: EstimateDocumentBytes }) => {
   const traceRepositoryStub = new TraceRepositoryStub();
   const ingestFailureRepositoryStub = new IngestFailureRepositoryStub();
   const billingPeriodRepository = new InMemoryBillingPeriodRepository();
+  const logger = new RecordingLogger();
   const sut = new SyncTracesDbUseCase({
     traceSourceClient: traceSourceClientStub,
     priceVersionRepository: priceVersionRepositoryStub,
@@ -175,10 +184,12 @@ const makeSut = (args?: { estimateDocumentBytes?: EstimateDocumentBytes }) => {
     ingestFailureRepository: ingestFailureRepositoryStub,
     estimateDocumentBytes:
       args?.estimateDocumentBytes ?? ((): number => SMALL_DOCUMENT_BYTES),
+    logger,
   });
 
   return {
     sut,
+    logger,
     traceSourceClientStub,
     priceVersionRepositoryStub,
     traceRepositoryStub,
@@ -205,8 +216,12 @@ describe('SyncTracesDbUseCase', () => {
     });
 
     it('MUST NOT look up prices for a trace without model — it goes pending', async () => {
-      const { sut, traceSourceClientStub, priceVersionRepositoryStub, traceRepositoryStub } =
-        makeSut();
+      const {
+        sut,
+        traceSourceClientStub,
+        priceVersionRepositoryStub,
+        traceRepositoryStub,
+      } = makeSut();
 
       traceSourceClientStub.pages = [[makeTrace({ model: undefined })]];
       const findPricesSpy = jest.spyOn(
@@ -236,22 +251,26 @@ describe('SyncTracesDbUseCase', () => {
       const stored = traceRepositoryStub.inserted[0];
 
       expect(stored?.pricingStatus).toBe('stamped');
-      expect(stored?.totalCostMicrocents).toBe(
-        1200 * 275 + 350 * 275,
-      );
+      expect(stored?.totalCostMicrocents).toBe(1200 * 275 + 350 * 275);
       expect(stored?.stampedCosts).toHaveLength(2);
     });
 
     it('MUST carry userId, environment and experiment into the stored trace (decision 70)', async () => {
       const { sut, traceSourceClientStub, traceRepositoryStub } = makeSut();
 
-      traceSourceClientStub.pages = [[
-        makeTrace({
-          userId: 'user-5511987654321',
-          environment: 'prod',
-          experiment: { name: 'assistant-tone', variant: 'B', variantVersion: '2' },
-        }),
-      ]];
+      traceSourceClientStub.pages = [
+        [
+          makeTrace({
+            userId: 'user-5511987654321',
+            environment: 'prod',
+            experiment: {
+              name: 'assistant-tone',
+              variant: 'B',
+              variantVersion: '2',
+            },
+          }),
+        ],
+      ];
 
       await sut.sync(WINDOW);
 
@@ -328,9 +347,9 @@ describe('SyncTracesDbUseCase', () => {
     it('MUST store traces with missing attribution, flagged with reasons', async () => {
       const { sut, traceSourceClientStub, traceRepositoryStub } = makeSut();
 
-      traceSourceClientStub.pages = [[
-        makeTrace({ agent: undefined, model: undefined }),
-      ]];
+      traceSourceClientStub.pages = [
+        [makeTrace({ agent: undefined, model: undefined })],
+      ];
 
       await sut.sync(WINDOW);
 
@@ -349,37 +368,40 @@ describe('SyncTracesDbUseCase', () => {
         traceRepositoryStub,
         ingestFailureRepositoryStub,
       } = makeSut();
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
-      traceSourceClientStub.pages = [[
-        makeTrace({ traceId: 'trace-001' }),
-        makeTrace({ traceId: 'trace-poison' }),
-        makeTrace({ traceId: 'trace-003' }),
-      ]];
+      traceSourceClientStub.pages = [
+        [
+          makeTrace({ traceId: 'trace-001' }),
+          makeTrace({ traceId: 'trace-poison' }),
+          makeTrace({ traceId: 'trace-003' }),
+        ],
+      ];
       traceRepositoryStub.failOn.add('trace-poison');
 
       const report = await sut.sync(WINDOW);
 
       expect(report).toMatchObject({ fetched: 3, inserted: 2, failed: 1 });
-      expect(traceRepositoryStub.inserted.map((trace) => trace.traceId)).toEqual(
-        ['trace-001', 'trace-003'],
-      );
+      expect(
+        traceRepositoryStub.inserted.map((trace) => trace.traceId),
+      ).toEqual(['trace-001', 'trace-003']);
       expect(ingestFailureRepositoryStub.failures).toEqual([
         expect.objectContaining({
           traceId: 'trace-poison',
           kind: 'ingest_failure',
-          context: 'window=[2026-06-01T00:00:00.000Z, 2026-06-15T00:00:00.000Z)',
+          context:
+            'window=[2026-06-01T00:00:00.000Z, 2026-06-15T00:00:00.000Z)',
           error: expect.stringContaining('store down at trace-poison'),
         }),
       ]);
-
-      warn.mockRestore();
     });
 
     it('MUST dead-letter a SMALL all-failing page (trace-shaped errors) and finish the run — the breaker is for outages', async () => {
-      const { sut, traceSourceClientStub, traceRepositoryStub, ingestFailureRepositoryStub } =
-        makeSut();
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const {
+        sut,
+        traceSourceClientStub,
+        traceRepositoryStub,
+        ingestFailureRepositoryStub,
+      } = makeSut();
 
       const page = Array.from({ length: 3 }, (_, index) =>
         makeTrace({ traceId: `trace-${index}` }),
@@ -397,14 +419,15 @@ describe('SyncTracesDbUseCase', () => {
       // windowed sync's cursor: re-running it re-reads the same traces).
       expect(report).toMatchObject({ fetched: 3, inserted: 0, failed: 3 });
       expect(ingestFailureRepositoryStub.failures).toHaveLength(3);
-
-      warn.mockRestore();
     });
 
     it('MUST rethrow an INFRA-class failure instead of dead-lettering it — a store that cannot write is not poison (re-audit sync item 2)', async () => {
-      const { sut, traceSourceClientStub, traceRepositoryStub, ingestFailureRepositoryStub } =
-        makeSut();
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const {
+        sut,
+        traceSourceClientStub,
+        traceRepositoryStub,
+        ingestFailureRepositoryStub,
+      } = makeSut();
 
       const page = Array.from({ length: 3 }, (_, index) =>
         makeTrace({ traceId: `trace-${index}` }),
@@ -421,17 +444,10 @@ describe('SyncTracesDbUseCase', () => {
       // Nothing parked: these traces are still owed to the archive, and the
       // window stays re-runnable.
       expect(ingestFailureRepositoryStub.failures).toEqual([]);
-
-      warn.mockRestore();
     });
 
     it('MUST throw WITHOUT dead-letter salvation when a whole non-trivial page fails — store outage, not poison', async () => {
-      const {
-        sut,
-        traceSourceClientStub,
-        traceRepositoryStub,
-      } = makeSut();
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const { sut, traceSourceClientStub, traceRepositoryStub } = makeSut();
 
       const page = Array.from({ length: 10 }, (_, index) =>
         makeTrace({ traceId: `trace-${index}` }),
@@ -443,8 +459,6 @@ describe('SyncTracesDbUseCase', () => {
       }
 
       await expect(sut.sync(WINDOW)).rejects.toThrow(/store outage/);
-
-      warn.mockRestore();
     });
   });
 
@@ -465,24 +479,25 @@ describe('SyncTracesDbUseCase', () => {
         traceRepositoryStub,
         ingestFailureRepositoryStub,
       } = makeSut({ estimateDocumentBytes: estimator });
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
-      traceSourceClientStub.pages = [[
-        makeTrace({
-          spans: [
-            {
-              spanId: 'span-1',
-              type: 'llm',
-              name: 'chat',
-              startedAt: new Date('2026-06-05T14:00:00.000Z'),
-              finishedAt: new Date('2026-06-05T14:00:02.000Z'),
-              status: 'ok',
-              input: HUGE,
-              output: 'resposta',
-            },
-          ],
-        }),
-      ]];
+      traceSourceClientStub.pages = [
+        [
+          makeTrace({
+            spans: [
+              {
+                spanId: 'span-1',
+                type: 'llm',
+                name: 'chat',
+                startedAt: new Date('2026-06-05T14:00:00.000Z'),
+                finishedAt: new Date('2026-06-05T14:00:02.000Z'),
+                status: 'ok',
+                input: HUGE,
+                output: 'resposta',
+              },
+            ],
+          }),
+        ],
+      ];
 
       const report = await sut.sync(WINDOW);
 
@@ -513,8 +528,6 @@ describe('SyncTracesDbUseCase', () => {
         }),
       ]);
       expect(ingestFailureRepositoryStub.failures).toEqual([]);
-
-      warn.mockRestore();
     });
 
     it('MUST clip span errorMessage bulk too, and record the truncation ONLY AFTER the insert landed (re-audit sync item 4)', async () => {
@@ -524,7 +537,6 @@ describe('SyncTracesDbUseCase', () => {
         traceRepositoryStub,
         ingestFailureRepositoryStub,
       } = makeSut({ estimateDocumentBytes: estimator });
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
       const insertSpy = jest.spyOn(traceRepositoryStub, 'insertIfAbsent');
       const truncationSpy = jest.spyOn(
         ingestFailureRepositoryStub,
@@ -533,21 +545,23 @@ describe('SyncTracesDbUseCase', () => {
 
       // The bulk is in an error message, not in input/output — the shape
       // the first guard could not reach.
-      traceSourceClientStub.pages = [[
-        makeTrace({
-          spans: [
-            {
-              spanId: 'span-1',
-              type: 'llm',
-              name: 'chat',
-              startedAt: new Date('2026-06-05T14:00:00.000Z'),
-              finishedAt: new Date('2026-06-05T14:00:02.000Z'),
-              status: 'error',
-              errorMessage: HUGE,
-            },
-          ],
-        }),
-      ]];
+      traceSourceClientStub.pages = [
+        [
+          makeTrace({
+            spans: [
+              {
+                spanId: 'span-1',
+                type: 'llm',
+                name: 'chat',
+                startedAt: new Date('2026-06-05T14:00:00.000Z'),
+                finishedAt: new Date('2026-06-05T14:00:02.000Z'),
+                status: 'error',
+                errorMessage: HUGE,
+              },
+            ],
+          }),
+        ],
+      ];
 
       const report = await sut.sync(WINDOW);
 
@@ -566,21 +580,15 @@ describe('SyncTracesDbUseCase', () => {
       expect(insertSpy.mock.invocationCallOrder[0]).toBeLessThan(
         truncationSpy.mock.invocationCallOrder[0] as number,
       );
-
-      warn.mockRestore();
     });
 
     it('MUST dead-letter a still-oversized trace under its own kind, with NO truncation record, counted failed (re-audit sync item 4)', async () => {
-      const {
-        sut,
-        traceSourceClientStub,
-        traceRepositoryStub,
-        ingestFailureRepositoryStub,
-      } = makeSut({
-        // Pathological: every clip pass still reads over the cap.
-        estimateDocumentBytes: (): number => OVERSIZE_BYTES,
-      });
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const { sut, traceRepositoryStub, ingestFailureRepositoryStub } = makeSut(
+        {
+          // Pathological: every clip pass still reads over the cap.
+          estimateDocumentBytes: (): number => OVERSIZE_BYTES,
+        },
+      );
 
       const report = await sut.sync(WINDOW);
 
@@ -597,15 +605,12 @@ describe('SyncTracesDbUseCase', () => {
       ]);
       // No truncation record: nothing was stored to describe.
       expect(ingestFailureRepositoryStub.truncations).toEqual([]);
-
-      warn.mockRestore();
     });
   });
 
   describe('Token divergence on skipped re-syncs (audit B-4 residual, Q3)', () => {
     it('MUST count + warn when the source now reports more tokens than stored — never mutating anything', async () => {
-      const { sut, traceRepositoryStub } = makeSut();
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const { sut, logger, traceRepositoryStub } = makeSut();
 
       // Stored total (100) ≠ source total (1200 + 350).
       traceRepositoryStub.insertResult = {
@@ -616,13 +621,11 @@ describe('SyncTracesDbUseCase', () => {
       const report = await sut.sync(WINDOW);
 
       expect(report).toMatchObject({ skipped: 1, tokenDivergence: 1 });
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining('divergent token totals'),
+      expect(logger.messages('warn').join('\n')).toContain(
+        'divergent token totals',
       );
       // Attribution refresh still happens; nothing else is touched.
       expect(traceRepositoryStub.attributionUpdates).toHaveLength(1);
-
-      warn.mockRestore();
     });
 
     it('MUST NOT count divergence when the skipped branch reports a matching total', async () => {
@@ -714,12 +717,14 @@ describe('SyncTracesDbUseCase', () => {
         Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 15, 12),
       );
 
-      traceSourceClientStub.pages = [[
-        makeTrace({
-          startedAt,
-          finishedAt: new Date(startedAt.getTime() + 4000),
-        }),
-      ]];
+      traceSourceClientStub.pages = [
+        [
+          makeTrace({
+            startedAt,
+            finishedAt: new Date(startedAt.getTime() + 4000),
+          }),
+        ],
+      ];
 
       await sut.sync(WINDOW);
 

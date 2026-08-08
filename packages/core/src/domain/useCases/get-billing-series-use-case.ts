@@ -2,7 +2,10 @@ import { BillingPeriodStatus } from './get-billing-summary-use-case.js';
 import { TokenType } from '../models/price-version-model.js';
 
 /** Cost split by token type — the statement's line colors, on the chart. */
-export type CostByTokenType = { tokenType: TokenType; costMicrocents: number }[];
+export type CostByTokenType = {
+  tokenType: TokenType;
+  costMicrocents: number;
+}[];
 
 /**
  * T8: the monthly cost series — ONE total per month, everywhere: closed

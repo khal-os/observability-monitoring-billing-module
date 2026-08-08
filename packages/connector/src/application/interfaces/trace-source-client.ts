@@ -15,7 +15,13 @@ import {
  * root wiring, with zero changes to core/data/presentation.
  * (Enforced by architecture-boundaries.spec.ts.)
  */
-export type { AgentRef, ChannelRef, ExecutionStatus, ExperimentRef, TokenCounts };
+export type {
+  AgentRef,
+  ChannelRef,
+  ExecutionStatus,
+  ExperimentRef,
+  TokenCounts,
+};
 
 export interface SourceSpan {
   spanId: string;

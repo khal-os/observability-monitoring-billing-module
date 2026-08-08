@@ -51,10 +51,18 @@ describe('display helpers (decision 51 — API owns every displayed value)', () 
   it('formatAgeDisplay MUST scale agora → min → h → d', () => {
     const now = new Date('2026-07-20T12:00:00.000Z');
 
-    expect(formatAgeDisplay(new Date('2026-07-20T11:59:40.000Z'), now)).toBe('agora');
-    expect(formatAgeDisplay(new Date('2026-07-20T11:25:00.000Z'), now)).toBe('há 35 min');
-    expect(formatAgeDisplay(new Date('2026-07-20T09:00:00.000Z'), now)).toBe('há 3 h');
-    expect(formatAgeDisplay(new Date('2026-07-17T12:00:00.000Z'), now)).toBe('há 3 d');
+    expect(formatAgeDisplay(new Date('2026-07-20T11:59:40.000Z'), now)).toBe(
+      'agora',
+    );
+    expect(formatAgeDisplay(new Date('2026-07-20T11:25:00.000Z'), now)).toBe(
+      'há 35 min',
+    );
+    expect(formatAgeDisplay(new Date('2026-07-20T09:00:00.000Z'), now)).toBe(
+      'há 3 h',
+    );
+    expect(formatAgeDisplay(new Date('2026-07-17T12:00:00.000Z'), now)).toBe(
+      'há 3 d',
+    );
   });
 
   it('formatMonthLabel MUST name months in Portuguese', () => {

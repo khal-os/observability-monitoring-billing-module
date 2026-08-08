@@ -263,9 +263,9 @@ describe('GetBillingSeriesDbUseCase (T8)', () => {
       { tokenType: 'input', costMicrocents: 9_999_000_000 },
     ]);
     // June stays frozen at its snapshot total.
-    expect(
-      months.find((month) => month.month === 6)?.totalCostMicrocents,
-    ).toBe(2_500_000_000);
+    expect(months.find((month) => month.month === 6)?.totalCostMicrocents).toBe(
+      2_500_000_000,
+    );
   });
 
   it('re-audit iteration 3: a NEVER-closed month that gains traces after a newer close CHARTS — not even a zero bar existed before', async () => {
@@ -349,7 +349,13 @@ describe('GetBillingSeriesDbUseCase.listDaily (decision 97)', () => {
 
     const days = await sut.listDaily(3);
 
-    expect(days.map((day) => [day.date.getUTCDate(), day.totalCostMicrocents, day.partial])).toEqual([
+    expect(
+      days.map((day) => [
+        day.date.getUTCDate(),
+        day.totalCostMicrocents,
+        day.partial,
+      ]),
+    ).toEqual([
       [17, 300, false],
       [18, 0, false], // gap day materializes as zero — a gap must LOOK like a gap
       [19, 50, true], // today: always partial
@@ -437,7 +443,9 @@ describe('GetBillingProjectionDbUseCase (US12)', () => {
         year: 2026,
         month: 6,
         totalCostMicrocents: 1_000_000,
-        byTokenType: [{ tokenType: 'input' as const, costMicrocents: 1_000_000 }],
+        byTokenType: [
+          { tokenType: 'input' as const, costMicrocents: 1_000_000 },
+        ],
         byAgent: [],
         byModel: [],
       },
@@ -460,5 +468,4 @@ describe('GetBillingProjectionDbUseCase (US12)', () => {
     expect(last).toMatchObject({ year: 2026, month: 7 });
     expect(months.every((month) => month.year < 2027)).toBe(true);
   });
-
 });

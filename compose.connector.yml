@@ -132,6 +132,10 @@ services:
       LANGWATCH_CLICKHOUSE_DATABASE: langwatch
       # The row filter AND the onboarding gate above — see clients/example.env.
       LANGWATCH_PROJECT_ID: ${LANGWATCH_PROJECT_ID:-}
+      # Logging knobs (one shared reader in core, both images): empty means
+      # the defaults — level info, json lines on stdout.
+      LOG_LEVEL: ${LOG_LEVEL:-}
+      LOG_FORMAT: ${LOG_FORMAT:-}
     depends_on:
       clickhouse:
         condition: service_healthy

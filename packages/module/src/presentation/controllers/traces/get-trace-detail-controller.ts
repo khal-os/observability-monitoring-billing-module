@@ -5,7 +5,11 @@ import {
   HttpRequest,
   HttpResponse,
 } from './traces-protocols.js';
-import { buildBadRequest, buildNotFound, buildSuccess } from '../../helpers/http-helper.js';
+import {
+  buildBadRequest,
+  buildNotFound,
+  buildSuccess,
+} from '../../helpers/http-helper.js';
 import { InvalidParamError, NotFoundError } from '../../errors/index.js';
 import { parseQuery } from '../../helpers/query-validation.js';
 import { toTraceDetail } from './trace-view-model.js';

@@ -4,6 +4,8 @@ import {
   setupMongoDbClient,
 } from './helpers/mongodb-connection-setup.js';
 import { MongoDbEnvironmentVariables } from '../../configuration/interfaces/mongodb-environment-variables.js';
+import { Logger } from '../../../common/logging/logger.js';
+import { nullLogger } from '../../../common/logging/null-logger.js';
 
 // PER-PROCESS singleton: one shared client per Node process (api server,
 // each job, the trace-ingestion-worker are separate processes — so separate
@@ -17,6 +19,15 @@ import { MongoDbEnvironmentVariables } from '../../configuration/interfaces/mong
 export class MongoDb {
   private static client?: MongoClient;
   static connectionId = '';
+
+  // Same per-process story as the client: the entry point that owns the
+  // lifecycle wires the logger once (composition root); everything else
+  // just uses the collection handles and never logs here.
+  private static logger: Logger = nullLogger;
+
+  static useLogger(logger: Logger): void {
+    MongoDb.logger = logger;
+  }
 
   static async connect(config: MongoDbEnvironmentVariables): Promise<void> {
     const {
@@ -35,20 +46,20 @@ export class MongoDb {
     });
 
     if (MongoDb.client) {
-      console.warn(
-        'MongoDB: Client is already connected. Skipping new connection.',
+      MongoDb.logger.warn(
+        'MongoDB: client is already connected — skipping new connection',
       );
       return;
     }
 
     try {
       await client.connect();
-      console.log(message);
+      MongoDb.logger.info(message);
 
       MongoDb.client = client;
       MongoDb.connectionId = MongoDb.generateUUID();
     } catch (error) {
-      console.error('MongoDB: Error connecting to MongoDB:', error);
+      MongoDb.logger.error('MongoDB: error connecting', { err: error });
       throw error;
     }
   }
@@ -68,8 +79,8 @@ export class MongoDb {
     options?: { monitorCommands?: boolean },
   ): Promise<void> {
     if (MongoDb.client) {
-      console.warn(
-        'MongoDB: Client is already connected. Skipping new connection.',
+      MongoDb.logger.warn(
+        'MongoDB: client is already connected — skipping new connection',
       );
       return;
     }
@@ -88,23 +99,23 @@ export class MongoDb {
       MongoDb.client = client;
       MongoDb.connectionId = MongoDb.generateUUID();
     } catch (error) {
-      console.error('MongoDB: Error connecting to MongoDB:', error);
+      MongoDb.logger.error('MongoDB: error connecting', { err: error });
       throw error;
     }
   }
 
   static async disconnect(): Promise<void> {
     if (!MongoDb.client) {
-      console.error('No MongoDB client to disconnect.');
+      MongoDb.logger.error('MongoDB: no client to disconnect');
       return;
     }
 
     try {
       await MongoDb.client.close();
       MongoDb.client = undefined;
-      console.log('MongoDB: Connection closed successfully!');
+      MongoDb.logger.info('MongoDB: connection closed');
     } catch (error) {
-      console.error('MongoDB: Error disconnecting from MongoDB:', error);
+      MongoDb.logger.error('MongoDB: error disconnecting', { err: error });
       throw error;
     }
   }

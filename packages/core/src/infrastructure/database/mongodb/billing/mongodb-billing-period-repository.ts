@@ -69,8 +69,9 @@ const toModel = (document: PeriodDocument): BillingPeriodModel => ({
 
 export class MongoDbBillingPeriodRepository implements BillingPeriodRepository {
   async find(year: number, month: number): Promise<BillingPeriodModel | null> {
-    const document = await MongoDb.getCollection(BILLING_PERIODS_COLLECTION)
-      .findOne<PeriodDocument>({ year, month });
+    const document = await MongoDb.getCollection(
+      BILLING_PERIODS_COLLECTION,
+    ).findOne<PeriodDocument>({ year, month });
 
     return document ? toModel(document) : null;
   }
@@ -114,13 +115,10 @@ export class MongoDbBillingPeriodRepository implements BillingPeriodRepository {
   }): Promise<'reopened' | 'conflict'> {
     const result = await MongoDb.getCollection(
       BILLING_PERIODS_COLLECTION,
-    ).updateOne(
-      { year: args.year, month: args.month, status: 'closed' },
-      {
-        $set: { status: 'open', closedAt: null },
-        $push: { audit: { ...args.audit } },
-      } as unknown as UpdateFilter<Document>,
-    );
+    ).updateOne({ year: args.year, month: args.month, status: 'closed' }, {
+      $set: { status: 'open', closedAt: null },
+      $push: { audit: { ...args.audit } },
+    } as unknown as UpdateFilter<Document>);
 
     return result.modifiedCount === 1 ? 'reopened' : 'conflict';
   }

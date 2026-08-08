@@ -21,10 +21,7 @@
 export type SalvageablePoisonKind = 'summary' | 'http-detail';
 
 export type PoisonRowKind =
-  | 'summary'
-  | 'span'
-  | 'http-detail'
-  | `${SalvageablePoisonKind}_salvaged`;
+  'summary' | 'span' | 'http-detail' | `${SalvageablePoisonKind}_salvaged`;
 
 export interface PoisonRowRecord {
   /**

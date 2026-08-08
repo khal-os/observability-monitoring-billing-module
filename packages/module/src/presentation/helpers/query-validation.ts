@@ -19,8 +19,14 @@ export const strictIntParam = z
   .transform(Number);
 
 export const paginationSchema = {
-  page: strictIntParam.pipe(z.number().int().min(1)).optional().transform((v) => v ?? 1),
-  page_size: strictIntParam.pipe(z.number().int().min(1).max(100)).optional().transform((v) => v ?? 20),
+  page: strictIntParam
+    .pipe(z.number().int().min(1))
+    .optional()
+    .transform((v) => v ?? 1),
+  page_size: strictIntParam
+    .pipe(z.number().int().min(1).max(100))
+    .optional()
+    .transform((v) => v ?? 20),
 };
 
 /**

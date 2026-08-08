@@ -17,6 +17,8 @@ import {
 } from '../syncTraces/trace-ingestor.js';
 import { closedMonthKeys } from '@observability/core/domain/models/month-key.js';
 import { BillingPeriodRepository } from '@observability/core/application/interfaces/billing-period-repository.js';
+import { Logger } from '@observability/core/common/logging/logger.js';
+import { nullLogger } from '@observability/core/common/logging/null-logger.js';
 
 /**
  * One bounded step of the watermark loop (T2 continuous form). The
@@ -48,6 +50,7 @@ export class SyncBatchesDbUseCase implements SyncBatchesUseCase {
   private readonly batchSize: number;
   private readonly quietPeriodMs: number;
   private readonly now: () => Date;
+  private readonly logger: Logger;
 
   constructor(args: {
     traceBatchSource: TraceBatchSource;
@@ -63,6 +66,7 @@ export class SyncBatchesDbUseCase implements SyncBatchesUseCase {
     quietPeriodMs: number;
     /** Test seam. */
     now?: () => Date;
+    logger?: Logger;
   }) {
     this.traceBatchSource = args.traceBatchSource;
     this.syncStateRepository = args.syncStateRepository;
@@ -74,6 +78,7 @@ export class SyncBatchesDbUseCase implements SyncBatchesUseCase {
     this.batchSize = args.batchSize;
     this.quietPeriodMs = args.quietPeriodMs;
     this.now = args.now ?? ((): Date => new Date());
+    this.logger = args.logger ?? nullLogger;
   }
 
   async syncNextBatch(): Promise<BatchSyncReport> {
@@ -151,6 +156,7 @@ export class SyncBatchesDbUseCase implements SyncBatchesUseCase {
             billingPeriodRepository: this.billingPeriodRepository,
             ingestFailureRepository: this.ingestFailureRepository,
             estimateDocumentBytes: this.estimateDocumentBytes,
+            logger: this.logger,
           },
           trace,
           closedMonths,
@@ -189,9 +195,10 @@ export class SyncBatchesDbUseCase implements SyncBatchesUseCase {
         // recovery trail; the batch continues and the cursor advances
         // past the poison trace instead of re-reading it forever.
         report.failed += 1;
-        console.warn(
-          `Sync: trace ${trace.traceId} failed ingestion and was dead-lettered: ${String(error)}`,
-        );
+        this.logger.warn('Sync: trace failed ingestion and was dead-lettered', {
+          traceId: trace.traceId,
+          err: error,
+        });
         await this.ingestFailureRepository.recordFailure({
           traceId: trace.traceId,
           kind: ingestFailureKindOf(error),
@@ -213,13 +220,17 @@ export class SyncBatchesDbUseCase implements SyncBatchesUseCase {
     }
 
     if (report.scanned > 0) {
-      console.log(
-        `Sync: batch of ${report.scanned} — inserted ${report.inserted}, ` +
-          `skipped ${report.skipped}, pending price ${report.pendingPrice}, ` +
-          `failed ${report.failed}` +
-          `${report.tokenDivergence > 0 ? `, token divergence ${report.tokenDivergence}` : ''}` +
-          `${report.caughtUp ? ' (caught up)' : ''}.`,
-      );
+      this.logger.info('Sync: batch finished', {
+        scanned: report.scanned,
+        inserted: report.inserted,
+        skipped: report.skipped,
+        pendingPrice: report.pendingPrice,
+        failed: report.failed,
+        ...(report.tokenDivergence > 0
+          ? { tokenDivergence: report.tokenDivergence }
+          : {}),
+        caughtUp: report.caughtUp,
+      });
     }
 
     return report;

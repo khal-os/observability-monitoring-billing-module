@@ -4,7 +4,6 @@ import {
   makeRebuildGuard,
 } from '../factories/database-factory.js';
 
-
 /**
  * Recomputes the facet cube (trace_filter_counters, decision 77) from the
  * traces collection. Run once after restoring/backfilling a deployment

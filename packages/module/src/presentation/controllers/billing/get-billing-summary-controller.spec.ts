@@ -196,9 +196,9 @@ describe('GetBillingSummaryController', () => {
         'R$ 50,00 / M tokens',
       );
       // US7: shares reconcile to 100%.
-      expect(body.agents.map((agent) => agent.percent_of_total_display)).toEqual(
-        ['50%', '50%'],
-      );
+      expect(
+        body.agents.map((agent) => agent.percent_of_total_display),
+      ).toEqual(['50%', '50%']);
     });
   });
 
@@ -206,7 +206,9 @@ describe('GetBillingSummaryController', () => {
     it('MUST NOT override no-store for an OPEN month', async () => {
       const { sut } = makeSut();
 
-      const response = await sut.handle({ query: { year: '2026', month: '6' } });
+      const response = await sut.handle({
+        query: { year: '2026', month: '6' },
+      });
 
       expect(response.statusCode).toBe(200);
       expect(response.headers).toBeUndefined();
@@ -219,7 +221,9 @@ describe('GetBillingSummaryController', () => {
       closed.snapshotVersion = 2;
       getBillingSummaryStub.summary = closed;
 
-      const response = await sut.handle({ query: { year: '2026', month: '6' } });
+      const response = await sut.handle({
+        query: { year: '2026', month: '6' },
+      });
 
       expect(response.statusCode).toBe(200);
       expect(response.headers).toEqual({
@@ -230,5 +234,4 @@ describe('GetBillingSummaryController', () => {
       });
     });
   });
-
 });

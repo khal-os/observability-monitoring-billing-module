@@ -1,7 +1,12 @@
 import express from 'express';
 import request from 'supertest';
-import { setupDocs, setupErrorHandling, setupV1Routes } from './helpers/index.js';
+import {
+  setupDocs,
+  setupErrorHandling,
+  setupV1Routes,
+} from './helpers/index.js';
 import { buildAuthMiddleware } from './middlewares/index.js';
+import { nullLogger } from '@observability/core/common/logging/null-logger.js';
 import { TokenAuthenticator } from '../../application/interfaces/token-authenticator.js';
 
 /**
@@ -22,7 +27,7 @@ const makeAppWithAuth = () => {
   setupDocs(app);
   app.use(buildAuthMiddleware(rejectEverything));
   const routes = setupV1Routes(app);
-  setupErrorHandling(app, routes);
+  setupErrorHandling(app, routes, nullLogger);
   return app;
 };
 

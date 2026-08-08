@@ -62,7 +62,10 @@ export interface AutoCloseCycleReport {
  * it only keeps the quarantine ledger quiet.
  */
 export class CloseDueBillingPeriodsDbUseCase {
-  private readonly billingPeriodRepository: Pick<BillingPeriodRepository, 'listAll'>;
+  private readonly billingPeriodRepository: Pick<
+    BillingPeriodRepository,
+    'listAll'
+  >;
   private readonly billingQueryRepository: Pick<
     BillingQueryRepository,
     'earliestTraceAt' | 'hasTraces'

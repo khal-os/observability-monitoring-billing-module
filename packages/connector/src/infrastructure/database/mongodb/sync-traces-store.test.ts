@@ -93,9 +93,8 @@ describe('Connector write path against the real store (audit E-3)', () => {
     expect(second.inserted).toBe(0);
     expect(second.skipped).toBe(first.inserted);
 
-    const countAfter = await MongoDb.getCollection(
-      TRACES_COLLECTION,
-    ).countDocuments();
+    const countAfter =
+      await MongoDb.getCollection(TRACES_COLLECTION).countDocuments();
 
     // The unique traceId index IS the idempotency mechanism (audit G-2) —
     // the same window twice must never double-store.
@@ -108,9 +107,8 @@ describe('Connector write path against the real store (audit E-3)', () => {
     // is what makes every operator ordering safe.
     await MongoDb.getCollection(TRACES_COLLECTION).drop();
 
-    const { assertIngestionIndexes } = await import(
-      '@observability/core/infrastructure/database/mongodb/helpers/assert-ingestion-indexes.js'
-    );
+    const { assertIngestionIndexes } =
+      await import('@observability/core/infrastructure/database/mongodb/helpers/assert-ingestion-indexes.js');
 
     await expect(assertIngestionIndexes()).rejects.toThrow(/make migrate/);
   });

@@ -10,6 +10,7 @@ export const sessionFilterQueryShape = {
   status: z.enum(['ok', 'error']).optional(),
 };
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- exists only to derive the type below
 const sessionFilterQuerySchema = z.strictObject(sessionFilterQueryShape);
 
 export type SessionFilterQuery = z.infer<typeof sessionFilterQuerySchema>;

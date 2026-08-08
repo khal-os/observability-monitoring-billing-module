@@ -31,16 +31,15 @@ interface IngestionMark {
 }
 
 const sampleIngestion = async (): Promise<IngestionMark> => {
-  const traceCount = await MongoDb.getCollection(
-    TRACES_COLLECTION,
-  ).estimatedDocumentCount();
+  const traceCount =
+    await MongoDb.getCollection(TRACES_COLLECTION).estimatedDocumentCount();
 
   let watermarkAdvancedAt: number | null = null;
 
   try {
-    const cursor = (await MongoDb.getCollection(SYNC_STATE_COLLECTION).findOne(
-      { _id: TRACE_CURSOR_ID } as never,
-    )) as { advancedAt?: Date } | null;
+    const cursor = (await MongoDb.getCollection(SYNC_STATE_COLLECTION).findOne({
+      _id: TRACE_CURSOR_ID,
+    } as never)) as { advancedAt?: Date } | null;
 
     watermarkAdvancedAt = cursor?.advancedAt?.getTime() ?? null;
   } catch {

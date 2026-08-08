@@ -17,7 +17,9 @@ describe('runbook year/month wiring (audit B-2 — one border, every door)', () 
     (file) => {
       const source = jobSource(file);
 
-      expect(source).toContain('parseRunbookYearMonth(values.year, values.month)');
+      expect(source).toContain(
+        'parseRunbookYearMonth(values.year, values.month)',
+      );
       expect(source).not.toMatch(/Number\(values\.(year|month)\)/);
     },
   );

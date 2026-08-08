@@ -11,6 +11,9 @@ import { ApiError } from './api-error.js';
  */
 export class InvalidParamError extends ApiError {
   constructor(paramName: string, explanation?: string) {
-    super('InvalidParamError', explanation ?? `Invalid parameter: ${paramName}`);
+    super(
+      'InvalidParamError',
+      explanation ?? `Invalid parameter: ${paramName}`,
+    );
   }
 }

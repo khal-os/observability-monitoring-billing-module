@@ -53,8 +53,7 @@ export class FakeTraceSourceClient implements TraceSourceClient {
     // Fixture file order is preserved on purpose — the real API gives no
     // ordering guarantee, and same-session traces arrive shuffled.
     const inWindow = traces.filter(
-      (trace) =>
-        trace.startedAt >= window.from && trace.startedAt < window.to,
+      (trace) => trace.startedAt >= window.from && trace.startedAt < window.to,
     );
 
     if (inWindow.length > 0) {

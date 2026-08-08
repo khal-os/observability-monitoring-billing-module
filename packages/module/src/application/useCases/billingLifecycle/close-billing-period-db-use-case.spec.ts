@@ -83,7 +83,8 @@ const JUNE = [
 
 describe('CloseBillingPeriodDbUseCase (T6)', () => {
   it('MUST freeze inputs and output: snapshot statement ≡ engine over the month records', async () => {
-    const { sut, billingQueryRepository, billingSnapshotRepository } = makeSut();
+    const { sut, billingQueryRepository, billingSnapshotRepository } =
+      makeSut();
     billingQueryRepository.usageByMonth.set('2026-6', JUNE);
     billingQueryRepository.watermarkByMonth.set(
       '2026-6',
@@ -103,7 +104,8 @@ describe('CloseBillingPeriodDbUseCase (T6)', () => {
   });
 
   it('REPRODUCIBILITY ACCEPTANCE (T6): the engine over the SNAPSHOT inputs reproduces the output to the cent', async () => {
-    const { sut, billingQueryRepository, billingSnapshotRepository } = makeSut();
+    const { sut, billingQueryRepository, billingSnapshotRepository } =
+      makeSut();
     billingQueryRepository.usageByMonth.set('2026-6', JUNE);
 
     await sut.close(2026, 6);
@@ -189,7 +191,9 @@ describe('CloseBillingPeriodDbUseCase (T6)', () => {
     const second = await sut.close(2026, 6);
 
     expect(second.snapshotVersion).toBe(2);
-    expect(await billingSnapshotRepository.findVersion(2026, 6, 1)).not.toBeNull();
+    expect(
+      await billingSnapshotRepository.findVersion(2026, 6, 1),
+    ).not.toBeNull();
     expect(
       (await billingSnapshotRepository.findCurrent(2026, 6))?.statement
         .stampedTraceCount,
@@ -246,7 +250,9 @@ describe('CloseBillingPeriodDbUseCase (T6)', () => {
         models: ['m'],
       });
 
-      await expect(sut.close(2026, 6)).rejects.toThrow(BillingCloseBlockedError);
+      await expect(sut.close(2026, 6)).rejects.toThrow(
+        BillingCloseBlockedError,
+      );
       expect(traceRepository.calls).toEqual([]);
     });
   });
@@ -479,7 +485,8 @@ describe('CloseBillingPeriodDbUseCase (T6)', () => {
     });
 
     it('a concurrent close losing the period flip surfaces as a clean state error, nothing overwritten', async () => {
-      const { sut, billingQueryRepository, billingPeriodRepository } = makeSut();
+      const { sut, billingQueryRepository, billingPeriodRepository } =
+        makeSut();
       billingQueryRepository.usageByMonth.set('2026-6', JUNE);
 
       // The other runner wins between our guard read and our write.
@@ -692,9 +699,9 @@ describe('CloseBillingPeriodDbUseCase (T6)', () => {
       expect(tieLines(stored?.statement as typeof wholeMonth)).toEqual(
         tieLines(wholeMonth),
       );
-      expect(
-        tieLines(wholeMonth).map(([price]) => price),
-      ).toEqual([1_500_000, 2_500_000]);
+      expect(tieLines(wholeMonth).map(([price]) => price)).toEqual([
+        1_500_000, 2_500_000,
+      ]);
 
       // REPRODUCIBILITY (T6) survives paging: the stored inputs are the
       // month, each record exactly once, and they reproduce the output.
@@ -720,9 +727,9 @@ describe('CloseBillingPeriodDbUseCase (T6)', () => {
 
       const stored = await billingSnapshotRepository.findCurrent(2026, 6);
 
-      expect(
-        JSON.parse(JSON.stringify(stored?.priceVersionsApplied)),
-      ).toEqual(JSON.parse(JSON.stringify(collectAppliedPriceVersions(SPREAD))));
+      expect(JSON.parse(JSON.stringify(stored?.priceVersionsApplied))).toEqual(
+        JSON.parse(JSON.stringify(collectAppliedPriceVersions(SPREAD))),
+      );
       expect(traceRepository.calls[0]?.snapshotTraceIds.slice().sort()).toEqual(
         ['a-1', 'a-tie-dear', 'm-1', 'm-2', 'z-1', 'z-2', 'z-tie-cheap'],
       );

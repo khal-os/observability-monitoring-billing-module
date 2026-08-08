@@ -20,6 +20,7 @@ import {
 } from '@observability/core/domain/models/price-version-model.js';
 import { TraceModel } from '@observability/core/domain/models/trace-model.js';
 import { SyncBatchesDbUseCase } from './sync-batches-db-use-case.js';
+import { RecordingLogger } from '@observability/core/common/logging/logging-test-fakes.js';
 import { InMemoryBillingPeriodRepository } from '@observability/core/application/testSupport/billing-test-fakes.js';
 
 const NOW = new Date('2026-07-23T15:00:00.000Z');
@@ -108,7 +109,7 @@ class SyncStateRepositoryStub implements SyncStateRepository {
 class PriceVersionRepositoryStub implements PriceVersionRepository {
   async findEffectivePrices(
     model: string,
-    atDate: Date,
+    _atDate: Date,
   ): Promise<EffectivePrices> {
     const price = (tokenType: TokenType): PriceVersionModel => ({
       model,
@@ -130,8 +131,7 @@ class PriceVersionRepositoryStub implements PriceVersionRepository {
 
 class TraceRepositoryStub implements TraceRepository {
   inserted: TraceModel[] = [];
-  attributionUpdates: { traceId: string; attribution: TraceAttribution }[] =
-    [];
+  attributionUpdates: { traceId: string; attribution: TraceAttribution }[] = [];
   insertResult: InsertIfAbsentResult = 'inserted';
   failOn = new Set<string>();
   /** What a failOn trace throws — the classifier tests need infra shapes. */
@@ -160,8 +160,8 @@ class TraceRepositoryStub implements TraceRepository {
   }
 
   async stampPendingTrace(
-    traceId: string,
-    stamp: PendingStamp,
+    _traceId: string,
+    _stamp: PendingStamp,
   ): Promise<'stamped' | 'skipped'> {
     return 'skipped';
   }
@@ -204,12 +204,14 @@ const makeSut = (args?: {
   batchSize?: number;
   traceBatchSource?: TraceBatchSourceStub;
 }) => {
-  const traceBatchSourceStub = args?.traceBatchSource ?? new TraceBatchSourceStub();
+  const traceBatchSourceStub =
+    args?.traceBatchSource ?? new TraceBatchSourceStub();
   const syncStateRepositoryStub = new SyncStateRepositoryStub();
   const priceVersionRepositoryStub = new PriceVersionRepositoryStub();
   const traceRepositoryStub = new TraceRepositoryStub();
   const ingestFailureRepositoryStub = new IngestFailureRepositoryStub();
   const billingPeriodRepository = new InMemoryBillingPeriodRepository();
+  const logger = new RecordingLogger();
   const sut = new SyncBatchesDbUseCase({
     traceBatchSource: traceBatchSourceStub,
     syncStateRepository: syncStateRepositoryStub,
@@ -221,10 +223,12 @@ const makeSut = (args?: {
     batchSize: args?.batchSize ?? 2,
     quietPeriodMs: QUIET_MS,
     now: () => NOW,
+    logger,
   });
 
   return {
     sut,
+    logger,
     traceBatchSourceStub,
     syncStateRepositoryStub,
     traceRepositoryStub,
@@ -270,9 +274,9 @@ describe('SyncBatchesDbUseCase', () => {
 
     const report = await sut.syncNextBatch();
 
-    expect(traceRepositoryStub.inserted.map((trace) => trace.traceId)).toEqual(
-      ['trace-001'],
-    );
+    expect(traceRepositoryStub.inserted.map((trace) => trace.traceId)).toEqual([
+      'trace-001',
+    ]);
     expect(syncStateRepositoryStub.writes).toEqual([cursorOf('trace-001')]);
     expect(report).toMatchObject({ scanned: 1, inserted: 1, caughtUp: true });
   });
@@ -285,7 +289,6 @@ describe('SyncBatchesDbUseCase', () => {
       traceRepositoryStub,
       ingestFailureRepositoryStub,
     } = makeSut();
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
     traceBatchSourceStub.batch = {
       traces: [makeTrace('trace-001'), makeTrace('trace-002')],
@@ -308,8 +311,6 @@ describe('SyncBatchesDbUseCase', () => {
         error: expect.stringContaining('store down at trace-002'),
       }),
     ]);
-
-    warn.mockRestore();
   });
 
   it('MUST dead-letter a SMALL all-failing batch (trace-shaped errors) and STILL advance — documented steady-state semantics', async () => {
@@ -320,7 +321,6 @@ describe('SyncBatchesDbUseCase', () => {
       ingestFailureRepositoryStub,
       traceRepositoryStub,
     } = makeSut({ batchSize: 10 });
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
     const traces = Array.from({ length: 3 }, (_, index) =>
       makeTrace(`trace-${index}`),
@@ -342,8 +342,6 @@ describe('SyncBatchesDbUseCase', () => {
     // Below the ≥10 breaker, three poison traces are three poison traces —
     // parking them and moving on is the B-3 contract.
     expect(syncStateRepositoryStub.writes).toEqual([cursorOf('trace-2')]);
-
-    warn.mockRestore();
   });
 
   it('MUST rethrow an INFRA-class failure without parking or advancing — the steady-state hole the ≥10 breaker cannot see (re-audit sync item 2)', async () => {
@@ -354,7 +352,6 @@ describe('SyncBatchesDbUseCase', () => {
       ingestFailureRepositoryStub,
       traceRepositoryStub,
     } = makeSut({ batchSize: 10 });
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
     const traces = Array.from({ length: 3 }, (_, index) =>
       makeTrace(`trace-${index}`),
@@ -376,13 +373,10 @@ describe('SyncBatchesDbUseCase', () => {
     // and no dead letter may claim they were examined and rejected.
     expect(syncStateRepositoryStub.writes).toEqual([]);
     expect(ingestFailureRepositoryStub.failures).toEqual([]);
-
-    warn.mockRestore();
   });
 
   it('MUST rethrow a transaction-labelled failure too (TransientTransactionError)', async () => {
     const { sut, traceRepositoryStub, syncStateRepositoryStub } = makeSut();
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
     traceRepositoryStub.failOn.add('trace-001');
     traceRepositoryStub.failWith = (): unknown =>
@@ -392,8 +386,6 @@ describe('SyncBatchesDbUseCase', () => {
 
     await expect(sut.syncNextBatch()).rejects.toThrow(/transaction aborted/);
     expect(syncStateRepositoryStub.writes).toEqual([]);
-
-    warn.mockRestore();
   });
 
   it('MUST quarantine a PAST-month trace whose month closed after the cycle read its set (re-audit sync item 5)', async () => {
@@ -429,7 +421,6 @@ describe('SyncBatchesDbUseCase', () => {
       syncStateRepositoryStub,
       traceRepositoryStub,
     } = makeSut({ batchSize: 10 });
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
     const traces = Array.from({ length: 10 }, (_, index) =>
       makeTrace(`trace-${index}`),
@@ -449,8 +440,6 @@ describe('SyncBatchesDbUseCase', () => {
     // Crash story preserved: cursor untouched → the batch is re-read next
     // cycle and deduplicated by insertIfAbsent.
     expect(syncStateRepositoryStub.writes).toEqual([]);
-
-    warn.mockRestore();
   });
 
   it('MUST keep the cursor untouched on an empty batch', async () => {
@@ -490,8 +479,7 @@ describe('SyncBatchesDbUseCase', () => {
   });
 
   it('MUST count token divergence on a skipped re-sync that reports a different stored total (audit B-4 residual, Q3)', async () => {
-    const { sut, traceRepositoryStub } = makeSut();
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const { sut, logger, traceRepositoryStub } = makeSut();
 
     traceRepositoryStub.insertResult = {
       outcome: 'skipped',
@@ -501,11 +489,9 @@ describe('SyncBatchesDbUseCase', () => {
     const report = await sut.syncNextBatch();
 
     expect(report).toMatchObject({ skipped: 1, tokenDivergence: 1 });
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('divergent token totals'),
+    expect(logger.messages('warn').join('\n')).toContain(
+      'divergent token totals',
     );
-
-    warn.mockRestore();
   });
 
   it('MUST crash — not re-drain — when the source returns a cursor that does not advance (audit A-3)', async () => {
@@ -525,5 +511,4 @@ describe('SyncBatchesDbUseCase', () => {
 
     await expect(sut.syncNextBatch()).rejects.toThrow(/failed to advance/);
   });
-
 });

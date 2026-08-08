@@ -15,6 +15,8 @@ import {
   closedMonthKeys,
   monthKeyOf,
 } from '../../../domain/models/month-key.js';
+import { Logger } from '../../../common/logging/logger.js';
+import { nullLogger } from '../../../common/logging/null-logger.js';
 
 /**
  * US3/T5: when the missing price is finally registered, pending traces get
@@ -35,15 +37,18 @@ export class ReprocessPendingDbUseCase implements ReprocessPendingUseCase {
   private readonly priceVersionRepository: PriceVersionRepository;
   private readonly traceRepository: TraceRepository;
   private readonly billingPeriodRepository: BillingPeriodRepository;
+  private readonly logger: Logger;
 
   constructor(args: {
     priceVersionRepository: PriceVersionRepository;
     traceRepository: TraceRepository;
     billingPeriodRepository: BillingPeriodRepository;
+    logger?: Logger;
   }) {
     this.priceVersionRepository = args.priceVersionRepository;
     this.traceRepository = args.traceRepository;
     this.billingPeriodRepository = args.billingPeriodRepository;
+    this.logger = args.logger ?? nullLogger;
   }
 
   async reprocess(options?: { maxTraces?: number }): Promise<ReprocessReport> {
@@ -81,10 +86,7 @@ export class ReprocessPendingDbUseCase implements ReprocessPendingUseCase {
     let after: PendingPriceCursor | undefined;
 
     while (report.examined < cap) {
-      const pageSize = Math.min(
-        REPROCESS_PAGE_SIZE,
-        cap - report.examined,
-      );
+      const pageSize = Math.min(REPROCESS_PAGE_SIZE, cap - report.examined);
       const pendingTraces = await this.traceRepository.findPendingPrice(
         pageSize,
         after,
@@ -168,19 +170,22 @@ export class ReprocessPendingDbUseCase implements ReprocessPendingUseCase {
         report.stamped += 1;
       } catch (error) {
         report.failed += 1;
-        console.warn(
-          `Reprocess pending: trace ${trace.traceId} failed and was skipped: ${String(error)}`,
-        );
+        this.logger.warn('Reprocess pending: trace failed and was skipped', {
+          traceId: trace.traceId,
+          err: error,
+        });
       }
     }
   }
 
   private logReport(report: ReprocessReport): void {
-    console.log(
-      `Reprocess pending: examined ${report.examined}, stamped ${report.stamped}, ` +
-        `still pending ${report.stillPending}, failed ${report.failed}, ` +
-        `blocked (mês fechado) ${report.blockedClosedMonth}, ` +
-        `remaining ${report.pendingRemaining}.`,
-    );
+    this.logger.info('Reprocess pending: sweep finished', {
+      examined: report.examined,
+      stamped: report.stamped,
+      stillPending: report.stillPending,
+      failed: report.failed,
+      blockedClosedMonth: report.blockedClosedMonth,
+      pendingRemaining: report.pendingRemaining,
+    });
   }
 }

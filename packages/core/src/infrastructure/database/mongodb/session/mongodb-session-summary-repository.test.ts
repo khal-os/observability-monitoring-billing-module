@@ -333,9 +333,10 @@ describe('MongoDbSessionSummaryRepository (materialized read-model, decision 80)
                 };
               }
 
-              return (
-                target.aggregate as (...a: unknown[]) => unknown
-              ).apply(target, args);
+              return (target.aggregate as (...a: unknown[]) => unknown).apply(
+                target,
+                args,
+              );
             };
           },
         });

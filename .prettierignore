@@ -1,0 +1,15 @@
+node_modules
+dist
+coverage
+package-lock.json
+demo-data
+docs
+deploy
+clients
+packages/ui
+loadtest
+*.md
+Makefile
+*.Dockerfile
+*.yml
+*.yaml

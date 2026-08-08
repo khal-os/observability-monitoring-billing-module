@@ -21,7 +21,9 @@ describe('guardConcurrentRebuild (audit F-1)', () => {
   });
 
   it('MUST complete when no ingestion happens during the rebuild', async () => {
-    await MongoDb.getCollection(TRACES_COLLECTION).insertOne({ traceId: 't-1' });
+    await MongoDb.getCollection(TRACES_COLLECTION).insertOne({
+      traceId: 't-1',
+    });
 
     await expect(
       guardConcurrentRebuild(async () => {
@@ -31,7 +33,9 @@ describe('guardConcurrentRebuild (audit F-1)', () => {
   });
 
   it('MUST throw when a trace is ingested DURING the rebuild — the swap discarded its maintenance write', async () => {
-    await MongoDb.getCollection(TRACES_COLLECTION).insertOne({ traceId: 't-1' });
+    await MongoDb.getCollection(TRACES_COLLECTION).insertOne({
+      traceId: 't-1',
+    });
 
     await expect(
       guardConcurrentRebuild(async () => {

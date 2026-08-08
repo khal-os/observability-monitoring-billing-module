@@ -3,6 +3,7 @@ import {
   MongoDbSyncStateRepository,
   SYNC_STATE_COLLECTION,
 } from './mongodb-sync-state-repository.js';
+import { RecordingLogger } from '@observability/core/common/logging/logging-test-fakes.js';
 
 describe('MongoDbSyncStateRepository (watermark, decision 78 guard)', () => {
   const repository = new MongoDbSyncStateRepository();
@@ -100,8 +101,8 @@ describe('MongoDbSyncStateRepository (watermark, decision 78 guard)', () => {
 
   describe('ASCII collation guard (audit C-7.6)', () => {
     it('MUST warn ONCE on a non-ASCII trace id, still persisting the cursor', async () => {
-      const freshRepository = new MongoDbSyncStateRepository();
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const logger = new RecordingLogger();
+      const freshRepository = new MongoDbSyncStateRepository({ logger });
 
       const cursor = {
         updatedAt: new Date('2026-07-01T10:00:00.000Z'),
@@ -120,24 +121,20 @@ describe('MongoDbSyncStateRepository (watermark, decision 78 guard)', () => {
         traceId: 'traço-002',
       });
       // ... and the collation caveat was surfaced exactly once.
-      expect(warn).toHaveBeenCalledTimes(1);
-      expect(warn.mock.calls[0]?.[0]).toContain('non-ASCII cursorTraceId');
-
-      warn.mockRestore();
+      expect(logger.at('warn')).toHaveLength(1);
+      expect(logger.messages('warn')[0]).toContain('non-ASCII cursorTraceId');
     });
 
     it('MUST stay silent for ASCII trace ids', async () => {
-      const freshRepository = new MongoDbSyncStateRepository();
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const logger = new RecordingLogger();
+      const freshRepository = new MongoDbSyncStateRepository({ logger });
 
       await freshRepository.setTraceCursor({
         updatedAt: new Date('2026-07-01T10:00:00.000Z'),
         traceId: 'trace-001',
       });
 
-      expect(warn).not.toHaveBeenCalled();
-
-      warn.mockRestore();
+      expect(logger.lines).toEqual([]);
     });
   });
 });

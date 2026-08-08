@@ -6,6 +6,13 @@ import {
   mongoEnvSchemaShape,
   toMongoDbEnvironment,
 } from '@observability/core/common/config/parse-mongo-env.js';
+import {
+  LoggingEnvironmentVariables,
+  bootstrapLoggerOptions,
+  logEnvSchemaShape,
+  toLoggingEnvironment,
+} from '@observability/core/common/config/parse-log-env.js';
+import { createLogger } from '@observability/core/common/logging/structured-logger.js';
 import { MongoDbEnvironmentVariables } from '@observability/core/infrastructure/configuration/interfaces/mongodb-environment-variables.js';
 import { TraceIngestionWorkerEnvironmentVariables } from '../interfaces/index.js';
 
@@ -25,7 +32,8 @@ type Environment = (typeof environmentEnum)[keyof typeof environmentEnum];
 export interface EnvironmentVariables
   extends
     MongoDbEnvironmentVariables,
-    TraceIngestionWorkerEnvironmentVariables {
+    TraceIngestionWorkerEnvironmentVariables,
+    LoggingEnvironmentVariables {
   Environment: Environment;
   /** Deployment display name (single-tenant instance) — optional, logs only. */
   clientName?: string;
@@ -70,9 +78,13 @@ const envSchema = z
     CLIENT_NAME: z.string().optional(),
     // Decision 130: REQUIRED — the worker cuts quarantine/reprocess month
     // keys at the same client midnight the bill uses.
-    CLIENT_TIMEZONE: z.string().min(1, 'CLIENT_TIMEZONE is required (decision 130)'),
+    CLIENT_TIMEZONE: z
+      .string()
+      .min(1, 'CLIENT_TIMEZONE is required (decision 130)'),
     // audit C-6: the Mongo env is core's — one reader for both images.
     ...mongoEnvSchemaShape,
+    // Same rule for the logging knobs: one reader, both images.
+    ...logEnvSchemaShape,
     // Decision 127: ClickHouse is the ONLY real source — the HTTP client
     // (LANGWATCH_ENDPOINT/LANGWATCH_API_KEY) no longer exists here. The
     // API key still lives in the CLIENT env file as the agents'/vault
@@ -88,10 +100,22 @@ const envSchema = z
     LANGWATCH_CLICKHOUSE_PASSWORD: z.string().optional(),
     LANGWATCH_CLICKHOUSE_DATABASE: z.string().optional(),
     LANGWATCH_PROJECT_ID: z.string().optional(),
-    TRACE_INGESTION_INTERVAL_SECONDS: optionalBoundedIntString('TRACE_INGESTION_INTERVAL_SECONDS', 86_400),
-    TRACE_INGESTION_BATCH_SIZE: optionalBoundedIntString('TRACE_INGESTION_BATCH_SIZE', 10_000),
-    TRACE_INGESTION_QUIET_PERIOD_SECONDS: optionalBoundedIntString('TRACE_INGESTION_QUIET_PERIOD_SECONDS', 86_400),
-    REPROCESS_INTERVAL_SECONDS: optionalBoundedIntString('REPROCESS_INTERVAL_SECONDS', 604_800),
+    TRACE_INGESTION_INTERVAL_SECONDS: optionalBoundedIntString(
+      'TRACE_INGESTION_INTERVAL_SECONDS',
+      86_400,
+    ),
+    TRACE_INGESTION_BATCH_SIZE: optionalBoundedIntString(
+      'TRACE_INGESTION_BATCH_SIZE',
+      10_000,
+    ),
+    TRACE_INGESTION_QUIET_PERIOD_SECONDS: optionalBoundedIntString(
+      'TRACE_INGESTION_QUIET_PERIOD_SECONDS',
+      86_400,
+    ),
+    REPROCESS_INTERVAL_SECONDS: optionalBoundedIntString(
+      'REPROCESS_INTERVAL_SECONDS',
+      604_800,
+    ),
   })
   .transform((env) => ({
     ...env,
@@ -101,9 +125,10 @@ const envSchema = z
     TRACE_INGESTION_BATCH_SIZE: env.TRACE_INGESTION_BATCH_SIZE
       ? parseInt(env.TRACE_INGESTION_BATCH_SIZE, 10)
       : undefined,
-    TRACE_INGESTION_QUIET_PERIOD_SECONDS: env.TRACE_INGESTION_QUIET_PERIOD_SECONDS
-      ? parseInt(env.TRACE_INGESTION_QUIET_PERIOD_SECONDS, 10)
-      : undefined,
+    TRACE_INGESTION_QUIET_PERIOD_SECONDS:
+      env.TRACE_INGESTION_QUIET_PERIOD_SECONDS
+        ? parseInt(env.TRACE_INGESTION_QUIET_PERIOD_SECONDS, 10)
+        : undefined,
     REPROCESS_INTERVAL_SECONDS: env.REPROCESS_INTERVAL_SECONDS
       ? parseInt(env.REPROCESS_INTERVAL_SECONDS, 10)
       : undefined,
@@ -121,10 +146,28 @@ dotenv.config({
 
 const unsafeEnv = process.env as Record<string, string>;
 
+const environmentContext = {
+  isDevelopment: narrowedEnv === environmentEnum.DEVELOPMENT,
+  isTest: narrowedEnv === environmentEnum.TEST,
+};
+
 const parsedEnv = envSchema.safeParse(unsafeEnv);
 
 if (!parsedEnv.success) {
-  console.error('Invalid environment variables:', parsedEnv.error);
+  // Strict parse failed → no root logger yet; the tolerant bootstrap reader
+  // gives this fatal line the same shape as every other log line.
+  const bootstrapLogging = bootstrapLoggerOptions(
+    unsafeEnv,
+    environmentContext,
+  );
+
+  createLogger({
+    level: bootstrapLogging.logLevel,
+    format: bootstrapLogging.logFormat,
+    bindings: { service: 'connector' },
+  }).fatal('Invalid environment variables — refusing to boot', {
+    issues: parsedEnv.error.issues,
+  });
   process.exit(1);
 }
 
@@ -144,8 +187,11 @@ export const environment: EnvironmentVariables = {
   langwatchClickhousePassword: safeEnvironment.LANGWATCH_CLICKHOUSE_PASSWORD,
   langwatchClickhouseDatabase: safeEnvironment.LANGWATCH_CLICKHOUSE_DATABASE,
   langwatchProjectId: safeEnvironment.LANGWATCH_PROJECT_ID,
-  traceIngestionIntervalSeconds: safeEnvironment.TRACE_INGESTION_INTERVAL_SECONDS,
+  traceIngestionIntervalSeconds:
+    safeEnvironment.TRACE_INGESTION_INTERVAL_SECONDS,
   traceIngestionBatchSize: safeEnvironment.TRACE_INGESTION_BATCH_SIZE,
-  traceIngestionQuietPeriodSeconds: safeEnvironment.TRACE_INGESTION_QUIET_PERIOD_SECONDS,
+  traceIngestionQuietPeriodSeconds:
+    safeEnvironment.TRACE_INGESTION_QUIET_PERIOD_SECONDS,
   reprocessIntervalSeconds: safeEnvironment.REPROCESS_INTERVAL_SECONDS,
+  ...toLoggingEnvironment(safeEnvironment, environmentContext),
 };

@@ -28,7 +28,10 @@ describe('Auth Middleware', () => {
       .get('/test-auth')
       .expect(401);
 
-    expect(response.body).toEqual({ name: 'UnauthorizedError', msg: 'Unauthorized' });
+    expect(response.body).toEqual({
+      name: 'UnauthorizedError',
+      msg: 'Unauthorized',
+    });
   });
 
   it('MUST answer 401 when the Authorization header is not a Bearer token', async () => {

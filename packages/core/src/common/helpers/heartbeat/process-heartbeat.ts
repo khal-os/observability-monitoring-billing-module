@@ -1,4 +1,6 @@
 import { writeFileSync } from 'node:fs';
+import { Logger } from '../../logging/logger.js';
+import { nullLogger } from '../../logging/null-logger.js';
 
 /**
  * Liveness that means PROGRESS, not process existence (audit G-1). A
@@ -12,12 +14,16 @@ import { writeFileSync } from 'node:fs';
  * scheduler): the path and the log label are the caller's — each service's
  * compose healthcheck names ITS path literally.
  */
-export const beatProcessHeartbeat = (path: string, label: string): void => {
+export const beatProcessHeartbeat = (
+  path: string,
+  label: string,
+  logger: Logger = nullLogger,
+): void => {
   try {
     writeFileSync(path, new Date().toISOString());
   } catch (error) {
     // A failing beat must never take down the loop — the healthcheck
     // going stale IS the signal, and the cause will be in this log line.
-    console.warn(`${label}: heartbeat write failed: ${String(error)}`);
+    logger.warn(`${label}: heartbeat write failed`, { path, err: error });
   }
 };

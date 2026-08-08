@@ -8,10 +8,7 @@
  * every prior snapshot version is preserved, and the next close writes
  * version + 1. `audit` is append-only.
  */
-import {
-  closedMonthKeys,
-  monthKeyOfYearMonth,
-} from './month-key.js';
+import { closedMonthKeys, monthKeyOfYearMonth } from './month-key.js';
 import {
   clientCalendarOf,
   startOfClientMonth,

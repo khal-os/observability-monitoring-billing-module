@@ -150,9 +150,9 @@ describe('MongoDbTraceRepository', () => {
     const JULY_START = new Date('2026-07-01T00:00:00.000Z');
 
     const readQuarantine = async (traceId: string) =>
-      (
-        await MongoDb.getCollection(TRACES_COLLECTION).findOne({ traceId })
-      )?.['billingQuarantine'] ?? null;
+      (await MongoDb.getCollection(TRACES_COLLECTION).findOne({ traceId }))?.[
+        'billingQuarantine'
+      ] ?? null;
 
     beforeEach(async () => {
       await makeHarness().reset();

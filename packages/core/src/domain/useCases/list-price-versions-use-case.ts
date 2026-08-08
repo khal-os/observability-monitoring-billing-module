@@ -1,7 +1,4 @@
-import {
-  PriceVersionModel,
-  TokenType,
-} from '../models/price-version-model.js';
+import { PriceVersionModel, TokenType } from '../models/price-version-model.js';
 
 /**
  * US4 / audit D-3: the READ side of the versioned price table. Prices are

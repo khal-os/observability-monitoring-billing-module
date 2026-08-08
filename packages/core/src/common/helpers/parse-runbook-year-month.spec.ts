@@ -2,8 +2,14 @@ import { parseRunbookYearMonth } from './parse-runbook-year-month.js';
 
 describe('parseRunbookYearMonth (audit B-2 — the year/month border of every runbook door)', () => {
   it('MUST accept a real period', () => {
-    expect(parseRunbookYearMonth('2026', '6')).toEqual({ year: 2026, month: 6 });
-    expect(parseRunbookYearMonth('2026', '12')).toEqual({ year: 2026, month: 12 });
+    expect(parseRunbookYearMonth('2026', '6')).toEqual({
+      year: 2026,
+      month: 6,
+    });
+    expect(parseRunbookYearMonth('2026', '12')).toEqual({
+      year: 2026,
+      month: 12,
+    });
   });
 
   it('MUST refuse the two-digit year that closed June 1926', () => {

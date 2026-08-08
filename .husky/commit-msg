@@ -1,0 +1,2 @@
+# Conventional commits (the repo's existing history format: feat(scope): …).
+npx --no -- commitlint --edit "$1"

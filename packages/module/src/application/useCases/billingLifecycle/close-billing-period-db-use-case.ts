@@ -324,11 +324,12 @@ export class CloseBillingPeriodDbUseCase implements CloseBillingPeriodUseCase {
       throw new BillingPeriodStateError(alreadyClosed);
     }
 
-    const billedTraceIds = await this.billingSnapshotRepository.findUsageTraceIds(
-      year,
-      month,
-      period.snapshotVersion,
-    );
+    const billedTraceIds =
+      await this.billingSnapshotRepository.findUsageTraceIds(
+        year,
+        month,
+        period.snapshotVersion,
+      );
 
     await this.traceRepository.reconcileQuarantineAfterClose(
       start,
@@ -380,7 +381,9 @@ export class CloseBillingPeriodDbUseCase implements CloseBillingPeriodUseCase {
       if (!closedMonths.has(`${cursorYear}-${cursorMonth}`)) {
         const window = monthWindow(cursorYear, cursorMonth);
 
-        if (await this.billingQueryRepository.hasTraces(window.start, window.end)) {
+        if (
+          await this.billingQueryRepository.hasTraces(window.start, window.end)
+        ) {
           const blocking = `${cursorYear}-${String(cursorMonth).padStart(2, '0')}`;
 
           throw new BillingCloseBlockedError({

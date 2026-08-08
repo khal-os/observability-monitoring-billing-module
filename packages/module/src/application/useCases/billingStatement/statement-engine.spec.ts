@@ -40,7 +40,10 @@ const record = (
   agentVersion: agentId ? '1.0.0' : null,
   model,
   stampedCosts: costs,
-  totalCostMicrocents: costs.reduce((sum, cost) => sum + cost.costMicrocents, 0),
+  totalCostMicrocents: costs.reduce(
+    (sum, cost) => sum + cost.costMicrocents,
+    0,
+  ),
 });
 
 const FIXTURE: BillingUsageRecord[] = [
@@ -90,7 +93,9 @@ describe('buildStatement (the single billing calculation — invariant 3)', () =
 
     expect(eugeniaInputLines).toHaveLength(2);
     expect(
-      eugeniaInputLines.map((line) => line.appliedPriceMicrocentsPerMillion).sort(),
+      eugeniaInputLines
+        .map((line) => line.appliedPriceMicrocentsPerMillion)
+        .sort(),
     ).toEqual([PRICE_INPUT, PRICE_INPUT_V2].sort());
   });
 
@@ -119,20 +124,30 @@ describe('buildStatement (the single billing calculation — invariant 3)', () =
     );
     expect(totalBp).toBe(10_000);
     expect(
-      statement.agents.every((group) => Number.isInteger(group.percentOfTotalBp)),
+      statement.agents.every((group) =>
+        Number.isInteger(group.percentOfTotalBp),
+      ),
     ).toBe(true);
   });
 
   it('model mix closes at 100% for cost and tokens, total and per agent (T9/US15)', () => {
     const statement = buildStatement(FIXTURE);
 
-    const costBp = statement.modelMixTotal.reduce((s, m) => s + m.costShareBp, 0);
-    const tokenBp = statement.modelMixTotal.reduce((s, m) => s + m.tokenShareBp, 0);
+    const costBp = statement.modelMixTotal.reduce(
+      (s, m) => s + m.costShareBp,
+      0,
+    );
+    const tokenBp = statement.modelMixTotal.reduce(
+      (s, m) => s + m.tokenShareBp,
+      0,
+    );
     expect(costBp).toBe(10_000);
     expect(tokenBp).toBe(10_000);
 
     for (const agentMix of statement.modelMixByAgent) {
-      expect(agentMix.models.reduce((s, m) => s + m.costShareBp, 0)).toBe(10_000);
+      expect(agentMix.models.reduce((s, m) => s + m.costShareBp, 0)).toBe(
+        10_000,
+      );
     }
 
     // Mix cost is derived from the same lines — reconciles with the total.
@@ -155,7 +170,8 @@ describe('buildStatement (the single billing calculation — invariant 3)', () =
       costMicrocents(400_000, PRICE_INPUT),
     );
     expect(cache.savingsMicrocents).toBe(
-      cache.counterfactualInputCostMicrocents - cache.actualCacheReadCostMicrocents,
+      cache.counterfactualInputCostMicrocents -
+        cache.actualCacheReadCostMicrocents,
     );
     expect(cache.cacheWriteCostMicrocents).toBe(
       costMicrocents(50_000, PRICE_CACHE_WRITE),
@@ -203,7 +219,10 @@ describe('buildStatement (the single billing calculation — invariant 3)', () =
     );
     expect(totalBp).toBe(10_000);
     expect(
-      statement.modelMixTotal.reduce((sum, share) => sum + share.costShareBp, 0),
+      statement.modelMixTotal.reduce(
+        (sum, share) => sum + share.costShareBp,
+        0,
+      ),
     ).toBe(10_000);
 
     const lineCents = statement.lines.reduce(
@@ -384,7 +403,7 @@ describe('collectAppliedPriceVersions', () => {
     expect(JSON.stringify(again)).toBe(JSON.stringify(versions));
   });
 
-  it("MUST keep two agents whose id/version straddle the old separator DISTINCT — grouping keys are injective (audit B-3)", () => {
+  it('MUST keep two agents whose id/version straddle the old separator DISTINCT — grouping keys are injective (audit B-3)', () => {
     // '@@'-joined keys collided {id:'suporte@@v', version:'2'} with
     // {id:'suporte', version:'v@@2'}: one line, one agent card, the second
     // agent's whole cost attributed to the first — and the month total
@@ -424,5 +443,4 @@ describe('collectAppliedPriceVersions', () => {
       expect(agent.costMicrocents).toBe(PRICE_INPUT);
     }
   });
-
 });

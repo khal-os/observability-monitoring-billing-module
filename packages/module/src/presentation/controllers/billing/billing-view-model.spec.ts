@@ -129,9 +129,10 @@ describe('toBillingSummaryView — every displayed breakdown closes with the dis
 
     // Two slices with the same rendered label — merged by id, never by label.
     expect(view.agent_mix).toHaveLength(2);
-    expect(
-      view.agent_mix.map((slice) => slice.agent_label),
-    ).toEqual(['(sem agente)', '(sem agente)']);
+    expect(view.agent_mix.map((slice) => slice.agent_label)).toEqual([
+      '(sem agente)',
+      '(sem agente)',
+    ]);
 
     // Still closes: slices sum to the total, donut ends at 100%.
     const totalCents = centsOf(view.total_cost_brl_display);

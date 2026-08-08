@@ -1,4 +1,7 @@
-import { makeDatabase, makeMigrationRunner } from '../factories/database-factory.js';
+import {
+  makeDatabase,
+  makeMigrationRunner,
+} from '../factories/database-factory.js';
 
 const database = makeDatabase();
 

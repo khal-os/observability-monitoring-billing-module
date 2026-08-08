@@ -6,7 +6,11 @@ import {
 import { ListPriceVersionsUseCase } from '@observability/core/domain/useCases/list-price-versions-use-case.js';
 import { formatBrlFromMicrocents } from '@observability/core/common/helpers/money/money.js';
 import { formatUtcDateDisplay } from '@observability/core/common/helpers/display/display.js';
-import { Controller, HttpRequest, HttpResponse } from '../../interfaces/index.js';
+import {
+  Controller,
+  HttpRequest,
+  HttpResponse,
+} from '../../interfaces/index.js';
 import { buildSuccess } from '../../helpers/http-helper.js';
 import { parseQuery } from '../../helpers/query-validation.js';
 

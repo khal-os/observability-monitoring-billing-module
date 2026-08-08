@@ -72,6 +72,10 @@ services:
       # audit D-1: cross-origin is opt-in — exact origins, comma-separated;
       # empty = same-origin only (no CORS headers at all).
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      # Logging knobs (one shared reader in core, both images): empty means
+      # the defaults — level info, json lines on stdout.
+      LOG_LEVEL: ${LOG_LEVEL:-}
+      LOG_FORMAT: ${LOG_FORMAT:-}
     ports:
       # Loopback by default: the API is auth-less until KHAL_DISCOVERY_URL
       # is set, and it serves the full unmasked archive. Exposing beyond
@@ -159,6 +163,9 @@ services:
       # Defaults mirror SCHEDULER_DEFAULTS in billing-factory.ts.
       BILLING_AUTO_CLOSE_DELAY_MINUTES: ${BILLING_AUTO_CLOSE_DELAY_MINUTES:-60}
       BILLING_AUTO_CLOSE_CHECK_INTERVAL_SECONDS: ${BILLING_AUTO_CLOSE_CHECK_INTERVAL_SECONDS:-900}
+      # Logging knobs — same shared reader as the api.
+      LOG_LEVEL: ${LOG_LEVEL:-}
+      LOG_FORMAT: ${LOG_FORMAT:-}
     healthcheck:
       # PROGRESS, not process existence (audit G-1): the loop touches
       # /tmp/billing-close-heartbeat after every COMPLETED evaluation cycle

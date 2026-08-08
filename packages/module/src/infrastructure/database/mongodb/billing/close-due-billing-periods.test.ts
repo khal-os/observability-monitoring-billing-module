@@ -99,15 +99,23 @@ describe('CloseDueBillingPeriods (integration — decision 131 end to end)', () 
   it("one cycle closes every overdue month oldest-first with trigger 'scheduled' persisted; the next cycle is a no-op", async () => {
     const traces = new MongoDbTraceRepository();
     await traces.insertIfAbsent(
-      makeTrace({ traceId: 'may-1', startedAt: new Date('2026-05-10T12:00:00.000Z') }),
+      makeTrace({
+        traceId: 'may-1',
+        startedAt: new Date('2026-05-10T12:00:00.000Z'),
+      }),
     );
     await traces.insertIfAbsent(
-      makeTrace({ traceId: 'june-1', startedAt: new Date('2026-06-05T14:00:00.000Z') }),
+      makeTrace({
+        traceId: 'june-1',
+        startedAt: new Date('2026-06-05T14:00:00.000Z'),
+      }),
     );
 
     const firstCycle = await makeSut().runCycle();
 
-    expect(firstCycle.closed.map(({ year, month }) => ({ year, month }))).toEqual([
+    expect(
+      firstCycle.closed.map(({ year, month }) => ({ year, month })),
+    ).toEqual([
       { year: 2026, month: 5 },
       { year: 2026, month: 6 },
     ]);

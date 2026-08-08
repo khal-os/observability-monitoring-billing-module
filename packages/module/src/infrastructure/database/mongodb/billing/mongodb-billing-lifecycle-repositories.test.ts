@@ -216,7 +216,10 @@ describe('Billing lifecycle repositories (integration)', () => {
       expect((await sut.findVersion(2026, 6, 1))?.version).toBe(1);
 
       const storedInputs = await sut.findUsageRecords(2026, 6, 1);
-      expect(storedInputs.map((record) => record.traceId)).toEqual(['x1', 'x2']);
+      expect(storedInputs.map((record) => record.traceId)).toEqual([
+        'x1',
+        'x2',
+      ]);
       expect(storedInputs[0]?.stampedCosts[0]?.costMicrocents).toBe(
         2_500_000_000,
       );
@@ -408,13 +411,19 @@ describe('Billing lifecycle repositories (integration)', () => {
       const records = [usageRecord({ traceId: 'c1' })];
 
       await expect(
-        sut.insertWithPeriodClose(makeSnapshot(1, records), records, closeArgs(1)),
+        sut.insertWithPeriodClose(
+          makeSnapshot(1, records),
+          records,
+          closeArgs(1),
+        ),
       ).rejects.toThrow('simulated crash before the flip');
 
       // The commit transaction rolled back: no orphan header, period
       // untouched — the exact opposite of the pre-fix wedge.
       expect(
-        await MongoDb.getCollection(BILLING_SNAPSHOTS_COLLECTION).countDocuments({}),
+        await MongoDb.getCollection(
+          BILLING_SNAPSHOTS_COLLECTION,
+        ).countDocuments({}),
       ).toBe(0);
       expect(await periods.find(2026, 6)).toBeNull();
 
@@ -462,7 +471,11 @@ describe('Billing lifecycle repositories (integration)', () => {
       const sut = new MongoDbBillingSnapshotRepository();
       const records = [usageRecord({ traceId: 'w1' })];
 
-      await sut.insertWithPeriodClose(makeSnapshot(1, records), records, closeArgs(1));
+      await sut.insertWithPeriodClose(
+        makeSnapshot(1, records),
+        records,
+        closeArgs(1),
+      );
 
       const late = [
         usageRecord({ traceId: 'l1' }),
@@ -500,7 +513,11 @@ describe('Billing lifecycle repositories (integration)', () => {
       await sut.insert(makeSnapshot(1, records), records);
 
       await expect(
-        sut.insertWithPeriodClose(makeSnapshot(1, records), records, closeArgs(1)),
+        sut.insertWithPeriodClose(
+          makeSnapshot(1, records),
+          records,
+          closeArgs(1),
+        ),
       ).rejects.toThrow(BillingPeriodStateError);
       expect(await periods.find(2026, 6)).toBeNull();
       // The refused attempt staged its rows before the header collided —
@@ -523,8 +540,16 @@ describe('Billing lifecycle repositories (integration)', () => {
       const recordsB = [usageRecord({ traceId: 'b-1' })];
 
       const [resultA, resultB] = await Promise.allSettled([
-        sut.insertWithPeriodClose(makeSnapshot(1, recordsA), recordsA, closeArgs(1)),
-        sut.insertWithPeriodClose(makeSnapshot(1, recordsB), recordsB, closeArgs(1)),
+        sut.insertWithPeriodClose(
+          makeSnapshot(1, recordsA),
+          recordsA,
+          closeArgs(1),
+        ),
+        sut.insertWithPeriodClose(
+          makeSnapshot(1, recordsB),
+          recordsB,
+          closeArgs(1),
+        ),
       ]);
 
       const closedFlags = [resultA, resultB].map(
@@ -549,12 +574,14 @@ describe('Billing lifecycle repositories (integration)', () => {
       // version, so a merely version-scoped key would mix them) — and
       // they reproduce the winning statement.
       expect(storedInputs.map((record) => record.traceId).sort()).toEqual(
-        winnerRecords.map((record: BillingUsageRecord) => record.traceId).sort(),
+        winnerRecords
+          .map((record: BillingUsageRecord) => record.traceId)
+          .sort(),
       );
       expect(
-        await MongoDb.getCollection(BILLING_SNAPSHOTS_COLLECTION).countDocuments(
-          { year: 2026, month: 6 },
-        ),
+        await MongoDb.getCollection(
+          BILLING_SNAPSHOTS_COLLECTION,
+        ).countDocuments({ year: 2026, month: 6 }),
       ).toBe(1);
       expect((await periods.find(2026, 6))?.snapshotVersion).toBe(1);
 
@@ -586,9 +613,9 @@ describe('Billing lifecycle repositories (integration)', () => {
 
       expect(records.map((record) => record.traceId)).toEqual(['a', 'b']);
       expect(records[0]?.model).toBe('anthropic/claude-sonnet-4-6');
-      expect(records[0]?.stampedCosts[0]?.appliedPriceEffectiveFrom).toBeInstanceOf(
-        Date,
-      );
+      expect(
+        records[0]?.stampedCosts[0]?.appliedPriceEffectiveFrom,
+      ).toBeInstanceOf(Date);
     });
 
     it('watermark, quarantine count and accrued window', async () => {
@@ -624,9 +651,9 @@ describe('Billing lifecycle repositories (integration)', () => {
           new Date('2026-06-05T00:00:00.000Z'),
         ),
       ).toBe(0);
-      expect(
-        await sut.accruedCostMicrocents(JUNE_START, JULY_START),
-      ).toBe(5_000_000_000);
+      expect(await sut.accruedCostMicrocents(JUNE_START, JULY_START)).toBe(
+        5_000_000_000,
+      );
     });
 
     it('monthlyRollup groups by month with per-agent and per-model sums', async () => {
@@ -909,10 +936,12 @@ describe('Billing lifecycle repositories (integration)', () => {
         stampedTraceCount: 1,
         stampedTokens: 4_000_000,
       });
-      expect(rollup.map((row) => [row.month, row.totalCostMicrocents])).toEqual([
-        [5, 10_000_000_000],
-        [6, 2_500_000_000],
-      ]);
+      expect(rollup.map((row) => [row.month, row.totalCostMicrocents])).toEqual(
+        [
+          [5, 10_000_000_000],
+          [6, 2_500_000_000],
+        ],
+      );
 
       // The third reader of the same store — /billing/summary's live path,
       // which never had a bound — must report the SAME money (invariant 3).
@@ -987,7 +1016,9 @@ describe('Billing lifecycle repositories (integration)', () => {
         JUNE_CLOSED_WINDOWS,
       );
 
-      expect(days.map((day) => [day.date.getUTCDate(), day.totalCostMicrocents])).toEqual([
+      expect(
+        days.map((day) => [day.date.getUTCDate(), day.totalCostMicrocents]),
+      ).toEqual([
         [5, 2_500_000_100],
         [6, 2_500_000_000],
       ]);
@@ -1204,7 +1235,10 @@ describe('Billing lifecycle repositories (integration)', () => {
         now: () => new Date('2026-07-15T10:00:00.000Z'),
       }).close(2026, 6);
 
-      const wholeMonth = await queries.fetchUsageRecords(JUNE_START, JULY_START);
+      const wholeMonth = await queries.fetchUsageRecords(
+        JUNE_START,
+        JULY_START,
+      );
       const stored = await snapshots.findCurrent(2026, 6);
 
       expect(result.stampedTraceCount).toBe(3);
@@ -1215,7 +1249,9 @@ describe('Billing lifecycle repositories (integration)', () => {
         JSON.parse(JSON.stringify(buildStatement(wholeMonth))),
       );
       expect(
-        (await snapshots.findUsageRecords(2026, 6, 1)).map((row) => row.traceId),
+        (await snapshots.findUsageRecords(2026, 6, 1)).map(
+          (row) => row.traceId,
+        ),
       ).toEqual(['jun-05', 'jun-17', 'jun-28']);
       expect(await usageRows()).toBe(3);
     });
@@ -1299,7 +1335,10 @@ describe('Billing lifecycle repositories (integration)', () => {
 
       const stored = await snapshots.findCurrent(2026, 6);
       const storedInputs = await snapshots.findUsageRecords(2026, 6, 1);
-      const wholeMonth = await queries.fetchUsageRecords(JUNE_START, JULY_START);
+      const wholeMonth = await queries.fetchUsageRecords(
+        JUNE_START,
+        JULY_START,
+      );
 
       // The premise of the whole case: the two readers really do answer in
       // the REVERSE of the order the close folded the month in.
@@ -1339,9 +1378,9 @@ describe('Billing lifecycle repositories (integration)', () => {
       // (2) The twin comparator: `sortPriceVersions` has no agent term, so
       // this same fixture ties it on (model, tokenType, effectiveFrom) —
       // the applied price is the only thing left to order by.
-      expect(
-        JSON.parse(JSON.stringify(stored?.priceVersionsApplied)),
-      ).toEqual(JSON.parse(JSON.stringify(collectAppliedPriceVersions(storedInputs))));
+      expect(JSON.parse(JSON.stringify(stored?.priceVersionsApplied))).toEqual(
+        JSON.parse(JSON.stringify(collectAppliedPriceVersions(storedInputs))),
+      );
       expect(
         stored?.priceVersionsApplied.map((version) => [
           version.model,
@@ -1377,7 +1416,10 @@ describe('Billing lifecycle repositories (integration)', () => {
       expect(stored?.statement.totalCostMicrocents).toBe(2_504_000_000);
       expect(stored?.statement.totalDisplayCents).toBe(2_504);
       expect(
-        stored?.statement.lines.reduce((sum, line) => sum + line.displayCents, 0),
+        stored?.statement.lines.reduce(
+          (sum, line) => sum + line.displayCents,
+          0,
+        ),
       ).toBe(2_504);
       expect(await usageRows()).toBe(3);
     });

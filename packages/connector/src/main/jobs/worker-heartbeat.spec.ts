@@ -1,7 +1,11 @@
 import { readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { WORKER_HEARTBEAT_PATH, beatWorkerHeartbeat } from './worker-heartbeat.js';
+import {
+  WORKER_HEARTBEAT_PATH,
+  beatWorkerHeartbeat,
+} from './worker-heartbeat.js';
+import { RecordingLogger } from '@observability/core/common/logging/logging-test-fakes.js';
 
 describe('worker heartbeat (audit G-1 — progress, not process existence)', () => {
   const path = join(tmpdir(), `heartbeat-spec-${process.pid}`);
@@ -22,16 +26,14 @@ describe('worker heartbeat (audit G-1 — progress, not process existence)', () 
   });
 
   it('MUST swallow a write failure — a dead beat is the signal, never a crash', () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const logger = new RecordingLogger();
 
     expect(() =>
-      beatWorkerHeartbeat('/nonexistent-dir/heartbeat'),
+      beatWorkerHeartbeat('/nonexistent-dir/heartbeat', logger),
     ).not.toThrow();
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('heartbeat write failed'),
-    );
-
-    warn.mockRestore();
+    expect(logger.messages('warn')).toEqual([
+      'Trace ingestion worker: heartbeat write failed',
+    ]);
   });
 
   it('pins the default path the compose healthcheck greps for', () => {

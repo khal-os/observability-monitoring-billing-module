@@ -10,6 +10,7 @@ import {
   billRow,
   usageRecord,
 } from '@observability/core/application/testSupport/billing-test-fakes.js';
+import { RecordingLogger } from '@observability/core/common/logging/logging-test-fakes.js';
 
 const NOW = new Date('2026-07-19T12:00:00.000Z');
 
@@ -19,12 +20,14 @@ const makeSut = (now = NOW) => {
   const billingSnapshotRepository = new InMemoryBillingSnapshotRepository(
     billingPeriodRepository,
   );
+  const logger = new RecordingLogger();
 
   const sut = new ListBillsDbUseCase({
     billingQueryRepository,
     billingPeriodRepository,
     billingSnapshotRepository,
     now: () => now,
+    logger,
   });
 
   const close = new CloseBillingPeriodDbUseCase({
@@ -51,6 +54,7 @@ const makeSut = (now = NOW) => {
 
   return {
     sut,
+    logger,
     close,
     reopen,
     summary,
@@ -98,7 +102,7 @@ describe('ListBillsDbUseCase (T7)', () => {
     expect(bills[1]).toMatchObject({
       totalCostMicrocents: 8_220_000,
       stampedTraceCount: 5,
-  quarantinedTraceCount: 0,
+      quarantinedTraceCount: 0,
     });
   });
 
@@ -121,7 +125,9 @@ describe('ListBillsDbUseCase (T7)', () => {
 
     const bills = await sut.list();
 
-    expect(bills.find((bill) => bill.month === 6)?.quarantinedTraceCount).toBe(3);
+    expect(bills.find((bill) => bill.month === 6)?.quarantinedTraceCount).toBe(
+      3,
+    );
   });
 
   it('MUST mark every bill open when the current month has no traces', async () => {
@@ -188,7 +194,8 @@ describe('ListBillsDbUseCase (T7)', () => {
 
   describe('audit B-10.2: a closed month with a MISSING snapshot throws — never a silent skip', () => {
     it('throws for a closed period with no live row (leftover branch)', async () => {
-      const { sut, billingQueryRepository, billingPeriodRepository } = makeSut();
+      const { sut, billingQueryRepository, billingPeriodRepository } =
+        makeSut();
       billingQueryRepository.billRows = [];
 
       // Corrupt state: period closed, snapshot never written.
@@ -209,7 +216,8 @@ describe('ListBillsDbUseCase (T7)', () => {
     });
 
     it('throws for a closed period WITH a live row (gap scenario keeps the row in the scan)', async () => {
-      const { sut, billingQueryRepository, billingPeriodRepository } = makeSut();
+      const { sut, billingQueryRepository, billingPeriodRepository } =
+        makeSut();
 
       // April closed (with snapshot missing = corrupt), May open (the gap
       // puts the bound at May 1st)... so April is a leftover. To hit the
@@ -330,7 +338,9 @@ describe('ListBillsDbUseCase (T7)', () => {
 
       const frozen = await sut.list();
 
-      expect(frozen.find((bill) => bill.month === 5)?.pendingTraceCount).toBe(0);
+      expect(frozen.find((bill) => bill.month === 5)?.pendingTraceCount).toBe(
+        0,
+      );
       expect((await summary.get(2026, 5)).pendingPrice.traceCount).toBe(0);
 
       // Reopened, the live statement bills May again — so the straggler is
@@ -477,9 +487,9 @@ describe('ListBillsDbUseCase (T7)', () => {
         may?.totalCostMicrocents,
       );
       // June stays frozen at its snapshot.
-      expect(
-        bills.find((bill) => bill.month === 6)?.totalCostMicrocents,
-      ).toBe(2_500_000_000);
+      expect(bills.find((bill) => bill.month === 6)?.totalCostMicrocents).toBe(
+        2_500_000_000,
+      );
     });
 
     it('the scan bound moves back onto the month — no period document exists to betray it', async () => {
@@ -532,8 +542,7 @@ describe('ListBillsDbUseCase (T7)', () => {
   });
 
   it('MUST exclude a FUTURE-dated month from the bill list — /billing/summary 400s it, so listing it offered a row the UI could never open (audit B-1)', async () => {
-    const { sut, billingQueryRepository } = makeSut();
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const { sut, billingQueryRepository, logger } = makeSut();
 
     billingQueryRepository.billRows = [
       billRow({ year: 2026, month: 7 }),
@@ -543,12 +552,9 @@ describe('ListBillsDbUseCase (T7)', () => {
 
     const bills = await sut.list();
 
-    expect(
-      bills.map((bill) => `${bill.year}-${bill.month}`),
-    ).toEqual(['2026-7']);
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('FUTURO'));
-
-    warn.mockRestore();
+    expect(bills.map((bill) => `${bill.year}-${bill.month}`)).toEqual([
+      '2026-7',
+    ]);
+    expect(logger.messages('warn').join('\n')).toContain('FUTURO');
   });
-
 });

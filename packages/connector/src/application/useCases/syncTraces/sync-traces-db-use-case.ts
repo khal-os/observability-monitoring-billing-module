@@ -16,6 +16,8 @@ import {
 } from './trace-ingestor.js';
 import { closedMonthKeys } from '@observability/core/domain/models/month-key.js';
 import { BillingPeriodRepository } from '@observability/core/application/interfaces/billing-period-repository.js';
+import { Logger } from '@observability/core/common/logging/logger.js';
+import { nullLogger } from '@observability/core/common/logging/null-logger.js';
 
 export class SyncTracesDbUseCase implements SyncTracesUseCase {
   private readonly traceSourceClient: TraceSourceClient;
@@ -24,6 +26,7 @@ export class SyncTracesDbUseCase implements SyncTracesUseCase {
   private readonly billingPeriodRepository: BillingPeriodRepository;
   private readonly ingestFailureRepository: IngestFailureRepository;
   private readonly estimateDocumentBytes: EstimateDocumentBytes;
+  private readonly logger: Logger;
 
   constructor(args: {
     traceSourceClient: TraceSourceClient;
@@ -32,6 +35,7 @@ export class SyncTracesDbUseCase implements SyncTracesUseCase {
     billingPeriodRepository: BillingPeriodRepository;
     ingestFailureRepository: IngestFailureRepository;
     estimateDocumentBytes: EstimateDocumentBytes;
+    logger?: Logger;
   }) {
     this.traceSourceClient = args.traceSourceClient;
     this.priceVersionRepository = args.priceVersionRepository;
@@ -39,6 +43,7 @@ export class SyncTracesDbUseCase implements SyncTracesUseCase {
     this.billingPeriodRepository = args.billingPeriodRepository;
     this.ingestFailureRepository = args.ingestFailureRepository;
     this.estimateDocumentBytes = args.estimateDocumentBytes;
+    this.logger = args.logger ?? nullLogger;
   }
 
   async sync(window: SyncWindowInput): Promise<SyncReport> {
@@ -84,6 +89,7 @@ export class SyncTracesDbUseCase implements SyncTracesUseCase {
               billingPeriodRepository: this.billingPeriodRepository,
               ingestFailureRepository: this.ingestFailureRepository,
               estimateDocumentBytes: this.estimateDocumentBytes,
+              logger: this.logger,
             },
             trace,
             closedMonths,
@@ -123,8 +129,9 @@ export class SyncTracesDbUseCase implements SyncTracesUseCase {
           // retention burned (permanent archive loss).
           failedInPage += 1;
           report.failed += 1;
-          console.warn(
-            `Sync: trace ${trace.traceId} failed ingestion and was dead-lettered: ${String(error)}`,
+          this.logger.warn(
+            'Sync: trace failed ingestion and was dead-lettered',
+            { traceId: trace.traceId, err: error },
           );
           await this.ingestFailureRepository.recordFailure({
             traceId: trace.traceId,
@@ -141,12 +148,20 @@ export class SyncTracesDbUseCase implements SyncTracesUseCase {
 
     // T2 (PoC stubs): every run is logged; gap detection and retention-age
     // alerts are log-only stubs for now.
-    console.log(
-      `Sync: window [${window.from.toISOString()}, ${window.to.toISOString()}) — fetched ${report.fetched}, inserted ${report.inserted}, skipped ${report.skipped}, pending price ${report.pendingPrice}, failed ${report.failed}` +
-        `${report.tokenDivergence > 0 ? `, token divergence ${report.tokenDivergence}` : ''}.`,
-    );
-    console.log(
-      'Sync stub: gap detection and retention-window alerts not implemented in the PoC (T2).',
+    this.logger.info('Sync: window finished', {
+      from: window.from.toISOString(),
+      to: window.to.toISOString(),
+      fetched: report.fetched,
+      inserted: report.inserted,
+      skipped: report.skipped,
+      pendingPrice: report.pendingPrice,
+      failed: report.failed,
+      ...(report.tokenDivergence > 0
+        ? { tokenDivergence: report.tokenDivergence }
+        : {}),
+    });
+    this.logger.info(
+      'Sync stub: gap detection and retention-window alerts not implemented in the PoC (T2)',
     );
 
     return report;

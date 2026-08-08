@@ -6,36 +6,44 @@ import { InvalidParamError, NotFoundError } from '../../errors/index.js';
 const makeDetail = (): TraceModel => ({
   traceId: 'trace-001',
   sessionId: 'sess-001',
-  agent: { id: 'agent-atendimento', version: '1.4.2', instance: 'agent-atendimento-7d9f4b-k2xp8' },
+  agent: {
+    id: 'agent-atendimento',
+    version: '1.4.2',
+    instance: 'agent-atendimento-7d9f4b-k2xp8',
+  },
   model: { id: 'gpt-5-mini', provider: 'openai' },
   type: 'chat',
-  channel: { type: 'whatsapp', version: '3.2.0', instance: 'omni-wa-6b4c9f-r3zs5' },
+  channel: {
+    type: 'whatsapp',
+    version: '3.2.0',
+    instance: 'omni-wa-6b4c9f-r3zs5',
+  },
   startedAt: new Date('2026-06-05T14:00:00.000Z'),
-    finishedAt: new Date('2026-06-05T14:00:04.000Z'),
-    durationMs: 4000,
-    status: 'ok',
-    tokens: { input: 1200, output: 350 },
-    tokensTotal: 1550,
-    pricingStatus: 'stamped',
-    stampedCosts: [
-      {
-        tokenType: 'input',
-        tokens: 1200,
-        appliedPriceMicrocentsPerMillion: 275_000_000,
-        appliedPriceEffectiveFrom: new Date('2026-06-01T00:00:00.000Z'),
-        costMicrocents: 330_000,
-      },
-    ],
-    totalCostMicrocents: 330_000,
-    stampedAt: new Date('2026-07-01T00:00:00.000Z'),
-    ingestedAt: new Date('2026-07-01T00:00:00.000Z'),
+  finishedAt: new Date('2026-06-05T14:00:04.000Z'),
+  durationMs: 4000,
+  status: 'ok',
+  tokens: { input: 1200, output: 350 },
+  tokensTotal: 1550,
+  pricingStatus: 'stamped',
+  stampedCosts: [
+    {
+      tokenType: 'input',
+      tokens: 1200,
+      appliedPriceMicrocentsPerMillion: 275_000_000,
+      appliedPriceEffectiveFrom: new Date('2026-06-01T00:00:00.000Z'),
+      costMicrocents: 330_000,
+    },
+  ],
+  totalCostMicrocents: 330_000,
+  stampedAt: new Date('2026-07-01T00:00:00.000Z'),
+  ingestedAt: new Date('2026-07-01T00:00:00.000Z'),
   input: 'oi',
   output: 'olá',
   spans: [],
 });
 
 class GetTraceDetailStub implements GetTraceDetailUseCase {
-  async get(traceId: string): Promise<TraceModel | null> {
+  async get(_traceId: string): Promise<TraceModel | null> {
     return makeDetail();
   }
 }

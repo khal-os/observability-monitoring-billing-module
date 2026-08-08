@@ -1,6 +1,9 @@
 import { config } from '../infrastructure/index.js';
 import { server } from './server/app.js';
 import { makeDatabase } from './factories/database-factory.js';
+import { makeLogger } from './factories/logger-factory.js';
+
+const logger = makeLogger({ component: 'lifecycle' });
 
 const database = makeDatabase();
 
@@ -22,18 +25,18 @@ let shuttingDown = false;
 
 const shutdown = (signal: NodeJS.Signals): void => {
   if (shuttingDown) {
-    console.log(`${signal} received: shutdown already in progress.`);
+    logger.info('shutdown already in progress', { signal });
     return;
   }
   shuttingDown = true;
 
-  console.log(`${signal} received: shutting down…`);
+  logger.info('shutting down', { signal });
 
   // unref: the timer must never keep an otherwise-finished process alive.
   const hardKill = setTimeout(() => {
-    console.error(
-      `Shutdown did not finish within ${HARD_KILL_TIMEOUT_MS}ms — exiting hard.`,
-    );
+    logger.fatal('shutdown did not finish in time — exiting hard', {
+      timeoutMs: HARD_KILL_TIMEOUT_MS,
+    });
     process.exit(1);
   }, HARD_KILL_TIMEOUT_MS);
   hardKill.unref();
@@ -45,7 +48,7 @@ const shutdown = (signal: NodeJS.Signals): void => {
       clearTimeout(hardKill);
       process.exit(0);
     } catch (error) {
-      console.error('Shutdown error:', error);
+      logger.error('shutdown error', { err: error });
       process.exit(1);
     }
   })();

@@ -53,12 +53,12 @@ describe('migration 022-ingestion-watermark-index (audit F-3)', () => {
       )
       .explain('executionStats');
 
-    const stats = (
-      explain as {
-        stages?: { $cursor?: { executionStats?: { totalDocsExamined?: number } } }[];
-        executionStats?: { totalDocsExamined?: number };
-      }
-    );
+    const stats = explain as {
+      stages?: {
+        $cursor?: { executionStats?: { totalDocsExamined?: number } };
+      }[];
+      executionStats?: { totalDocsExamined?: number };
+    };
     const docsExamined =
       stats.executionStats?.totalDocsExamined ??
       stats.stages?.[0]?.$cursor?.executionStats?.totalDocsExamined;

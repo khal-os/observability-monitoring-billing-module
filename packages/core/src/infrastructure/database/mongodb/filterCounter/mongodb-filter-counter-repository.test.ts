@@ -109,7 +109,9 @@ describe('MongoDbFilterCounterRepository (facet cube, decision 77)', () => {
 
     expect(counters).toEqual([
       {
-        day: new Date('2026-06-05T03:00:00.000Z' /* client midnight, decision 130 */),
+        day: new Date(
+          '2026-06-05T03:00:00.000Z' /* client midnight, decision 130 */,
+        ),
         domain: 'varejo',
         subdomain: 'loja-sp',
         type: 'chat',
@@ -145,7 +147,9 @@ describe('MongoDbFilterCounterRepository (facet cube, decision 77)', () => {
 
   it('applyDelta on a DRIFTED cube MUST no-op the decrement, never go negative (audit C-7.4)', async () => {
     const dims = (agentId: string) => ({
-      day: new Date('2026-06-05T03:00:00.000Z' /* client midnight, decision 130 */),
+      day: new Date(
+        '2026-06-05T03:00:00.000Z' /* client midnight, decision 130 */,
+      ),
       domain: 'varejo',
       subdomain: 'loja-sp',
       type: 'chat',
@@ -171,9 +175,9 @@ describe('MongoDbFilterCounterRepository (facet cube, decision 77)', () => {
     expect(
       counters.find((row) => row['agentId'] === 'agent-missing'),
     ).toBeUndefined();
-    expect(counters.find((row) => row['agentId'] === 'agent-zero')).toMatchObject(
-      { count: 0 },
-    );
+    expect(
+      counters.find((row) => row['agentId'] === 'agent-zero'),
+    ).toMatchObject({ count: 0 });
     // The increment side still lands: both corrections arrived at agent-b.
     expect(counters.find((row) => row['agentId'] === 'agent-b')).toMatchObject({
       count: 2,

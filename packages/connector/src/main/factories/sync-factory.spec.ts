@@ -1,4 +1,5 @@
 import { EnvironmentVariables } from '../../infrastructure/configuration/helpers/environment-setup.js';
+import { RecordingLogger } from '@observability/core/common/logging/logging-test-fakes.js';
 
 /**
  * Decision 127 pinned: the trace source is DECLARED, never inferred, and
@@ -13,27 +14,31 @@ import { EnvironmentVariables } from '../../infrastructure/configuration/helpers
 const baseConfig: EnvironmentVariables = {
   Environment: 'production',
   clientTimezone: 'America/Sao_Paulo',
+  logLevel: 'info',
+  logFormat: 'json',
 };
+
+// The factory's own logger, recorded: the selection lines are part of the
+// contract ("the run's own output must say where the traces came from").
+let logger: RecordingLogger;
 
 const loadFactory = async (overrides: Partial<EnvironmentVariables>) => {
   jest.resetModules();
+  logger = new RecordingLogger();
   jest.doMock('../../infrastructure/index.js', () => ({
     config: { ...baseConfig, ...overrides },
+  }));
+  jest.doMock('./logger-factory.js', () => ({
+    makeLogger: () => logger,
   }));
 
   return import('./sync-factory.js');
 };
 
 describe('makeTraceSourceClient (decision 127 — declared, never inferred)', () => {
-  let log: jest.SpyInstance;
-
-  beforeEach(() => {
-    log = jest.spyOn(console, 'log').mockImplementation(() => {});
-  });
-
   afterEach(() => {
-    log.mockRestore();
     jest.dontMock('../../infrastructure/index.js');
+    jest.dontMock('./logger-factory.js');
   });
 
   it('MUST select ClickHouse when the direct source is configured — and say so in the log', async () => {
@@ -45,7 +50,7 @@ describe('makeTraceSourceClient (decision 127 — declared, never inferred)', ()
     expect(makeTraceSourceClient().constructor.name).toBe(
       'ClickHouseLangWatchClient',
     );
-    expect(log).toHaveBeenCalledWith(expect.stringContaining('ClickHouse'));
+    expect(logger.messages('info').join('\n')).toContain('ClickHouse');
   });
 
   it('MUST select the fixture fake ONLY behind the explicit TRACE_SOURCE=fixtures opt-in — loudly', async () => {
@@ -56,7 +61,7 @@ describe('makeTraceSourceClient (decision 127 — declared, never inferred)', ()
     expect(makeTraceSourceClient().constructor.name).toBe(
       'FakeTraceSourceClient',
     );
-    expect(log).toHaveBeenCalledWith(expect.stringContaining('FIXTURE FAKE'));
+    expect(logger.messages('info').join('\n')).toContain('FIXTURE FAKE');
   });
 
   it('MUST honor the explicit fixtures declaration even when ClickHouse is also configured', async () => {
@@ -73,9 +78,7 @@ describe('makeTraceSourceClient (decision 127 — declared, never inferred)', ()
   it('MUST throw in production with no source — a backfill must never silently sync fixtures (invariant 6)', async () => {
     const { makeTraceSourceClient } = await loadFactory({});
 
-    expect(() => makeTraceSourceClient()).toThrow(
-      /No trace source configured/,
-    );
+    expect(() => makeTraceSourceClient()).toThrow(/No trace source configured/);
   });
 
   it('MUST throw in development too — only jest gets an implicit fake', async () => {
@@ -83,9 +86,7 @@ describe('makeTraceSourceClient (decision 127 — declared, never inferred)', ()
       Environment: 'development',
     });
 
-    expect(() => makeTraceSourceClient()).toThrow(
-      /No trace source configured/,
-    );
+    expect(() => makeTraceSourceClient()).toThrow(/No trace source configured/);
   });
 
   it("MUST fall back to the fake under jest's test environment (the module route harness seeds through it)", async () => {

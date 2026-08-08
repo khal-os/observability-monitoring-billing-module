@@ -129,7 +129,10 @@ const toSpanItem = (span: SpanModel, traceDurationMs: number) => ({
   output_text: contentToText(span.output),
 });
 
-export const toTraceDetail = (trace: TraceModel, now: Date): TraceDetailView => ({
+export const toTraceDetail = (
+  trace: TraceModel,
+  now: Date,
+): TraceDetailView => ({
   ...toTraceListItem(trace, now),
   finished_at: trace.finishedAt.toISOString(),
   finished_at_display: formatDateTimeDisplay(trace.finishedAt),
@@ -153,8 +156,7 @@ export const toTraceDetail = (trace: TraceModel, now: Date): TraceDetailView => 
   span_types: [...new Set(trace.spans.map((span) => span.type))],
   unclassified_reasons: trace.unclassified?.reasons ?? null,
   unclassified_label: trace.unclassified?.reasons.join('; ') ?? null,
-  pending_missing_token_types:
-    trace.pendingPrice?.missingTokenTypes ?? null,
+  pending_missing_token_types: trace.pendingPrice?.missingTokenTypes ?? null,
   pending_missing_label:
     trace.pendingPrice?.missingTokenTypes.join(', ') ?? null,
   // "Shows the math": contracted R$ price and full-precision line cost per

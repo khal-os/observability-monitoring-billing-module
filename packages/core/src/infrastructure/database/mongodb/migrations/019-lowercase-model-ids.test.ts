@@ -4,6 +4,7 @@ import { TRACES_COLLECTION } from '../collections.js';
 import { PRICE_VERSIONS_COLLECTION } from '../priceVersion/mongodb-price-version-repository.js';
 import { priceVersionIndexes } from './001-price-version-indexes.js';
 import { lowercaseModelIds } from './019-lowercase-model-ids.js';
+import { RecordingLogger } from '../../../../common/logging/logging-test-fakes.js';
 
 const stamp = {
   pricingStatus: 'stamped',
@@ -56,7 +57,9 @@ const priceRow = (
 });
 
 const readAll = async (collection: string) =>
-  MongoDb.getCollection(collection).find({}, { sort: { _id: 1 } }).toArray();
+  MongoDb.getCollection(collection)
+    .find({}, { sort: { _id: 1 } })
+    .toArray();
 
 describe('migration 019-lowercase-model-ids (decision 102, audit B-7)', () => {
   beforeAll(async () => {
@@ -127,12 +130,14 @@ describe('migration 019-lowercase-model-ids (decision 102, audit B-7)', () => {
   });
 
   it('MUST lowercase price-version keys, letting the unique index adjudicate case-variant duplicates', async () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const logger = new RecordingLogger();
     const effectiveFrom = new Date('2026-06-01T00:00:00.000Z');
     const prices = MongoDb.getCollection(PRICE_VERSIONS_COLLECTION);
 
     // Collision: the lowercase row already exists → the variant is skipped.
-    await prices.insertOne(priceRow('anthropic/claude-x', 'input', effectiveFrom));
+    await prices.insertOne(
+      priceRow('anthropic/claude-x', 'input', effectiveFrom),
+    );
     await prices.insertOne(
       priceRow('Anthropic/Claude-X', 'input', effectiveFrom, 2_000_000_000),
     );
@@ -143,7 +148,7 @@ describe('migration 019-lowercase-model-ids (decision 102, audit B-7)', () => {
     await prices.insertOne(priceRow('Meta/Llama-4', 'output', effectiveFrom));
     await prices.insertOne(priceRow('META/LLAMA-4', 'output', effectiveFrom));
 
-    await lowercaseModelIds.run(MongoDb.getClient().db());
+    await lowercaseModelIds.run(MongoDb.getClient().db(), logger);
 
     const after = await readAll(PRICE_VERSIONS_COLLECTION);
     const keys = after.map((document) => [
@@ -165,14 +170,14 @@ describe('migration 019-lowercase-model-ids (decision 102, audit B-7)', () => {
     ]);
 
     // Every skip is loud.
-    expect(warn).toHaveBeenCalledTimes(2);
-    expect(warn.mock.calls.map((call) => call[0]).join('\n')).toContain(
+    const warned = logger.at('warn');
+    expect(warned).toHaveLength(2);
+    expect(warned.map((line) => line.fields['model'])).toContain(
       'Anthropic/Claude-X',
     );
   });
 
   it('MUST be idempotent: a second run modifies nothing', async () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     const effectiveFrom = new Date('2026-06-01T00:00:00.000Z');
 
     await MongoDb.getCollection(TRACES_COLLECTION).insertMany([
@@ -200,7 +205,5 @@ describe('migration 019-lowercase-model-ids (decision 102, audit B-7)', () => {
     // (the deliberately skipped collision row is skipped again).
     expect(await readAll(TRACES_COLLECTION)).toEqual(tracesAfterFirst);
     expect(await readAll(PRICE_VERSIONS_COLLECTION)).toEqual(pricesAfterFirst);
-
-    warn.mockRestore();
   });
 });

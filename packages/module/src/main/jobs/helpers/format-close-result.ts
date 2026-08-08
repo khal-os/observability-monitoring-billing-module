@@ -21,7 +21,10 @@ export const formatCloseSuccess = (
 
   // Decision 100 — the snapshot adjudicates: report what the post-close
   // reconciliation did (stragglers flagged / quarentenados absorvidos).
-  if (result.quarantine.flaggedStragglers > 0 || result.quarantine.absorbed > 0) {
+  if (
+    result.quarantine.flaggedStragglers > 0 ||
+    result.quarantine.absorbed > 0
+  ) {
     lines.push(
       `Quarentena reconciliada: ${result.quarantine.flaggedStragglers} ` +
         'trace(s) retardatário(s) sinalizado(s) fora da fatura; ' +

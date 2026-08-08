@@ -23,7 +23,7 @@ import {
  */
 const { values } = parseArgs({
   options: {
-    'model': { type: 'string' },
+    model: { type: 'string' },
     'token-type': { type: 'string' },
     'price-brl': { type: 'string' },
     'effective-from': { type: 'string' },

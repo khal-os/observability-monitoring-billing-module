@@ -14,6 +14,9 @@ import { MongoDbIngestFailureRepository } from '../../infrastructure/database/mo
 import { MongoDbPoisonRowRepository } from '../../infrastructure/database/mongodb/ingestFailures/mongodb-poison-row-repository.js';
 import { estimateBsonBytes } from '../../infrastructure/database/mongodb/ingestFailures/bson-size-estimator.js';
 import { config } from '../../infrastructure/index.js';
+import { makeLogger } from './logger-factory.js';
+
+const syncLogger = makeLogger({ component: 'sync' });
 
 const INGESTION_DEFAULTS = {
   intervalSeconds: 60,
@@ -40,6 +43,7 @@ const makeClickHouseClient = (): ClickHouseLangWatchClient | undefined =>
         quietPeriodMs: quietPeriodMs(),
         // audit C-6.2: skipped rows leave a durable record, not just a log.
         poisonRowRepository: new MongoDbPoisonRowRepository(),
+        logger: syncLogger,
       })
     : undefined;
 
@@ -59,7 +63,9 @@ const makeClickHouseClient = (): ClickHouseLangWatchClient | undefined =>
  */
 export const makeTraceSourceClient = (): TraceSourceClient => {
   if (config.traceSource === 'fixtures') {
-    console.log('Trace source: FIXTURE FAKE (TRACE_SOURCE=fixtures — demo/offline)');
+    syncLogger.info(
+      'Trace source: FIXTURE FAKE (TRACE_SOURCE=fixtures — demo/offline)',
+    );
 
     return new FakeTraceSourceClient();
   }
@@ -67,7 +73,7 @@ export const makeTraceSourceClient = (): TraceSourceClient => {
   const clickHouse = makeClickHouseClient();
 
   if (clickHouse) {
-    console.log('Trace source: ClickHouse (direct read, decision 59)');
+    syncLogger.info('Trace source: ClickHouse (direct read, decision 59)');
 
     return clickHouse;
   }
@@ -89,19 +95,24 @@ export const makeSyncTracesUseCase = (): SyncTracesDbUseCase =>
   new SyncTracesDbUseCase({
     traceSourceClient: makeTraceSourceClient(),
     priceVersionRepository: new MongoDbPriceVersionRepository(),
-    traceRepository: new MongoDbTraceRepository(),
+    traceRepository: new MongoDbTraceRepository({ logger: syncLogger }),
     billingPeriodRepository: new MongoDbBillingPeriodRepository(),
     // audit B-3: dead-letter trail + pre-insert size guard.
     ingestFailureRepository: new MongoDbIngestFailureRepository(),
     estimateDocumentBytes: estimateBsonBytes,
+    logger: syncLogger,
   });
 
-export const makeReprocessPendingUseCase = (): ReprocessPendingDbUseCase =>
-  new ReprocessPendingDbUseCase({
+export const makeReprocessPendingUseCase = (): ReprocessPendingDbUseCase => {
+  const logger = makeLogger({ component: 'reprocess' });
+
+  return new ReprocessPendingDbUseCase({
     priceVersionRepository: new MongoDbPriceVersionRepository(),
-    traceRepository: new MongoDbTraceRepository(),
+    traceRepository: new MongoDbTraceRepository({ logger }),
     billingPeriodRepository: new MongoDbBillingPeriodRepository(),
+    logger,
   });
+};
 
 /**
  * The dead-letter trail, for the worker's per-cycle count (re-audit
@@ -115,7 +126,8 @@ export const makeIngestFailureRepository = (): IngestFailureRepository =>
 
 export const traceIngestionWorkerSettings = {
   intervalMs:
-    (config.traceIngestionIntervalSeconds ?? INGESTION_DEFAULTS.intervalSeconds) * 1000,
+    (config.traceIngestionIntervalSeconds ??
+      INGESTION_DEFAULTS.intervalSeconds) * 1000,
   reprocessIntervalMs:
     (config.reprocessIntervalSeconds ??
       INGESTION_DEFAULTS.reprocessIntervalSeconds) * 1000,
@@ -128,8 +140,7 @@ export const traceIngestionWorkerSettings = {
  * TRACE_SOURCE=fixtures remains the demo path).
  */
 export const makeSyncBatchesUseCase = ():
-  | { useCase: SyncBatchesDbUseCase; source: TraceBatchSource }
-  | undefined => {
+  { useCase: SyncBatchesDbUseCase; source: TraceBatchSource } | undefined => {
   const source = makeClickHouseClient();
 
   if (!source) {
@@ -140,15 +151,18 @@ export const makeSyncBatchesUseCase = ():
     source,
     useCase: new SyncBatchesDbUseCase({
       traceBatchSource: source,
-      syncStateRepository: new MongoDbSyncStateRepository(),
+      syncStateRepository: new MongoDbSyncStateRepository({
+        logger: syncLogger,
+      }),
       priceVersionRepository: new MongoDbPriceVersionRepository(),
-      traceRepository: new MongoDbTraceRepository(),
+      traceRepository: new MongoDbTraceRepository({ logger: syncLogger }),
       billingPeriodRepository: new MongoDbBillingPeriodRepository(),
       // audit B-3: dead-letter trail + pre-insert size guard.
       ingestFailureRepository: new MongoDbIngestFailureRepository(),
       estimateDocumentBytes: estimateBsonBytes,
       batchSize: config.traceIngestionBatchSize ?? INGESTION_DEFAULTS.batchSize,
       quietPeriodMs: quietPeriodMs(),
+      logger: syncLogger,
     }),
   };
 };

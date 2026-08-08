@@ -17,6 +17,8 @@ import { TRACES_COLLECTION } from '../collections.js';
 import { isDuplicateKeyError } from '../helpers/is-duplicate-key-error.js';
 import { MongoDbFilterCounterRepository } from '../filterCounter/mongodb-filter-counter-repository.js';
 import { MongoDbSessionSummaryRepository } from '../session/mongodb-session-summary-repository.js';
+import { Logger } from '../../../../common/logging/logger.js';
+import { nullLogger } from '../../../../common/logging/null-logger.js';
 
 const filterCounters = new MongoDbFilterCounterRepository();
 
@@ -33,16 +35,17 @@ const sessionSummaries = new MongoDbSessionSummaryRepository();
 // write's outcome is the transaction's outcome, nothing later.
 const recomputeSessionOf = async (
   sessionId: string | undefined | null,
+  logger: Logger,
 ): Promise<void> => {
   if (typeof sessionId !== 'string') return;
 
   try {
     await sessionSummaries.recompute(sessionId);
   } catch (error) {
-    console.warn(
-      `session summary recompute failed for session "${sessionId}" — ` +
-        'summary stays stale until the next touch or rebuild (decision 80):',
-      error,
+    logger.warn(
+      'session summary recompute failed — summary stays stale until the ' +
+        'next touch or rebuild (decision 80)',
+      { sessionId, err: error },
     );
   }
 };
@@ -100,6 +103,12 @@ const ATTRIBUTION_FIELDS = {
 } as const;
 
 export class MongoDbTraceRepository implements TraceRepository {
+  private readonly logger: Logger;
+
+  constructor(args?: { logger?: Logger }) {
+    this.logger = args?.logger ?? nullLogger;
+  }
+
   async insertIfAbsent(trace: TraceModel): Promise<InsertIfAbsentResult> {
     const traces = MongoDb.getCollection(TRACES_COLLECTION);
 
@@ -144,7 +153,7 @@ export class MongoDbTraceRepository implements TraceRepository {
     // fast and conflict-free. A recompute failure is swallowed (warned)
     // inside recomputeSessionOf: the trace IS stored, so the outcome
     // below must stay 'inserted' (re-audit item 5).
-    await recomputeSessionOf(trace.sessionId);
+    await recomputeSessionOf(trace.sessionId, this.logger);
 
     return 'inserted';
   }
@@ -175,7 +184,8 @@ export class MongoDbTraceRepository implements TraceRepository {
         const before = (await traces.findOne(
           { traceId },
           { session, projection: ATTRIBUTION_FIELDS },
-        )) as unknown as (TraceModel & { attributionCorrectedAt?: Date }) | null;
+        )) as unknown as
+          (TraceModel & { attributionCorrectedAt?: Date }) | null;
 
         // Runbook-corrected traces are off-limits to source refreshes
         // (decision 79): the source still carries the value the correction
@@ -274,7 +284,8 @@ export class MongoDbTraceRepository implements TraceRepository {
         const storedUnclassified = stored.unclassified ?? null;
 
         if (
-          JSON.stringify(nextUnclassified) !== JSON.stringify(storedUnclassified)
+          JSON.stringify(nextUnclassified) !==
+          JSON.stringify(storedUnclassified)
         ) {
           await traces.updateOne(
             { traceId },
@@ -291,7 +302,7 @@ export class MongoDbTraceRepository implements TraceRepository {
     // materialized summary (decision 80); outside the transaction, same
     // rationale as insertIfAbsent (self-healing by design, failures
     // warned and swallowed — the committed correction stands).
-    await recomputeSessionOf(sessionId);
+    await recomputeSessionOf(sessionId, this.logger);
 
     return { modelPinnedByStamp };
   }
@@ -346,12 +357,15 @@ export class MongoDbTraceRepository implements TraceRepository {
         { projection: { _id: 0, sessionId: 1 } },
       );
 
-      await recomputeSessionOf(stamped?.['sessionId'] as string | null);
+      await recomputeSessionOf(
+        stamped?.['sessionId'] as string | null,
+        this.logger,
+      );
     } catch (error) {
-      console.warn(
-        `post-stamp session lookup failed for trace "${traceId}" — ` +
-          'summary stays stale until the next touch or rebuild (decision 80):',
-        error,
+      this.logger.warn(
+        'post-stamp session lookup failed — summary stays stale until the ' +
+          'next touch or rebuild (decision 80)',
+        { traceId, err: error },
       );
     }
 
@@ -379,12 +393,17 @@ export class MongoDbTraceRepository implements TraceRepository {
             ? {
                 $or: [
                   { startedAt: { $gt: after.startedAt } },
-                  { startedAt: after.startedAt, traceId: { $gt: after.traceId } },
+                  {
+                    startedAt: after.startedAt,
+                    traceId: { $gt: after.traceId },
+                  },
                 ],
               }
             : {}),
         },
-        { projection: { _id: 0, traceId: 1, model: 1, startedAt: 1, tokens: 1 } },
+        {
+          projection: { _id: 0, traceId: 1, model: 1, startedAt: 1, tokens: 1 },
+        },
       )
       .sort({ startedAt: 1, traceId: 1 })
       .limit(limit)

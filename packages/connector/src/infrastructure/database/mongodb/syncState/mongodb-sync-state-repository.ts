@@ -1,6 +1,8 @@
 import { SyncCursor } from '../../../../application/interfaces/trace-batch-source.js';
 import { SyncStateRepository } from '../../../../application/interfaces/sync-state-repository.js';
 import { MongoDb } from '@observability/core/infrastructure/database/mongodb/mongo-db.js';
+import { Logger } from '@observability/core/common/logging/logger.js';
+import { nullLogger } from '@observability/core/common/logging/null-logger.js';
 
 export const SYNC_STATE_COLLECTION = 'sync_state';
 
@@ -12,6 +14,12 @@ const isAscii = (value: string): boolean => /^[\x00-\x7f]*$/.test(value);
 
 export class MongoDbSyncStateRepository implements SyncStateRepository {
   private nonAsciiWarned = false;
+  private readonly logger: Logger;
+
+  constructor(args?: { logger?: Logger }) {
+    this.logger = args?.logger ?? nullLogger;
+  }
+
   async getTraceCursor(): Promise<SyncCursor | null> {
     const document = await MongoDb.getCollection(SYNC_STATE_COLLECTION).findOne(
       { _id: TRACE_CURSOR_ID } as never,
@@ -52,11 +60,12 @@ export class MongoDbSyncStateRepository implements SyncStateRepository {
 
     if (!this.nonAsciiWarned && !isAscii(cursor.traceId)) {
       this.nonAsciiWarned = true;
-      console.warn(
-        `sync-state: non-ASCII cursorTraceId ${JSON.stringify(cursor.traceId)} — ` +
-          'binary collation may disagree with the source ordering; the watermark ' +
-          'stays safe (advances can only be rejected, never regressed) but sync ' +
-          'throughput may degrade on re-reads.',
+      this.logger.warn(
+        'sync-state: non-ASCII cursorTraceId — binary collation may ' +
+          'disagree with the source ordering; the watermark stays safe ' +
+          '(advances can only be rejected, never regressed) but sync ' +
+          'throughput may degrade on re-reads',
+        { cursorTraceId: cursor.traceId },
       );
     }
 

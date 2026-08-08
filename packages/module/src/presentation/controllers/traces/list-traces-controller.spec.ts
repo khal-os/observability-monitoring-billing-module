@@ -11,7 +11,11 @@ import { InvalidParamError } from '../../errors/index.js';
 const makeTrace = (overrides: Partial<TraceModel> = {}): TraceModel => ({
   traceId: 'trace-001',
   sessionId: 'sess-001',
-  agent: { id: 'agent-atendimento', version: '1.4.2', instance: 'agent-atendimento-7d9f4b-k2xp8' },
+  agent: {
+    id: 'agent-atendimento',
+    version: '1.4.2',
+    instance: 'agent-atendimento-7d9f4b-k2xp8',
+  },
   model: { id: 'gpt-5-mini', provider: 'openai' },
   type: 'chat',
   channel: { type: 'whatsapp', version: '3.2.0' },
@@ -33,10 +37,16 @@ const makeTrace = (overrides: Partial<TraceModel> = {}): TraceModel => ({
 
 class ListTracesStub implements ListTracesUseCase {
   async list(
-    filters: TraceListFilters,
-    pagination: Pagination,
+    _filters: TraceListFilters,
+    _pagination: Pagination,
   ): Promise<Paginated<TraceModel>> {
-    return { items: [makeTrace()], page: 1, pageSize: 20, total: 1, totalCapped: false };
+    return {
+      items: [makeTrace()],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+      totalCapped: false,
+    };
   }
 }
 
@@ -307,7 +317,9 @@ describe('ListTracesController', () => {
       });
 
       const httpResponse = await sut.handle({ query: {} });
-      const body = httpResponse.body as { items: { cost_brl: unknown; pricing_status: string }[] };
+      const body = httpResponse.body as {
+        items: { cost_brl: unknown; pricing_status: string }[];
+      };
 
       expect(body.items[0]?.cost_brl).toBeNull();
       expect(body.items[0]?.pricing_status).toBe('pending_price');

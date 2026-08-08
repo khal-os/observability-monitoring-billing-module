@@ -5,6 +5,7 @@ import {
   traceIngestionWorkerSettings,
 } from '../factories/sync-factory.js';
 import { makeDatabase } from '../factories/database-factory.js';
+import { makeLogger } from '../factories/logger-factory.js';
 import { beatWorkerHeartbeat } from './worker-heartbeat.js';
 import { assertIngestionIndexes } from '@observability/core/infrastructure/database/mongodb/helpers/assert-ingestion-indexes.js';
 
@@ -26,11 +27,16 @@ import { assertIngestionIndexes } from '@observability/core/infrastructure/datab
  * source skips and records them, decision 62 + audit C-6.2; a poison
  * TRACE is dead-lettered by the use case, audit B-3).
  */
+const logger = makeLogger({ component: 'trace-ingestion-worker' });
+
 let stopping = false;
 let wake: (() => void) | undefined;
 
 const requestStop = (signal: string): void => {
-  console.log(`Trace ingestion worker: ${signal} received — finishing current batch.`);
+  logger.info(
+    'Trace ingestion worker: stop requested — finishing current batch',
+    { signal },
+  );
   stopping = true;
   wake?.();
 };
@@ -70,7 +76,7 @@ const runWorker = async (): Promise<void> => {
     // (decision 117's preference), and onboarding's `make up` recreates
     // the worker with the source enabled. Nothing depends_on or waits on
     // this service's health, so the loop blocks nobody.
-    console.error(
+    logger.fatal(
       'Trace ingestion worker: continuous-sync source not configured — ' +
         'onboarding writes the project id that enables it (see ' +
         'clients/example.env). Exiting so the restart loop stays VISIBLE ' +
@@ -91,10 +97,11 @@ const runWorker = async (): Promise<void> => {
 
   // audit F-4: the resolved knobs in the first lines of the log — a
   // misconfigured knob must be visible without reading compose.
-  console.log(
-    `Trace ingestion worker: started (interval ${traceIngestionWorkerSettings.intervalMs / 1000}s, ` +
-      `reprocess every ${traceIngestionWorkerSettings.reprocessIntervalMs / 1000}s).`,
-  );
+  logger.info('Trace ingestion worker: started', {
+    intervalSeconds: traceIngestionWorkerSettings.intervalMs / 1000,
+    reprocessIntervalSeconds:
+      traceIngestionWorkerSettings.reprocessIntervalMs / 1000,
+  });
 
   const ingestFailureRepository = makeIngestFailureRepository();
 
@@ -116,17 +123,17 @@ const runWorker = async (): Promise<void> => {
         // batch beats. Error paths deliberately fall through without
         // beating, so an outage or a wedge ages the heartbeat and the
         // container turns unhealthy instead of green-while-dead.
-        beatWorkerHeartbeat();
+        beatWorkerHeartbeat(undefined, logger);
 
         caughtUp = report.caughtUp;
       }
 
       backoffMs = TRANSIENT_BACKOFF_BASE_MS; // healthy cycle → reset
     } catch (error) {
-      console.error(
-        `Trace ingestion worker: cycle failed (retrying in ${backoffMs / 1000}s): ` +
-          `${String(error)}`,
-      );
+      logger.error('Trace ingestion worker: cycle failed', {
+        retryInSeconds: backoffMs / 1000,
+        err: error,
+      });
       drainFailed = true;
     }
 
@@ -139,14 +146,18 @@ const runWorker = async (): Promise<void> => {
       const deadLettered = await ingestFailureRepository.countUnresolved();
 
       if (deadLettered > 0) {
-        console.warn(
-          `Trace ingestion worker: ${deadLettered} trace(s) parked in the dead-letter trail ` +
-            "(ingest_failures) — recover them with the README's Day-2 runbook.",
+        logger.warn(
+          'Trace ingestion worker: traces parked in the dead-letter trail ' +
+            "(ingest_failures) — recover them with the README's Day-2 runbook",
+          { deadLettered },
         );
       }
     } catch (error) {
-      console.warn(
-        `Trace ingestion worker: dead-letter count unavailable this cycle: ${String(error)}`,
+      logger.warn(
+        'Trace ingestion worker: dead-letter count unavailable this cycle',
+        {
+          err: error,
+        },
       );
     }
 
@@ -156,15 +167,16 @@ const runWorker = async (): Promise<void> => {
     // drain must not starve pending re-stamps.
     if (
       !stopping &&
-      Date.now() - lastReprocessAt >= traceIngestionWorkerSettings.reprocessIntervalMs
+      Date.now() - lastReprocessAt >=
+        traceIngestionWorkerSettings.reprocessIntervalMs
     ) {
       try {
         await makeReprocessPendingUseCase().reprocess();
         lastReprocessAt = Date.now();
       } catch (error) {
-        console.error(
-          `Trace ingestion worker: reprocess sweep failed (next cadence retries): ` +
-            `${String(error)}`,
+        logger.error(
+          'Trace ingestion worker: reprocess sweep failed (next cadence retries)',
+          { err: error },
         );
       }
     }
@@ -180,7 +192,7 @@ const runWorker = async (): Promise<void> => {
     }
   }
 
-  console.log('Trace ingestion worker: stopped cleanly.');
+  logger.info('Trace ingestion worker: stopped cleanly');
 };
 
 const database = makeDatabase();

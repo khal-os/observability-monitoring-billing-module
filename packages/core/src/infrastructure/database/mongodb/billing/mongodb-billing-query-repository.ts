@@ -11,7 +11,7 @@ import { PendingPriceSummary } from '../../../../domain/useCases/get-billing-sum
 import { BillingUsageRecord } from '../../../../domain/models/billing-snapshot-model.js';
 import { ModelRef, modelKey } from '../../../../domain/models/model-ref.js';
 import { MongoDb } from '../mongo-db.js';
-import { clientTimezone, clientUtcOffsetMs } from '../../../../common/helpers/clock/client-clock.js';
+import { clientTimezone } from '../../../../common/helpers/clock/client-clock.js';
 import { TRACES_COLLECTION } from '../collections.js';
 
 /**
@@ -225,7 +225,8 @@ export class MongoDbBillingQueryRepository implements BillingQueryRepository {
         agentId: (document.agent?.id as string | undefined) ?? null,
         agentVersion: (document.agent?.version as string | undefined) ?? null,
         model: document.model ? modelKey(document.model as ModelRef) : null,
-        stampedCosts: (document.stampedCosts ?? []) as BillingUsageRecord['stampedCosts'],
+        stampedCosts: (document.stampedCosts ??
+          []) as BillingUsageRecord['stampedCosts'],
         totalCostMicrocents: (document.totalCostMicrocents as number) ?? 0,
       }))
       .sort((a, b) =>
@@ -288,7 +289,9 @@ export class MongoDbBillingQueryRepository implements BillingQueryRepository {
     };
   }
 
-  async monthlyRollup(sinceInclusive?: Date | null): Promise<MonthlyRollupRow[]> {
+  async monthlyRollup(
+    sinceInclusive?: Date | null,
+  ): Promise<MonthlyRollupRow[]> {
     const traces = MongoDb.getCollection(TRACES_COLLECTION);
 
     const monthOf = {
@@ -370,7 +373,9 @@ export class MongoDbBillingQueryRepository implements BillingQueryRepository {
       tokenType: TokenType,
       costMicrocents: number,
     ): void => {
-      const entry = split.find((candidate) => candidate.tokenType === tokenType);
+      const entry = split.find(
+        (candidate) => candidate.tokenType === tokenType,
+      );
 
       if (entry) {
         entry.costMicrocents += costMicrocents;
@@ -543,7 +548,10 @@ export class MongoDbBillingQueryRepository implements BillingQueryRepository {
     });
   }
 
-  async countNoMeasuredUsage(monthStart: Date, monthEnd: Date): Promise<number> {
+  async countNoMeasuredUsage(
+    monthStart: Date,
+    monthEnd: Date,
+  ): Promise<number> {
     // Live context count (decision 128) — same lens as countQuarantined.
     return MongoDb.getCollection(TRACES_COLLECTION).countDocuments({
       startedAt: { $gte: monthStart, $lt: monthEnd },

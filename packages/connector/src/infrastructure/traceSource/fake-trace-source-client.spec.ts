@@ -1,6 +1,9 @@
 import { FakeTraceSourceClient } from './fake-trace-source-client.js';
 import { sourceTraceSchema } from './source-trace-schema.js';
-import { SourceTrace, SyncWindow } from '../../application/interfaces/trace-source-client.js';
+import {
+  SourceTrace,
+  SyncWindow,
+} from '../../application/interfaces/trace-source-client.js';
 
 const WINDOW_1 = {
   from: new Date('2026-06-01T00:00:00.000Z'),
@@ -132,9 +135,7 @@ describe('FakeTraceSourceClient', () => {
 
   describe('sourceTraceSchema', () => {
     it('MUST reject malformed fixtures instead of ingesting garbage', () => {
-      expect(() =>
-        sourceTraceSchema.parse({ traceId: 'broken' }),
-      ).toThrow();
+      expect(() => sourceTraceSchema.parse({ traceId: 'broken' })).toThrow();
 
       expect(() =>
         sourceTraceSchema.parse({

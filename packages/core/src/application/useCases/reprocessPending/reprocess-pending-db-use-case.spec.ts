@@ -148,7 +148,12 @@ const makeSut = () => {
     billingPeriodRepository,
   });
 
-  return { sut, priceVersionRepository, traceRepository, billingPeriodRepository };
+  return {
+    sut,
+    priceVersionRepository,
+    traceRepository,
+    billingPeriodRepository,
+  };
 };
 
 const closeMonth = (
@@ -210,7 +215,10 @@ describe('ReprocessPendingDbUseCase', () => {
     await sut.reprocess();
 
     expect(priceVersionRepository.lookups).toEqual([
-      { model: 'openai/gpt-5-mini', atDate: new Date('2026-07-03T09:00:00.000Z') },
+      {
+        model: 'openai/gpt-5-mini',
+        atDate: new Date('2026-07-03T09:00:00.000Z'),
+      },
     ]);
   });
 
@@ -305,9 +313,18 @@ describe('ReprocessPendingDbUseCase', () => {
   it('audit B-5: maxTraces caps ONE run and reports the honest remainder — the HTTP door never drags a day of backlog', async () => {
     const { sut, traceRepository } = makeSut();
     traceRepository.pending = [
-      pendingTrace({ traceId: 'p1', startedAt: new Date('2026-07-05T10:00:00Z') }),
-      pendingTrace({ traceId: 'p2', startedAt: new Date('2026-07-05T11:00:00Z') }),
-      pendingTrace({ traceId: 'p3', startedAt: new Date('2026-07-05T12:00:00Z') }),
+      pendingTrace({
+        traceId: 'p1',
+        startedAt: new Date('2026-07-05T10:00:00Z'),
+      }),
+      pendingTrace({
+        traceId: 'p2',
+        startedAt: new Date('2026-07-05T11:00:00Z'),
+      }),
+      pendingTrace({
+        traceId: 'p3',
+        startedAt: new Date('2026-07-05T12:00:00Z'),
+      }),
     ];
 
     const report = await sut.reprocess({ maxTraces: 2 });
@@ -349,5 +366,4 @@ describe('ReprocessPendingDbUseCase', () => {
       'reachable',
     ]);
   });
-
 });

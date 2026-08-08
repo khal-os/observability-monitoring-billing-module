@@ -49,8 +49,10 @@ brings it up for real. Offline demos run `make sync` with the explicit
 The env file is the whole contract and the client's **deployment state** —
 identity, **business timezone** (`CLIENT_TIMEZONE`, required — decision 130:
 billing boundary ≡ display zone, forward-only after a close), ports, mongo
-credentials, LangWatch project id + per-instance
-secrets, image pin (the LangWatch API key deliberately lives elsewhere —
+credentials, logging knobs (`LOG_LEVEL` trace…fatal|silent, default info;
+`LOG_FORMAT` json|pretty, default json — decision 134: structured JSON
+lines on stdout, one shared reader for both images), LangWatch project id
++ per-instance secrets, image pin (the LangWatch API key deliberately lives elsewhere —
 decision 127: it is the agents' credential, kept in LangWatch's own
 Postgres and copied from the UI into the platform vault). [clients/example.production.env](clients/example.production.env)
 is the committed full contract ([clients/example.development.env](clients/example.development.env)

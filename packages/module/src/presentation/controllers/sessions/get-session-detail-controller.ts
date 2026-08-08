@@ -5,7 +5,11 @@ import {
   HttpRequest,
   HttpResponse,
 } from './sessions-protocols.js';
-import { buildBadRequest, buildNotFound, buildSuccess } from '../../helpers/http-helper.js';
+import {
+  buildBadRequest,
+  buildNotFound,
+  buildSuccess,
+} from '../../helpers/http-helper.js';
 import { InvalidParamError, NotFoundError } from '../../errors/index.js';
 import { parseQuery } from '../../helpers/query-validation.js';
 import { toSessionDetail } from './session-view-model.js';

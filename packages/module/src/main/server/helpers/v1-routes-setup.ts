@@ -40,11 +40,13 @@ export const setupV1Routes = (app: Application): RegisteredRoute[] => {
 
   const routes: RegisteredRoute[] = [];
 
-  for (const layer of (apiV1Router as unknown as {
-    stack: {
-      route?: { path: string; methods: Record<string, boolean> };
-    }[];
-  }).stack) {
+  for (const layer of (
+    apiV1Router as unknown as {
+      stack: {
+        route?: { path: string; methods: Record<string, boolean> };
+      }[];
+    }
+  ).stack) {
     if (!layer.route) continue;
 
     for (const method of Object.keys(layer.route.methods)) {

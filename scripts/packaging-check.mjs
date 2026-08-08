@@ -31,7 +31,9 @@ for (const specifier of RESOLVABLE) {
   try {
     await import(specifier);
   } catch (error) {
-    fail(`cannot import ${specifier} through the real resolver: ${error.message}`);
+    fail(
+      `cannot import ${specifier} through the real resolver: ${error.message}`,
+    );
   }
 }
 
@@ -39,9 +41,18 @@ for (const specifier of RESOLVABLE) {
 //    dist, so a package that emits none erases every interface it exports.
 const DECLARATIONS = [
   ['packages/core/dist/domain/models/trace-model.d.ts', 'TraceModel'],
-  ['packages/core/dist/application/testSupport/billing-test-fakes.d.ts', 'StubBillingQueryRepository'],
-  ['packages/connector/dist/application/interfaces/trace-source-client.d.ts', 'SourceTrace'],
-  ['packages/connector/dist/main/factories/sync-factory.d.ts', 'makeTraceSourceClient'],
+  [
+    'packages/core/dist/application/testSupport/billing-test-fakes.d.ts',
+    'StubBillingQueryRepository',
+  ],
+  [
+    'packages/connector/dist/application/interfaces/trace-source-client.d.ts',
+    'SourceTrace',
+  ],
+  [
+    'packages/connector/dist/main/factories/sync-factory.d.ts',
+    'makeTraceSourceClient',
+  ],
   ['packages/module/dist/main/index.d.ts', ''],
 ];
 

@@ -15,8 +15,8 @@ import { assertIngestionIndexes } from '@observability/core/infrastructure/datab
  */
 const { values } = parseArgs({
   options: {
-    'from': { type: 'string' },
-    'to': { type: 'string' },
+    from: { type: 'string' },
+    to: { type: 'string' },
   },
 });
 

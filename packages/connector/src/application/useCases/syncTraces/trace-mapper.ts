@@ -1,6 +1,12 @@
 import { SourceTrace } from '../../interfaces/trace-source-client.js';
-import { TraceModel, UnclassifiedInfo } from '@observability/core/domain/models/trace-model.js';
-import { ModelRef, parseModelRef } from '@observability/core/domain/models/model-ref.js';
+import {
+  TraceModel,
+  UnclassifiedInfo,
+} from '@observability/core/domain/models/trace-model.js';
+import {
+  ModelRef,
+  parseModelRef,
+} from '@observability/core/domain/models/model-ref.js';
 import { SpanModel } from '@observability/core/domain/models/span-model.js';
 import { StampOutcome } from '@observability/core/application/useCases/priceStamping/price-stamper.js';
 import { deriveUnclassified } from '@observability/core/domain/models/derive-unclassified.js';
@@ -19,7 +25,10 @@ export const sourceModelRef = (trace: SourceTrace): ModelRef | undefined =>
 export const classifyAttribution = (
   trace: SourceTrace,
 ): UnclassifiedInfo | undefined =>
-  deriveUnclassified({ agentId: trace.agent?.id, model: sourceModelRef(trace) });
+  deriveUnclassified({
+    agentId: trace.agent?.id,
+    model: sourceModelRef(trace),
+  });
 
 /**
  * Canonical shapes for storage: every optional key is NAMED here (agent

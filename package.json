@@ -9,7 +9,13 @@
     "register-module": "./scripts/register-module.sh",
     "test": "npm run test --workspaces --if-present",
     "test:ci": "npm run build && node scripts/packaging-check.mjs && npm run test:ci --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test:unit:ci": "npm run test:unit:ci --workspaces --if-present",
+    "prepare": "husky"
   },
   "keywords": [],
   "author": "",
@@ -18,5 +24,25 @@
   "private": true,
   "workspaces": [
     "packages/*"
-  ]
+  ],
+  "devDependencies": {
+    "@commitlint/cli": "^21.2.1",
+    "@commitlint/config-conventional": "^21.2.0",
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.8.1",
+    "eslint-config-prettier": "^10.1.8",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
+    "prettier": "^3.9.6",
+    "typescript-eslint": "^8.66.0"
+  },
+  "lint-staged": {
+    "*.{ts,mts,cts}": [
+      "eslint --fix --no-warn-ignored",
+      "prettier --write --ignore-unknown"
+    ],
+    "*.{js,mjs,cjs,json}": [
+      "prettier --write --ignore-unknown"
+    ]
+  }
 }

@@ -41,8 +41,14 @@ const JUNE_15 = Date.UTC(2026, 5, 15);
 
 const PRICES = {
   'openai/gpt-5-mini': {
-    input: [[JUNE_1, brl(2.75)], [JUNE_15, brl(3.1)]],
-    output: [[JUNE_1, brl(11)], [JUNE_15, brl(12.4)]],
+    input: [
+      [JUNE_1, brl(2.75)],
+      [JUNE_15, brl(3.1)],
+    ],
+    output: [
+      [JUNE_1, brl(11)],
+      [JUNE_15, brl(12.4)],
+    ],
     cache_read: [[JUNE_1, brl(0.275)]],
     cache_write: [[JUNE_1, brl(3.4375)]],
   },
@@ -109,7 +115,10 @@ const CLIENTS = {
       ['anthropic/claude-sonnet-5', 4],
       ['anthropic/claude-opus-4-8', 1],
     ],
-    channels: [['whatsapp', 7], ['web', 3]],
+    channels: [
+      ['whatsapp', 7],
+      ['web', 3],
+    ],
     errorRate: 0.06,
     agents: [
       { id: 'agente-triagem', domain: 'saude', subdomain: 'triagem' },
@@ -118,16 +127,26 @@ const CLIENTS = {
       { id: 'agente-segunda-via', domain: 'financeiro', subdomain: 'boletos' },
     ],
     dialogues: [
-      ['Preciso marcar um cardiologista em Fortaleza para esta semana.',
-       'Encontrei 3 cardiologistas com agenda esta semana na sua região. O Dr. Alencar tem horário quinta às 14h30, na Unidade Aldeota. Confirmo para você?'],
-      ['Meu exame de ressonância foi autorizado?',
-       'Sua autorização para ressonância magnética de joelho saiu aprovada ontem, guia 8841-2. Você pode realizar o exame em qualquer unidade credenciada até 20/08.'],
-      ['Quero a segunda via do boleto de julho.',
-       'Enviei a segunda via do boleto de julho (vencimento 25/07, R$ 487,90) para o seu e-mail cadastrado e também por aqui em PDF.'],
-      ['Estou com dor de cabeça forte há três dias, o que faço?',
-       'Dor de cabeça persistente por mais de 48 horas merece avaliação. Há um pronto atendimento a 3 km de você, com espera estimada de 25 minutos. Quer que eu registre a sua ida?'],
-      ['Qual a carência para cirurgia eletiva no meu plano?',
-       'No seu plano Mais Saúde, a carência para cirurgias eletivas é de 180 dias a partir da adesão. Como você aderiu em 12/01, a carência já está cumprida.'],
+      [
+        'Preciso marcar um cardiologista em Fortaleza para esta semana.',
+        'Encontrei 3 cardiologistas com agenda esta semana na sua região. O Dr. Alencar tem horário quinta às 14h30, na Unidade Aldeota. Confirmo para você?',
+      ],
+      [
+        'Meu exame de ressonância foi autorizado?',
+        'Sua autorização para ressonância magnética de joelho saiu aprovada ontem, guia 8841-2. Você pode realizar o exame em qualquer unidade credenciada até 20/08.',
+      ],
+      [
+        'Quero a segunda via do boleto de julho.',
+        'Enviei a segunda via do boleto de julho (vencimento 25/07, R$ 487,90) para o seu e-mail cadastrado e também por aqui em PDF.',
+      ],
+      [
+        'Estou com dor de cabeça forte há três dias, o que faço?',
+        'Dor de cabeça persistente por mais de 48 horas merece avaliação. Há um pronto atendimento a 3 km de você, com espera estimada de 25 minutos. Quer que eu registre a sua ida?',
+      ],
+      [
+        'Qual a carência para cirurgia eletiva no meu plano?',
+        'No seu plano Mais Saúde, a carência para cirurgias eletivas é de 180 dias a partir da adesão. Como você aderiu em 12/01, a carência já está cumprida.',
+      ],
     ],
   },
   claro: {
@@ -144,7 +163,11 @@ const CLIENTS = {
       ['anthropic/claude-sonnet-5', 4],
       ['anthropic/claude-opus-4-8', 3],
     ],
-    channels: [['whatsapp', 5], ['web', 3], ['app', 2]],
+    channels: [
+      ['whatsapp', 5],
+      ['web', 3],
+      ['app', 2],
+    ],
     errorRate: 0.11,
     agents: [
       { id: 'agente-suporte-tecnico', domain: 'telecom', subdomain: 'suporte' },
@@ -152,16 +175,26 @@ const CLIENTS = {
       { id: 'agente-vendas', domain: 'comercial', subdomain: 'upgrade' },
     ],
     dialogues: [
-      ['Minha internet caiu desde ontem à noite e já reiniciei o modem.',
-       'Identifiquei instabilidade na sua região (OLT Vila Mariana) com previsão de normalização às 18h. Abri o chamado 55-772134 e você receberá aviso assim que restabelecer.'],
-      ['Por que minha fatura veio R$ 60 mais cara?',
-       'A diferença vem de dois itens: R$ 39,90 do pacote de dados extra ativado em 03/07 e R$ 19,90 de um filme alugado. Posso remover o pacote extra a partir do próximo ciclo.'],
-      ['Quero cancelar meu plano.',
-       'Entendo. Antes de seguir com o cancelamento: seu plano atual custa R$ 149,90 e tenho uma condição de R$ 99,90 pelos próximos 12 meses mantendo a mesma velocidade. Prefere avaliar?'],
-      ['O sinal da TV está travando nos canais HD.',
-       'Travamento apenas em HD costuma indicar atenuação no cabo. Fiz um teste remoto no seu decodificador e o nível de sinal está em -12 dBm, abaixo do ideal. Agendei visita técnica para amanhã entre 8h e 12h.'],
-      ['Consigo aumentar minha franquia de dados só este mês?',
-       'Sim. Posso adicionar 20 GB válidos até o fim do ciclo atual por R$ 24,90, sem renovação automática. Confirma a ativação?'],
+      [
+        'Minha internet caiu desde ontem à noite e já reiniciei o modem.',
+        'Identifiquei instabilidade na sua região (OLT Vila Mariana) com previsão de normalização às 18h. Abri o chamado 55-772134 e você receberá aviso assim que restabelecer.',
+      ],
+      [
+        'Por que minha fatura veio R$ 60 mais cara?',
+        'A diferença vem de dois itens: R$ 39,90 do pacote de dados extra ativado em 03/07 e R$ 19,90 de um filme alugado. Posso remover o pacote extra a partir do próximo ciclo.',
+      ],
+      [
+        'Quero cancelar meu plano.',
+        'Entendo. Antes de seguir com o cancelamento: seu plano atual custa R$ 149,90 e tenho uma condição de R$ 99,90 pelos próximos 12 meses mantendo a mesma velocidade. Prefere avaliar?',
+      ],
+      [
+        'O sinal da TV está travando nos canais HD.',
+        'Travamento apenas em HD costuma indicar atenuação no cabo. Fiz um teste remoto no seu decodificador e o nível de sinal está em -12 dBm, abaixo do ideal. Agendei visita técnica para amanhã entre 8h e 12h.',
+      ],
+      [
+        'Consigo aumentar minha franquia de dados só este mês?',
+        'Sim. Posso adicionar 20 GB válidos até o fim do ciclo atual por R$ 24,90, sem renovação automática. Confirma a ativação?',
+      ],
     ],
   },
   vivo: {
@@ -175,25 +208,43 @@ const CLIENTS = {
       ['anthropic/claude-sonnet-5', 3],
       ['openai/gpt-5-mini', 1],
     ],
-    channels: [['web', 5], ['whatsapp', 4], ['app', 1]],
+    channels: [
+      ['web', 5],
+      ['whatsapp', 4],
+      ['app', 1],
+    ],
     errorRate: 0.08,
     agents: [
       { id: 'agente-atendimento', domain: 'telecom', subdomain: 'atendimento' },
       { id: 'agente-fatura', domain: 'financeiro', subdomain: 'fatura' },
       { id: 'agente-retencao', domain: 'comercial', subdomain: 'retencao' },
-      { id: 'agente-portabilidade', domain: 'telecom', subdomain: 'portabilidade' },
+      {
+        id: 'agente-portabilidade',
+        domain: 'telecom',
+        subdomain: 'portabilidade',
+      },
     ],
     dialogues: [
-      ['Quero portar meu número de outra operadora para cá.',
-       'Perfeito. Para a portabilidade preciso do número, do CPF do titular e da operadora atual. O prazo é de até 3 dias úteis e a linha não fica fora do ar durante a migração.'],
-      ['Fui cobrado por um serviço que não contratei.',
-       'Localizei a cobrança de R$ 12,90 referente a um serviço de conteúdo ativado em 08/07. Cancelei o serviço e solicitei o estorno integral, que aparece na próxima fatura.'],
-      ['Minha fatura digital não chegou este mês.',
-       'Sua fatura de julho foi emitida em 05/07 no valor de R$ 219,80, mas retornou por caixa de e-mail cheia. Reenviei agora e também deixei o PDF disponível no app.'],
-      ['Estou pensando em mudar de plano, o que vocês têm?',
-       'Considerando seu consumo médio de 42 GB, o plano Ilimitado 60 GB por R$ 129,90 sairia mais barato que seu atual com pacotes extras. Inclui roaming nacional e 5G.'],
-      ['O 5G não funciona no meu aparelho.',
-       'Seu aparelho é compatível, mas o chip é da geração anterior e não suporta 5G SA. A troca do chip é gratuita em qualquer loja própria e leva cerca de 10 minutos.'],
+      [
+        'Quero portar meu número de outra operadora para cá.',
+        'Perfeito. Para a portabilidade preciso do número, do CPF do titular e da operadora atual. O prazo é de até 3 dias úteis e a linha não fica fora do ar durante a migração.',
+      ],
+      [
+        'Fui cobrado por um serviço que não contratei.',
+        'Localizei a cobrança de R$ 12,90 referente a um serviço de conteúdo ativado em 08/07. Cancelei o serviço e solicitei o estorno integral, que aparece na próxima fatura.',
+      ],
+      [
+        'Minha fatura digital não chegou este mês.',
+        'Sua fatura de julho foi emitida em 05/07 no valor de R$ 219,80, mas retornou por caixa de e-mail cheia. Reenviei agora e também deixei o PDF disponível no app.',
+      ],
+      [
+        'Estou pensando em mudar de plano, o que vocês têm?',
+        'Considerando seu consumo médio de 42 GB, o plano Ilimitado 60 GB por R$ 129,90 sairia mais barato que seu atual com pacotes extras. Inclui roaming nacional e 5G.',
+      ],
+      [
+        'O 5G não funciona no meu aparelho.',
+        'Seu aparelho é compatível, mas o chip é da geração anterior e não suporta 5G SA. A troca do chip é gratuita em qualquer loja própria e leva cerca de 10 minutos.',
+      ],
     ],
   },
 };
@@ -245,16 +296,19 @@ const sizeTokens = (model, startedAtMs, targetMicrocents, rnd) => {
   const types = ['input', 'output', 'cache_read', 'cache_write'];
 
   const microcentsPerToken = types.reduce(
-    (sum, type) => sum + (mix[type] * priceAsOf(model, type, startedAtMs)) / 1e6,
+    (sum, type) =>
+      sum + (mix[type] * priceAsOf(model, type, startedAtMs)) / 1e6,
     0,
   );
 
   const scale = (factor) => {
     const total = (targetMicrocents / microcentsPerToken) * factor;
     const tokens = {};
-    for (const type of types) tokens[type] = Math.max(1, Math.round(mix[type] * total));
+    for (const type of types)
+      tokens[type] = Math.max(1, Math.round(mix[type] * total));
     const cost = types.reduce(
-      (sum, type) => sum + costMicrocents(tokens[type], priceAsOf(model, type, startedAtMs)),
+      (sum, type) =>
+        sum + costMicrocents(tokens[type], priceAsOf(model, type, startedAtMs)),
       0n,
     );
     return { tokens, cost: Number(cost) };
@@ -329,7 +383,9 @@ const buildSpans = (rnd, trace, totalTokens, failing) => {
       span.output = failed ? { erro: span.errorMessage } : { status: 'ok' };
     } else if (plan.type === 'llm') {
       span.input = { prompt: trace.question };
-      span.output = failed ? { erro: span.errorMessage } : { texto: trace.answer };
+      span.output = failed
+        ? { erro: span.errorMessage }
+        : { texto: trace.answer };
     } else {
       span.input = { politica: 'v3' };
       span.output = { aprovado: !failed };
@@ -359,7 +415,14 @@ const generateClient = (name, profile) => {
 
     /* A session is a conversation: 1–6 traces, minutes apart. */
     const turns = Math.min(
-      rnd.weighted([[1, 5], [2, 4], [3, 3], [4, 2], [5, 1], [6, 1]]),
+      rnd.weighted([
+        [1, 5],
+        [2, 4],
+        [3, 3],
+        [4, 2],
+        [5, 1],
+        [6, 1],
+      ]),
       profile.traceCount - traces.length,
     );
 
@@ -406,7 +469,10 @@ const generateClient = (name, profile) => {
         tokens,
         input: { mensagem: question, cliente: customerRef, canal: channel },
         output: failing
-          ? { erro: 'falha ao gerar resposta', detalhe: rnd.pick(ERROR_MESSAGES) }
+          ? {
+              erro: 'falha ao gerar resposta',
+              detalhe: rnd.pick(ERROR_MESSAGES),
+            }
           : { mensagem: answer },
         spans: [],
       };
@@ -426,22 +492,33 @@ const generateClient = (name, profile) => {
   return traces;
 };
 
-
 /* ---------- generic profile for arbitrary clients (--client <name>) ---------- */
 
 const GENERIC_DIALOGUES = [
-  ['Preciso de ajuda com meu pedido, ele não chegou.',
-   'Localizei seu pedido: saiu do centro de distribuição ontem e a entrega está prevista para amanhã até as 18h. Enviei o código de rastreio por aqui.'],
-  ['Quero a segunda via da minha fatura.',
-   'Enviei a segunda via da fatura deste mês (vencimento dia 25) para o seu e-mail cadastrado e também em PDF por aqui.'],
-  ['Como faço para alterar meu plano?',
-   'Você pode migrar para o plano superior sem custo de adesão. Considerando seu uso dos últimos 3 meses, a opção intermediária cobre com folga. Quer que eu simule os valores?'],
-  ['Estou com um problema técnico no serviço desde ontem.',
-   'Rodei um diagnóstico remoto e identifiquei instabilidade no seu ponto. Abri o chamado TEC-4471 com prioridade alta; a previsão de normalização é hoje às 18h.'],
-  ['Fui cobrado duas vezes no cartão.',
-   'Confirmei a duplicidade da cobrança de R$ 89,90 e já solicitei o estorno integral, que aparece em até 5 dias úteis. Protocolo ETN-2210.'],
-  ['Quero cancelar minha assinatura.',
-   'Entendo. Antes de concluir: posso oferecer 30% de desconto pelos próximos 6 meses mantendo todos os benefícios. Prefere avaliar a proposta?'],
+  [
+    'Preciso de ajuda com meu pedido, ele não chegou.',
+    'Localizei seu pedido: saiu do centro de distribuição ontem e a entrega está prevista para amanhã até as 18h. Enviei o código de rastreio por aqui.',
+  ],
+  [
+    'Quero a segunda via da minha fatura.',
+    'Enviei a segunda via da fatura deste mês (vencimento dia 25) para o seu e-mail cadastrado e também em PDF por aqui.',
+  ],
+  [
+    'Como faço para alterar meu plano?',
+    'Você pode migrar para o plano superior sem custo de adesão. Considerando seu uso dos últimos 3 meses, a opção intermediária cobre com folga. Quer que eu simule os valores?',
+  ],
+  [
+    'Estou com um problema técnico no serviço desde ontem.',
+    'Rodei um diagnóstico remoto e identifiquei instabilidade no seu ponto. Abri o chamado TEC-4471 com prioridade alta; a previsão de normalização é hoje às 18h.',
+  ],
+  [
+    'Fui cobrado duas vezes no cartão.',
+    'Confirmei a duplicidade da cobrança de R$ 89,90 e já solicitei o estorno integral, que aparece em até 5 dias úteis. Protocolo ETN-2210.',
+  ],
+  [
+    'Quero cancelar minha assinatura.',
+    'Entendo. Antes de concluir: posso oferecer 30% de desconto pelos próximos 6 meses mantendo todos os benefícios. Prefere avaliar a proposta?',
+  ],
 ];
 
 const nameSeed = (name) => {
@@ -455,7 +532,11 @@ const nameSeed = (name) => {
    on the same day is deterministic. */
 const genericProfile = (name, traceCount) => {
   const today = new Date();
-  const dayUtc = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+  const dayUtc = Date.UTC(
+    today.getUTCFullYear(),
+    today.getUTCMonth(),
+    today.getUTCDate(),
+  );
   return {
     seed: nameSeed(name),
     traceCount,
@@ -466,7 +547,11 @@ const genericProfile = (name, traceCount) => {
       ['anthropic/claude-sonnet-5', 4],
       ['anthropic/claude-opus-4-8', 2],
     ],
-    channels: [['whatsapp', 5], ['web', 4], ['app', 1]],
+    channels: [
+      ['whatsapp', 5],
+      ['web', 4],
+      ['app', 1],
+    ],
     errorRate: 0.08,
     agents: [
       { id: 'agente-atendimento', domain: 'atendimento', subdomain: 'geral' },
@@ -481,10 +566,12 @@ const argv = process.argv.slice(2);
 const clientFlag = argv.indexOf('--client');
 const TARGETS =
   clientFlag !== -1
-    ? { [argv[clientFlag + 1]]: genericProfile(
-        argv[clientFlag + 1],
-        parseInt(argv[argv.indexOf('--traces') + 1], 10) || 48,
-      ) }
+    ? {
+        [argv[clientFlag + 1]]: genericProfile(
+          argv[clientFlag + 1],
+          parseInt(argv[argv.indexOf('--traces') + 1], 10) || 48,
+        ),
+      }
     : CLIENTS;
 
 /* ---------- write ---------- */
@@ -530,7 +617,13 @@ for (const [name, profile] of Object.entries(TARGETS)) {
   const costs = traces.map((trace) =>
     Object.entries(trace.tokens).reduce(
       (sum, [type, count]) =>
-        sum + Number(costMicrocents(count, priceAsOf(trace.model, type, Date.parse(trace.startedAt)))),
+        sum +
+        Number(
+          costMicrocents(
+            count,
+            priceAsOf(trace.model, type, Date.parse(trace.startedAt)),
+          ),
+        ),
       0,
     ),
   );

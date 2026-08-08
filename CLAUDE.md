@@ -149,6 +149,22 @@ an omission. Nothing configured → API open (PoC behavior).
 
 - Follow the boilerplate's existing conventions (structure, naming, error
   handling, testing style) — do not introduce a parallel style.
+- Logging (decision 134): production code logs through the `Logger` port
+  (`@observability/core/common/logging`) injected from the composition
+  roots (`makeLogger` per image) — never `console`, enforced by ESLint
+  `no-console`. The ONE exception is `main/jobs/**` one-shot runbook CLIs
+  (operator-facing terminal output); the long-running daemons in that
+  directory still use the Logger. Knobs: `LOG_LEVEL`
+  (trace…fatal|silent, default info; silent under test) and `LOG_FORMAT`
+  (json|pretty, default json; pretty in development) — one shared reader
+  in core (`parse-log-env`). Tests assert logs via the injected
+  `RecordingLogger` (logging-test-fakes), never by spying console.
+- Gates (decision 135): husky pre-commit (lint-staged), commit-msg
+  (commitlint — conventional commits), pre-push (typecheck + lint +
+  format:check + unit suites). CI (`.github/workflows/ci.yml`) is the
+  authority: lint/format, typecheck, `npm run test:ci` (build +
+  packaging-check + unit/integration + coverage ratchet), commitlint.
+  `npm run lint` / `npm run format` from the root.
 - Money: integer cents (or decimal type) — never floats. Full precision at
   line level; round only displayed totals (half-up, 2 decimals).
 - Ingestion must be idempotent: re-running a sync window never double-counts.

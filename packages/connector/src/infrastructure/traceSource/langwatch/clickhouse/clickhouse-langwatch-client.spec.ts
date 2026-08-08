@@ -8,7 +8,11 @@ import {
   PoisonRowRecord,
   PoisonRowRepository,
 } from '../../../../application/interfaces/poison-row-repository.js';
-import { SourceTrace, SyncWindow } from '../../../../application/interfaces/trace-source-client.js';
+import {
+  SourceTrace,
+  SyncWindow,
+} from '../../../../application/interfaces/trace-source-client.js';
+import { RecordingLogger } from '@observability/core/common/logging/logging-test-fakes.js';
 
 const T0 = new Date('2026-07-23T13:00:00.000Z').getTime();
 /** Source clock for the windowed paths — far past the quiet period. */
@@ -84,12 +88,25 @@ class PoisonRowRepositoryStub implements PoisonRowRepository {
   }
 }
 
+// Recreated by every makeSut call — suites assert the operator-facing
+// warnings on it instead of spying console (the client logs through the
+// injected port only).
+let logger = new RecordingLogger();
+
+const warnedText = (): string =>
+  logger
+    .at('warn')
+    .map((line) => `${line.message} ${JSON.stringify(line.fields)}`)
+    .join('\n');
+
 const makeSut = (
   queryFn: QueryFn,
   tenantId?: string,
   poisonRowRepository?: PoisonRowRepository,
-) =>
-  new ClickHouseLangWatchClient({
+) => {
+  logger = new RecordingLogger();
+
+  return new ClickHouseLangWatchClient({
     url: 'http://clickhouse:8123',
     username: 'default',
     password: 'langwatch',
@@ -97,7 +114,9 @@ const makeSut = (
     tenantId,
     poisonRowRepository,
     queryFn,
+    logger,
   });
+};
 
 /** Drains the paged window contract (audit C-6.3). */
 const fetchAll = async (
@@ -172,7 +191,6 @@ describe('ClickHouseLangWatchClient', () => {
         [],
       ]);
       const sut = makeSut(queryFn);
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
       const batch = await sut.fetchBatch({
         after: null,
@@ -186,11 +204,7 @@ describe('ClickHouseLangWatchClient', () => {
         updatedAt: new Date(T0 + 2_000),
         traceId: 'trace-poison',
       });
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining('trace-poison'),
-      );
-
-      warn.mockRestore();
+      expect(warnedText()).toContain('trace-poison');
     });
 
     it('MUST halt WITHOUT advancing when a whole non-trivial batch is poison — schema drift, not isolated bad rows (decision 79)', async () => {
@@ -200,7 +214,6 @@ describe('ClickHouseLangWatchClient', () => {
       }));
       const { queryFn } = makeQueryStub([poisonRows]);
       const sut = makeSut(queryFn);
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
       await expect(
         sut.fetchBatch({
@@ -209,8 +222,6 @@ describe('ClickHouseLangWatchClient', () => {
           updatedBefore: new Date(T0 + 60_000),
         }),
       ).rejects.toThrow(/schema drift/);
-
-      warn.mockRestore();
     });
 
     it('MUST keep decision-62 skip-and-advance for an all-poison batch BELOW the breaker threshold', async () => {
@@ -220,7 +231,6 @@ describe('ClickHouseLangWatchClient', () => {
       ];
       const { queryFn } = makeQueryStub([poisonRows]);
       const sut = makeSut(queryFn);
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
       const batch = await sut.fetchBatch({
         after: null,
@@ -233,8 +243,6 @@ describe('ClickHouseLangWatchClient', () => {
         updatedAt: new Date(T0 + 2),
         traceId: 'trace-poison-b',
       });
-
-      warn.mockRestore();
     });
 
     it('MUST filter by tenant when a project id is configured', async () => {
@@ -265,7 +273,6 @@ describe('ClickHouseLangWatchClient', () => {
         [], // spans
       ]);
       const sut = makeSut(queryFn);
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
       const traces = await fetchAll(sut, WINDOW);
 
@@ -284,19 +291,12 @@ describe('ClickHouseLangWatchClient', () => {
         updatedBeforeMs: SOURCE_NOW_MS - QUIET_MS,
       });
       // The operator is told deferred rows may exist — re-run later.
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining('quiet period on the update axis'),
-      );
-
-      warn.mockRestore();
+      expect(warnedText()).toContain('quiet period on the update axis');
     });
 
     it('MUST page by the (OccurredAt, TraceId) tuple cursor instead of buffering the window whole (audit C-6.3)', async () => {
       const fullPage = Array.from({ length: WINDOW_PAGE_SIZE }, (_, index) =>
-        summaryRow(
-          `trace-${String(index).padStart(4, '0')}`,
-          T0 + index,
-        ),
+        summaryRow(`trace-${String(index).padStart(4, '0')}`, T0 + index),
       );
       const { queryFn, calls } = makeQueryStub([
         [{ nowMs: SOURCE_NOW_MS }], // sourceNow
@@ -306,7 +306,6 @@ describe('ClickHouseLangWatchClient', () => {
         [], // page 2 spans
       ]);
       const sut = makeSut(queryFn);
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
       const pages: SourceTrace[][] = [];
 
@@ -326,8 +325,6 @@ describe('ClickHouseLangWatchClient', () => {
         afterTraceId: 'trace-0999',
         limit: WINDOW_PAGE_SIZE,
       });
-
-      warn.mockRestore();
     });
 
     it('MUST salvage a summary row whose bad token counts the SPAN usage rebuilds — and record the salvage durably (audit C-6.2)', async () => {
@@ -342,7 +339,6 @@ describe('ClickHouseLangWatchClient', () => {
         [llmSpanRow('trace-salvage', { input: '313', output: '9' })],
       ]);
       const sut = makeSut(queryFn, undefined, poisonRepo);
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
       const traces = await fetchAll(sut, WINDOW);
 
@@ -361,9 +357,7 @@ describe('ClickHouseLangWatchClient', () => {
           rawRow: badTokens,
         }),
       ]);
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('salvaged'));
-
-      warn.mockRestore();
+      expect(warnedText()).toContain('salvaged');
     });
 
     it('MUST keep a bad-token row POISON when NO span usage rebuilds the count — an unknown cost is never stamped R$ 0,00 (invariant 2)', async () => {
@@ -379,7 +373,6 @@ describe('ClickHouseLangWatchClient', () => {
         [], // no spans at all — nothing to reconstruct the counts from
       ]);
       const sut = makeSut(queryFn, undefined, poisonRepo);
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
       const traces = await fetchAll(sut, WINDOW);
 
@@ -395,11 +388,7 @@ describe('ClickHouseLangWatchClient', () => {
           rawRow: badTokens,
         }),
       ]);
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining('poison summary row skipped'),
-      );
-
-      warn.mockRestore();
+      expect(warnedText()).toContain('poison summary row skipped');
     });
 
     it('MUST keep a PARTIALLY corrupt row poison when the spans rebuild only the other count — no type is silently priced at zero', async () => {
@@ -417,7 +406,6 @@ describe('ClickHouseLangWatchClient', () => {
         [llmSpanRow('trace-partial', { output: '9' })],
       ]);
       const sut = makeSut(queryFn, undefined, poisonRepo);
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
       const traces = await fetchAll(sut, WINDOW);
 
@@ -429,8 +417,6 @@ describe('ClickHouseLangWatchClient', () => {
           error: expect.stringContaining('promptTokens'),
         }),
       ]);
-
-      warn.mockRestore();
     });
 
     it('MUST salvage a PARTIALLY corrupt row when the spans rebuild exactly the nulled count', async () => {
@@ -446,7 +432,6 @@ describe('ClickHouseLangWatchClient', () => {
         [llmSpanRow('trace-partial-ok', { input: '313' })],
       ]);
       const sut = makeSut(queryFn, undefined, poisonRepo);
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
       const traces = await fetchAll(sut, WINDOW);
 
@@ -461,8 +446,6 @@ describe('ClickHouseLangWatchClient', () => {
           id: 'trace-partial-ok',
         }),
       ]);
-
-      warn.mockRestore();
     });
   });
 
@@ -475,7 +458,6 @@ describe('ClickHouseLangWatchClient', () => {
         [],
       ]);
       const sut = makeSut(queryFn, undefined, poisonRepo);
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
       await sut.fetchBatch({
         after: null,
@@ -491,8 +473,6 @@ describe('ClickHouseLangWatchClient', () => {
           rawRow: poison,
         }),
       ]);
-
-      warn.mockRestore();
     });
 
     it('MUST persist a skipped span row into the poison repository', async () => {
@@ -503,7 +483,6 @@ describe('ClickHouseLangWatchClient', () => {
         [badSpan],
       ]);
       const sut = makeSut(queryFn, undefined, poisonRepo);
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
       await sut.fetchBatch({
         after: null,
@@ -514,8 +493,6 @@ describe('ClickHouseLangWatchClient', () => {
       expect(poisonRepo.records).toEqual([
         expect.objectContaining({ kind: 'span', id: 'span-poison' }),
       ]);
-
-      warn.mockRestore();
     });
   });
 
@@ -543,8 +520,9 @@ describe('ClickHouseLangWatchClient', () => {
         [{ version: EXPECTED_LANGWATCH_SCHEMA_VERSION }],
       ]);
 
-      await expect(makeSut(queryFn).assertCompatibleSchema()).resolves
-        .toBeUndefined();
+      await expect(
+        makeSut(queryFn).assertCompatibleSchema(),
+      ).resolves.toBeUndefined();
     });
 
     it('MUST fail loudly on any other version — never sync unverified', async () => {
@@ -577,7 +555,6 @@ describe('ClickHouseLangWatchClient', () => {
         [], // spans
       ]);
       const sut = makeSut(queryFn, undefined, new PoisonRowRepositoryStub());
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
       const batch = await sut.fetchBatch({
         after: null,
@@ -589,8 +566,6 @@ describe('ClickHouseLangWatchClient', () => {
         updatedAt: new Date(T0),
         traceId: 'trace-good',
       });
-
-      warn.mockRestore();
     });
 
     it('MUST terminate the windowed pager when the page tail is null-timestamped — skip, never spin', async () => {
@@ -609,7 +584,8 @@ describe('ClickHouseLangWatchClient', () => {
       const pages: RecordedQuery[] = [];
       const queryFn: QueryFn = async (query, params) => {
         if (query.includes('now64')) return [{ nowMs: SOURCE_NOW_MS }];
-        if (query.includes('SpanAttributes') || query.includes('span')) return [];
+        if (query.includes('SpanAttributes') || query.includes('span'))
+          return [];
         pages.push({ query, params });
 
         return (params['afterOccurredAtMs'] as number) === 0
@@ -617,14 +593,11 @@ describe('ClickHouseLangWatchClient', () => {
           : [];
       };
       const sut = makeSut(queryFn, undefined, new PoisonRowRepositoryStub());
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
       const traces = await fetchAll(sut, WINDOW);
 
       expect(traces).toHaveLength(WINDOW_PAGE_SIZE - 1);
       expect(pages).toHaveLength(2); // full page, then the empty terminator
-
-      warn.mockRestore();
     });
 
     it('MUST crash — not loop — when a source keeps serving a page that does not advance the window cursor', async () => {
@@ -633,19 +606,16 @@ describe('ClickHouseLangWatchClient', () => {
       );
       const queryFn: QueryFn = async (query) => {
         if (query.includes('now64')) return [{ nowMs: SOURCE_NOW_MS }];
-        if (query.includes('SpanAttributes') || query.includes('span')) return [];
+        if (query.includes('SpanAttributes') || query.includes('span'))
+          return [];
 
         return fullPage; // malicious/broken source: same page forever
       };
       const sut = makeSut(queryFn, undefined, new PoisonRowRepositoryStub());
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
       await expect(fetchAll(sut, WINDOW)).rejects.toThrow(
         /cursor failed to advance/,
       );
-
-      warn.mockRestore();
     });
   });
-
 });

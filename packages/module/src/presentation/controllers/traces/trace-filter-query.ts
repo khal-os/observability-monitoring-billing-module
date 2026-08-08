@@ -28,6 +28,7 @@ export const traceFilterQueryShape = {
   quarantined: z.enum(['true', 'false']).optional(),
 };
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- exists only to derive the type below
 const traceFilterQuerySchema = z.strictObject(traceFilterQueryShape);
 
 export type TraceFilterQuery = z.infer<typeof traceFilterQuerySchema>;

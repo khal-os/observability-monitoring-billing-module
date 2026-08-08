@@ -231,9 +231,9 @@ describe('firstOpenMonthStart() (audit C-7.1)', () => {
           null,
         ),
       ).toEqual(new Date('2026-05-01T03:00:00.000Z'));
-      expect(
-        firstOpenMonthStart([period(2026, 6, 'closed')], null),
-      ).toEqual(new Date('2026-07-01T03:00:00.000Z'));
+      expect(firstOpenMonthStart([period(2026, 6, 'closed')], null)).toEqual(
+        new Date('2026-07-01T03:00:00.000Z'),
+      );
     });
 
     /**
@@ -285,12 +285,12 @@ describe('firstOpenMonthStart() (audit C-7.1)', () => {
 
       for (const testCase of cases) {
         const earliest = testCase.traceMonths
-          .map(({ year, month }) => monthWindow(year, month).start.getTime() + 86_400_000)
+          .map(
+            ({ year, month }) =>
+              monthWindow(year, month).start.getTime() + 86_400_000,
+          )
           .sort((a, b) => a - b)[0] as number;
-        const bound = firstOpenMonthStart(
-          testCase.periods,
-          new Date(earliest),
-        );
+        const bound = firstOpenMonthStart(testCase.periods, new Date(earliest));
         const closedKeys = new Set(
           testCase.periods
             .filter((candidate) => candidate.status === 'closed')
@@ -329,11 +329,12 @@ describe('firstOpenMonthStart() (audit C-7.1)', () => {
 
     it('MUST keep accepting the real range', () => {
       // Decision 130: boundaries are client midnights (suite zone UTC-3).
-      expect(monthWindow(1970, 1).start.toISOString()).toBe('1970-01-01T03:00:00.000Z');
+      expect(monthWindow(1970, 1).start.toISOString()).toBe(
+        '1970-01-01T03:00:00.000Z',
+      );
       expect(monthWindow(9999, 12).end.getTime()).toBe(
         Date.UTC(10000, 0, 1) + 3 * 3_600_000,
       );
     });
   });
-
 });

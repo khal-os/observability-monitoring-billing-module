@@ -44,7 +44,7 @@ const makeDetail = (): SessionDetail => ({
 });
 
 class GetSessionDetailStub implements GetSessionDetailUseCase {
-  async get(sessionId: string): Promise<SessionDetail | null> {
+  async get(_sessionId: string): Promise<SessionDetail | null> {
     return makeDetail();
   }
 }
@@ -86,7 +86,12 @@ describe('GetSessionDetailController', () => {
     const body = httpResponse.body as {
       session_id: string;
       cost_brl: string;
-      chain: { trace_id: string; input: unknown; output: unknown; cost_brl: string }[];
+      chain: {
+        trace_id: string;
+        input: unknown;
+        output: unknown;
+        cost_brl: string;
+      }[];
     };
 
     expect(httpResponse.statusCode).toBe(200);

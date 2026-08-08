@@ -1,21 +1,25 @@
 import express, { Express } from 'express';
 import { Server as HttpServer } from 'http';
+import { Logger } from '@observability/core/common/logging/logger.js';
+import { nullLogger } from '@observability/core/common/logging/null-logger.js';
 import { ServerEnvironmentVariables } from '../../configuration/interfaces/index.js';
 import { Server } from '../../interfaces/index.js';
 
 export class ExpressServer implements Server {
   app: Express;
   private httpServer?: HttpServer;
+  private readonly logger: Logger;
 
-  constructor() {
+  constructor(logger: Logger = nullLogger) {
     this.app = express();
+    this.logger = logger;
   }
 
   async start(config: ServerEnvironmentVariables): Promise<void> {
     const serverPort = config.serverPort;
 
     this.httpServer = this.app.listen(serverPort, () => {
-      console.log(`Express: Server is running on port ${serverPort}!`);
+      this.logger.info('Express: server is running', { port: serverPort });
     });
   }
 
@@ -31,6 +35,6 @@ export class ExpressServer implements Server {
     });
 
     this.httpServer = undefined;
-    console.log('Express: Server stopped successfully!');
+    this.logger.info('Express: server stopped');
   }
 }

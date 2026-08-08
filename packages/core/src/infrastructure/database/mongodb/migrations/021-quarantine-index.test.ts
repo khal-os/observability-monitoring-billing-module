@@ -137,7 +137,7 @@ const accessOps = async (): Promise<number> => {
     .toArray()) as { name: string; accesses: { ops: number } }[];
 
   return Number(
-    stats.find((entry) => entry.name === 'quarantine_startedAt')?.accesses.ops ??
-      0,
+    stats.find((entry) => entry.name === 'quarantine_startedAt')?.accesses
+      .ops ?? 0,
   );
 };

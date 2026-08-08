@@ -3,15 +3,13 @@ import {
   MAX_CACHE_ENTRIES,
 } from './http-token-authenticator.js';
 
-const makeSut = (
-  overrides?: {
-    clientId?: string;
-    clientSecret?: string;
-    positiveTtlMs?: number;
-    negativeTtlMs?: number;
-    now?: () => number;
-  },
-) =>
+const makeSut = (overrides?: {
+  clientId?: string;
+  clientSecret?: string;
+  positiveTtlMs?: number;
+  negativeTtlMs?: number;
+  now?: () => number;
+}) =>
   new HttpTokenAuthenticator({
     authSystemUrl: 'http://auth.local/',
     clientId: 'module-client',
@@ -60,7 +58,10 @@ describe('HttpTokenAuthenticator', () => {
     });
     withFetchReturning(mock);
 
-    await makeSut({ clientId: undefined, clientSecret: undefined }).isAuthenticated('tkn');
+    await makeSut({
+      clientId: undefined,
+      clientSecret: undefined,
+    }).isAuthenticated('tkn');
 
     expect(mock.mock.calls[0][1].headers).toEqual({
       'content-type': 'application/x-www-form-urlencoded',
@@ -69,7 +70,9 @@ describe('HttpTokenAuthenticator', () => {
 
   it('MUST answer false when the Auth System says active: false', async () => {
     withFetchReturning(
-      jest.fn().mockResolvedValue({ ok: true, json: async () => ({ active: false }) }),
+      jest
+        .fn()
+        .mockResolvedValue({ ok: true, json: async () => ({ active: false }) }),
     );
 
     expect(await makeSut().isAuthenticated('tkn')).toBe(false);
@@ -155,7 +158,10 @@ describe('HttpTokenAuthenticator', () => {
     });
 
     it('MUST share ONE in-flight introspection between concurrent checks of the same token', async () => {
-      let release!: (value: { ok: boolean; json: () => Promise<unknown> }) => void;
+      let release!: (value: {
+        ok: boolean;
+        json: () => Promise<unknown>;
+      }) => void;
       const mock = jest.fn().mockReturnValue(
         new Promise((resolve) => {
           release = resolve;
@@ -285,7 +291,10 @@ describe('HttpTokenAuthenticator — resolver-form authSystemUrl (khal discovery
     });
     withFetchReturning(mock);
 
-    const urls: (string | undefined)[] = [undefined, 'http://resolved-auth.local'];
+    const urls: (string | undefined)[] = [
+      undefined,
+      'http://resolved-auth.local',
+    ];
     const sut = new HttpTokenAuthenticator({
       authSystemUrl: async () => urls.shift(),
       clientId: 'module-client',

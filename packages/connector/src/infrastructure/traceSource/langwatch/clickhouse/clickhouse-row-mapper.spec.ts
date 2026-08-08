@@ -129,9 +129,7 @@ describe('mapSummaryTrace', () => {
     expect(llm?.input).toEqual({
       messages: [{ role: 'user', content: 'Obrigado!' }],
     });
-    expect(llm?.output).toBe(
-      '[{"role":"assistant","content":"De nada! 😊"}]',
-    );
+    expect(llm?.output).toBe('[{"role":"assistant","content":"De nada! 😊"}]');
   });
 
   it('MUST keep declared-text span content as the raw source string', () => {
@@ -175,9 +173,7 @@ describe('mapSummaryTrace', () => {
   it('MUST mark error traces and error spans', () => {
     const trace = mapSummaryTrace(
       makeSummary({ containsError: true, errorMessage: 'boom' }),
-      [
-        makeRootSpan({ statusCode: 2, statusMessage: 'agent exploded' }),
-      ],
+      [makeRootSpan({ statusCode: 2, statusMessage: 'agent exploded' })],
     );
 
     expect(trace.status).toBe('error');
@@ -231,7 +227,7 @@ describe('mapSummaryTrace', () => {
             'langwatch.span.type': 'agent',
             'service.name': 'from-resources',
             'service.version': '2.0.0',
-            'channel': 'whatsapp',
+            channel: 'whatsapp',
           },
         }),
       ],
@@ -255,7 +251,7 @@ describe('mapSummaryTrace', () => {
     const withAll = mapSummaryTrace(
       makeSummary({
         attributes: {
-          'user_id': 'u-canonical',
+          user_id: 'u-canonical',
           'langwatch.user.id': 'u-reserved',
           'user.id': 'u-native',
         },
@@ -264,7 +260,10 @@ describe('mapSummaryTrace', () => {
     );
     const withReserved = mapSummaryTrace(
       makeSummary({
-        attributes: { 'langwatch.user.id': 'u-reserved', 'user.id': 'u-native' },
+        attributes: {
+          'langwatch.user.id': 'u-reserved',
+          'user.id': 'u-native',
+        },
       }),
       [],
     );
@@ -439,9 +438,7 @@ describe('the salvage half of the rule — nulled counts through the SHARED gate
     // The healthy count is irrelevant here — only promptTokens was nulled,
     // and nothing rebuilt it.
     expect(trace.tokens.input).toBeUndefined();
-    expect(unreconstructed(trace, ['promptTokens'])).toEqual([
-      'promptTokens',
-    ]);
+    expect(unreconstructed(trace, ['promptTokens'])).toEqual(['promptTokens']);
   });
 
   it('MUST treat a rebuilt-to-zero count as unreconstructed — a stamp at zero is never salvage', () => {
@@ -460,9 +457,7 @@ describe('the salvage half of the rule — nulled counts through the SHARED gate
       ],
     );
 
-    expect(unreconstructed(trace, ['promptTokens'])).toEqual([
-      'promptTokens',
-    ]);
+    expect(unreconstructed(trace, ['promptTokens'])).toEqual(['promptTokens']);
     expect(unreconstructed(trace, ['completionTokens'])).toEqual([]);
   });
 });

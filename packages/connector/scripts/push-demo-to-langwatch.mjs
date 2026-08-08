@@ -27,17 +27,28 @@ import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+const ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../..',
+);
 const CONCURRENCY = 4;
 
 const clientsArg = process.argv.slice(2);
-const CLIENT_NAMES = clientsArg.length > 0 ? clientsArg : ['hapvida', 'claro', 'vivo'];
+const CLIENT_NAMES =
+  clientsArg.length > 0 ? clientsArg : ['hapvida', 'claro', 'vivo'];
 
 const readEnv = (client) => {
-  const content = readFileSync(path.join(ROOT, 'clients', `${client}.env`), 'utf-8');
-  const get = (key) => content.match(new RegExp(`^${key}=(.*)$`, 'm'))?.[1]?.trim() ?? '';
+  const content = readFileSync(
+    path.join(ROOT, 'clients', `${client}.env`),
+    'utf-8',
+  );
+  const get = (key) =>
+    content.match(new RegExp(`^${key}=(.*)$`, 'm'))?.[1]?.trim() ?? '';
   // Port default mirrors compose.connector.yml (${LANGWATCH_PORT:-5560}).
-  return { apiKey: process.env.LANGWATCH_API_KEY ?? '', port: get('LANGWATCH_PORT') || '5560' };
+  return {
+    apiKey: process.env.LANGWATCH_API_KEY ?? '',
+    port: get('LANGWATCH_PORT') || '5560',
+  };
 };
 
 const spanTypeMap = { retrieval: 'rag' };
@@ -141,7 +152,9 @@ const pushClient = async (client) => {
     traces = readdirSync(dir)
       .filter((file) => file.endsWith('.json'))
       .sort()
-      .flatMap((file) => JSON.parse(readFileSync(path.join(dir, file), 'utf-8')));
+      .flatMap((file) =>
+        JSON.parse(readFileSync(path.join(dir, file), 'utf-8')),
+      );
   } catch (err) {
     console.error(
       `${client}: clients/${client}.env ou demo-data/${client}/ inexistente (${err.code ?? err.message}) — pulei.`,
@@ -150,7 +163,9 @@ const pushClient = async (client) => {
   }
 
   if (!apiKey) {
-    console.error(`${client}: LANGWATCH_API_KEY ausente no ambiente — rode via scripts/4-seed-demo-data.sh (ou exporte a key copiada da UI do LangWatch). Pulei.`);
+    console.error(
+      `${client}: LANGWATCH_API_KEY ausente no ambiente — rode via scripts/4-seed-demo-data.sh (ou exporte a key copiada da UI do LangWatch). Pulei.`,
+    );
     return { client, pushed: 0, failed: 0, skipped: true };
   }
 
@@ -165,7 +180,10 @@ const pushClient = async (client) => {
       try {
         const res = await fetch(endpoint, {
           method: 'POST',
-          headers: { 'X-Auth-Token': apiKey, 'Content-Type': 'application/json' },
+          headers: {
+            'X-Auth-Token': apiKey,
+            'Content-Type': 'application/json',
+          },
           body: JSON.stringify(payload),
         });
         if (res.ok) {
@@ -173,7 +191,10 @@ const pushClient = async (client) => {
           return;
         }
         const body = await res.text();
-        if (attempt === 3) failures.push(`${trace.traceId}: HTTP ${res.status} ${body.slice(0, 120)}`);
+        if (attempt === 3)
+          failures.push(
+            `${trace.traceId}: HTTP ${res.status} ${body.slice(0, 120)}`,
+          );
       } catch (err) {
         if (attempt === 3) failures.push(`${trace.traceId}: ${err.message}`);
       }
@@ -188,7 +209,9 @@ const pushClient = async (client) => {
     }
   }
 
-  console.log(`\r${client}: ${pushed}/${traces.length} enviados, ${failures.length} falhas`);
+  console.log(
+    `\r${client}: ${pushed}/${traces.length} enviados, ${failures.length} falhas`,
+  );
   for (const failure of failures.slice(0, 5)) console.error(`  ${failure}`);
   return { client, pushed, failed: failures.length, total: traces.length };
 };

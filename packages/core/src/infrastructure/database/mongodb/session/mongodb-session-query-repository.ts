@@ -121,7 +121,12 @@ export class MongoDbSessionQueryRepository implements SessionQueryRepository {
         {
           $facet: {
             agents: [
-              { $match: { ...buildSessionMatch(withoutAgent), 'agent.id': { $type: 'string' } } },
+              {
+                $match: {
+                  ...buildSessionMatch(withoutAgent),
+                  'agent.id': { $type: 'string' },
+                },
+              },
               { $group: { _id: '$agent.id', count: { $sum: 1 } } },
               { $sort: { _id: 1 } },
             ],

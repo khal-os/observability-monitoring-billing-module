@@ -53,25 +53,50 @@ describe('Billing query windows against the real adapter (audit E-2)', () => {
   };
 
   it("accruedCostMicrocents MUST honor BOTH window bounds — the projection depends on excluding today's partial day", async () => {
-    await seed('w-1', new Date('2026-06-05T10:00:00Z'), new Date('2026-06-05T11:00:00Z'), 100_000);
-    await seed('w-2', new Date('2026-06-20T10:00:00Z'), new Date('2026-06-20T11:00:00Z'), 200_000);
-    await seed('w-3', new Date('2026-07-02T10:00:00Z'), new Date('2026-07-02T11:00:00Z'), 400_000);
+    await seed(
+      'w-1',
+      new Date('2026-06-05T10:00:00Z'),
+      new Date('2026-06-05T11:00:00Z'),
+      100_000,
+    );
+    await seed(
+      'w-2',
+      new Date('2026-06-20T10:00:00Z'),
+      new Date('2026-06-20T11:00:00Z'),
+      200_000,
+    );
+    await seed(
+      'w-3',
+      new Date('2026-07-02T10:00:00Z'),
+      new Date('2026-07-02T11:00:00Z'),
+      400_000,
+    );
 
     const upToMidJune = new Date('2026-06-15T00:00:00.000Z');
 
     expect(
       await repository.accruedCostMicrocents(JUNE_START, upToMidJune),
     ).toBe(100_000);
-    expect(
-      await repository.accruedCostMicrocents(JUNE_START, JULY_START),
-    ).toBe(300_000);
+    expect(await repository.accruedCostMicrocents(JUNE_START, JULY_START)).toBe(
+      300_000,
+    );
   });
 
   it("ingestionWatermark MUST stay inside the month window — a closed month's frozen audit must never carry a LATER month's freshness", async () => {
-    await seed('m-1', new Date('2026-06-10T10:00:00Z'), new Date('2026-06-10T12:00:00Z'), 100_000);
+    await seed(
+      'm-1',
+      new Date('2026-06-10T10:00:00Z'),
+      new Date('2026-06-10T12:00:00Z'),
+      100_000,
+    );
     // Ingested much later AND started in July: outside June's window on
     // the axis the adapter filters by.
-    await seed('m-2', new Date('2026-07-03T10:00:00Z'), new Date('2026-07-03T12:00:00Z'), 100_000);
+    await seed(
+      'm-2',
+      new Date('2026-07-03T10:00:00Z'),
+      new Date('2026-07-03T12:00:00Z'),
+      100_000,
+    );
 
     const juneWatermark = await repository.ingestionWatermark(
       JUNE_START,

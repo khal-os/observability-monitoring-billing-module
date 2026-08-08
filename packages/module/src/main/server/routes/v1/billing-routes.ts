@@ -22,8 +22,5 @@ export default (router: Router): void => {
   );
   // One statement resource; the representation is ?format=csv|html
   // (decision 98 — RESTful, no per-format routes).
-  router.get(
-    '/billing/statement',
-    adaptRoute(makeExportStatementController()),
-  );
+  router.get('/billing/statement', adaptRoute(makeExportStatementController()));
 };

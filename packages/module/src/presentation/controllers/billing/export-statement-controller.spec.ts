@@ -7,9 +7,7 @@ import { InvalidParamError, MissingParamError } from '../../errors/index.js';
 import { apiErrorSchema } from '../../helpers/docs-schemas.js';
 import { BillingPeriodStateError } from '@observability/core/domain/useCases/close-billing-period-use-case.js';
 import { buildStatement } from '../../../application/useCases/billingStatement/statement-engine.js';
-import {
-  usageRecord,
-} from '@observability/core/application/testSupport/billing-test-fakes.js';
+import { usageRecord } from '@observability/core/application/testSupport/billing-test-fakes.js';
 import { BillingUsageRecord } from '@observability/core/domain/models/billing-snapshot-model.js';
 
 /**

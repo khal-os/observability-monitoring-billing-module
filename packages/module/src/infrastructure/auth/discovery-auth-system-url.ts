@@ -13,6 +13,9 @@
  * failed fetches are throttled so a broken discovery isn't polled per-request.
  */
 
+import { Logger } from '@observability/core/common/logging/logger.js';
+import { nullLogger } from '@observability/core/common/logging/null-logger.js';
+
 export interface DiscoveryAuthSystemUrlOptions {
   discoveryUrl: string;
   tenant: string;
@@ -23,6 +26,8 @@ export interface DiscoveryAuthSystemUrlOptions {
   failureRetryMs?: number;
   /** Injectable clock for tests (default Date.now). */
   now?: () => number;
+  /** Decision 134: failures speak through the injected port. */
+  logger?: Logger;
 }
 
 /**
@@ -38,6 +43,7 @@ export const makeDiscoveryAuthSystemUrl = (
   const defaultTtlMs = options.defaultTtlMs ?? 300_000;
   const failureRetryMs = options.failureRetryMs ?? 15_000;
   const now = options.now ?? Date.now;
+  const logger = options.logger ?? nullLogger;
 
   let cachedUrl: string | undefined;
   let expiresAt = 0;
@@ -66,12 +72,16 @@ export const makeDiscoveryAuthSystemUrl = (
       return cachedUrl;
     } catch (error) {
       nextAttemptAt = now() + failureRetryMs;
-      console.error(
-        `khal discovery at ${registersUrl} failed (${String(error)}); ` +
+      logger.error(
+        'khal discovery failed; ' +
           (cachedUrl
             ? 'serving the last-known Auth System URL'
-            : 'introspection will fail closed') +
-          `; retrying in ${String(failureRetryMs / 1000)}s`,
+            : 'introspection will fail closed'),
+        {
+          registersUrl,
+          err: error,
+          retryInSeconds: failureRetryMs / 1000,
+        },
       );
       return cachedUrl; // stale when we have one; undefined = fail closed
     }

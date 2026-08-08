@@ -75,9 +75,7 @@ export interface QuarantineReconciliation {
  * stays valid (divergence visibility is then simply unavailable).
  */
 export type InsertIfAbsentResult =
-  | 'inserted'
-  | 'skipped'
-  | { outcome: 'skipped'; storedTokensTotal: number };
+  'inserted' | 'skipped' | { outcome: 'skipped'; storedTokensTotal: number };
 
 export interface TraceRepository {
   /**

@@ -20,7 +20,9 @@ describe('Sessions Routes', () => {
 
       expect(response.body.total).toBe(4);
       expect(
-        response.body.items.map((item: { session_id: string }) => item.session_id),
+        response.body.items.map(
+          (item: { session_id: string }) => item.session_id,
+        ),
       ).toEqual([
         'sess-cobranca-004',
         'sess-suporte-003',
@@ -62,7 +64,8 @@ describe('Sessions Routes', () => {
       const response = await request(app).get('/api/v1/sessions').expect(200);
 
       const pendingSession = response.body.items.find(
-        (item: { session_id: string }) => item.session_id === 'sess-suporte-003',
+        (item: { session_id: string }) =>
+          item.session_id === 'sess-suporte-003',
       );
 
       expect(pendingSession.pending_price_count).toBe(2);
@@ -78,7 +81,9 @@ describe('Sessions Routes', () => {
         .expect(200);
 
       expect(
-        response.body.items.map((item: { session_id: string }) => item.session_id),
+        response.body.items.map(
+          (item: { session_id: string }) => item.session_id,
+        ),
       ).toEqual(['sess-cobranca-004']);
     });
 
@@ -159,8 +164,15 @@ describe('Sessions Routes', () => {
         .expect(200);
 
       expect(
-        response.body.chain.map((entry: { trace_id: string }) => entry.trace_id),
-      ).toEqual(['trace-w1-001', 'trace-w1-002', 'trace-w1-003', 'trace-w2-001']);
+        response.body.chain.map(
+          (entry: { trace_id: string }) => entry.trace_id,
+        ),
+      ).toEqual([
+        'trace-w1-001',
+        'trace-w1-002',
+        'trace-w1-003',
+        'trace-w2-001',
+      ]);
     });
 
     it('MUST read as a transcript: content + per-step cost in the chain', async () => {

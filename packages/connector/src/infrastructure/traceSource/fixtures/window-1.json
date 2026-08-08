@@ -3,14 +3,26 @@
     "traceId": "trace-w1-002",
     "sessionId": "sess-checkout-001",
     "userId": "user-5511987654321",
-    "agent": { "id": "agent-atendimento", "version": "1.4.2", "instance": "agent-atendimento-7d9f4b-k2xp8" },
+    "agent": {
+      "id": "agent-atendimento",
+      "version": "1.4.2",
+      "instance": "agent-atendimento-7d9f4b-k2xp8"
+    },
     "model": "openai/gpt-5-mini",
     "type": "chat",
-    "channel": { "type": "whatsapp", "version": "3.2.0", "instance": "omni-wa-6b4c9f-r3zs5" },
+    "channel": {
+      "type": "whatsapp",
+      "version": "3.2.0",
+      "instance": "omni-wa-6b4c9f-r3zs5"
+    },
     "domain": "varejo",
     "subdomain": "loja-sp",
     "environment": "prod",
-    "experiment": { "name": "assistant-tone", "variant": "B", "variantVersion": "2" },
+    "experiment": {
+      "name": "assistant-tone",
+      "variant": "B",
+      "variantVersion": "2"
+    },
     "startedAt": "2026-06-05T14:01:30.000Z",
     "finishedAt": "2026-06-05T14:01:37.000Z",
     "status": "ok",
@@ -42,10 +54,18 @@
   {
     "traceId": "trace-w1-003",
     "sessionId": "sess-checkout-001",
-    "agent": { "id": "agent-atendimento", "version": "1.4.2", "instance": "agent-atendimento-7d9f4b-k2xp8" },
+    "agent": {
+      "id": "agent-atendimento",
+      "version": "1.4.2",
+      "instance": "agent-atendimento-7d9f4b-k2xp8"
+    },
     "model": "openai/gpt-5-mini",
     "type": "chat",
-    "channel": { "type": "whatsapp", "version": "3.2.0", "instance": "omni-wa-6b4c9f-r3zs5" },
+    "channel": {
+      "type": "whatsapp",
+      "version": "3.2.0",
+      "instance": "omni-wa-6b4c9f-r3zs5"
+    },
     "domain": "varejo",
     "subdomain": "loja-sp",
     "startedAt": "2026-06-05T14:03:00.000Z",
@@ -69,10 +89,18 @@
   {
     "traceId": "trace-w1-001",
     "sessionId": "sess-checkout-001",
-    "agent": { "id": "agent-atendimento", "version": "1.4.2", "instance": "agent-atendimento-7d9f4b-k2xp8" },
+    "agent": {
+      "id": "agent-atendimento",
+      "version": "1.4.2",
+      "instance": "agent-atendimento-7d9f4b-k2xp8"
+    },
     "model": "openai/gpt-5-mini",
     "type": "chat",
-    "channel": { "type": "whatsapp", "version": "3.2.0", "instance": "omni-wa-6b4c9f-r3zs5" },
+    "channel": {
+      "type": "whatsapp",
+      "version": "3.2.0",
+      "instance": "omni-wa-6b4c9f-r3zs5"
+    },
     "domain": "varejo",
     "subdomain": "loja-sp",
     "startedAt": "2026-06-05T14:00:00.000Z",
@@ -95,10 +123,18 @@
   },
   {
     "traceId": "trace-w1-004",
-    "agent": { "id": "agent-atendimento", "version": "1.4.2", "instance": "agent-atendimento-7d9f4b-k2xp8" },
+    "agent": {
+      "id": "agent-atendimento",
+      "version": "1.4.2",
+      "instance": "agent-atendimento-7d9f4b-k2xp8"
+    },
     "model": "openai/gpt-5-mini",
     "type": "chat",
-    "channel": { "type": "web", "version": "3.2.0", "instance": "omni-web-2e7a1d-q9fp4" },
+    "channel": {
+      "type": "web",
+      "version": "3.2.0",
+      "instance": "omni-web-2e7a1d-q9fp4"
+    },
     "domain": "varejo",
     "startedAt": "2026-06-06T09:15:00.000Z",
     "finishedAt": "2026-06-06T09:15:03.000Z",
@@ -121,10 +157,18 @@
   {
     "traceId": "trace-w1-005",
     "sessionId": "sess-cobranca-002",
-    "agent": { "id": "agent-cobranca", "version": "2.0.1", "instance": "agent-cobranca-5c8e2d-t7qh4" },
+    "agent": {
+      "id": "agent-cobranca",
+      "version": "2.0.1",
+      "instance": "agent-cobranca-5c8e2d-t7qh4"
+    },
     "model": "anthropic/claude-sonnet-5",
     "type": "chat",
-    "channel": { "type": "whatsapp", "version": "3.2.0", "instance": "omni-wa-6b4c9f-r3zs5" },
+    "channel": {
+      "type": "whatsapp",
+      "version": "3.2.0",
+      "instance": "omni-wa-6b4c9f-r3zs5"
+    },
     "domain": "financeiro",
     "subdomain": "cobranca",
     "startedAt": "2026-06-08T11:00:00.000Z",
@@ -158,10 +202,18 @@
   {
     "traceId": "trace-w1-006",
     "sessionId": "sess-suporte-003",
-    "agent": { "id": "agent-suporte", "version": "0.9.7", "instance": "agent-suporte-9a1f3c-b5nd2" },
+    "agent": {
+      "id": "agent-suporte",
+      "version": "0.9.7",
+      "instance": "agent-suporte-9a1f3c-b5nd2"
+    },
     "model": "meta/llama-4-scout",
     "type": "chat",
-    "channel": { "type": "web", "version": "3.2.0", "instance": "omni-web-2e7a1d-q9fp4" },
+    "channel": {
+      "type": "web",
+      "version": "3.2.0",
+      "instance": "omni-web-2e7a1d-q9fp4"
+    },
     "domain": "suporte",
     "startedAt": "2026-06-10T16:40:00.000Z",
     "finishedAt": "2026-06-10T16:40:06.000Z",

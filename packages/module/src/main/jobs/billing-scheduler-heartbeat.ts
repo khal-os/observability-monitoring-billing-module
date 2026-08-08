@@ -1,4 +1,6 @@
 import { beatProcessHeartbeat } from '@observability/core/common/helpers/heartbeat/process-heartbeat.js';
+import { Logger } from '@observability/core/common/logging/logger.js';
+import { nullLogger } from '@observability/core/common/logging/null-logger.js';
 
 /**
  * The billing-close scheduler's progress beat (audit G-1 semantics, same
@@ -12,6 +14,7 @@ export const BILLING_CLOSE_HEARTBEAT_PATH = '/tmp/billing-close-heartbeat';
 
 export const beatSchedulerHeartbeat = (
   path: string = BILLING_CLOSE_HEARTBEAT_PATH,
+  logger: Logger = nullLogger,
 ): void => {
-  beatProcessHeartbeat(path, 'Billing close scheduler');
+  beatProcessHeartbeat(path, 'Billing close scheduler', logger);
 };

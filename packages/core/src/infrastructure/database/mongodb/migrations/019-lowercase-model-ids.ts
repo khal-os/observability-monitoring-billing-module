@@ -29,8 +29,8 @@ import { PRICE_VERSIONS_COLLECTION } from '../priceVersion/mongodb-price-version
  * the row whose lowercase form already exists (or, among case-variants
  * only, the earliest-registered one, which is rewritten first) stays the
  * effective row; later variants are left AS STORED (mixed case — inert:
- * no lookup produces a mixed-case key anymore) and logged with a
- * console.warn. Nothing is deleted — price versions are immutable data
+ * no lookup produces a mixed-case key anymore) and logged as a warning.
+ * Nothing is deleted — price versions are immutable data
  * (invariant 9); resolving an inert duplicate is an operator decision.
  *
  * Idempotent: every filter matches documents still carrying uppercase
@@ -40,7 +40,7 @@ import { PRICE_VERSIONS_COLLECTION } from '../priceVersion/mongodb-price-version
 export const lowercaseModelIds: Migration = {
   id: '019-lowercase-model-ids',
 
-  async run(db) {
+  async run(db, logger) {
     const traces = db.collection(TRACES_COLLECTION);
 
     // Pipeline-form update: server-side, one pass per field, and by
@@ -76,11 +76,17 @@ export const lowercaseModelIds: Migration = {
           throw error;
         }
 
-        console.warn(
-          `[019-lowercase-model-ids] skipped case-variant duplicate price version: ` +
-            `model="${model}" tokenType="${document['tokenType']}" ` +
-            `effectiveFrom=${(document['effectiveFrom'] as Date)?.toISOString?.() ?? document['effectiveFrom']} ` +
-            `— "${model.toLowerCase()}" already registered; row left as stored (inert).`,
+        logger?.warn(
+          '019-lowercase-model-ids: skipped case-variant duplicate price ' +
+            'version — the lowercase form is already registered; row left ' +
+            'as stored (inert)',
+          {
+            model,
+            tokenType: document['tokenType'],
+            effectiveFrom:
+              (document['effectiveFrom'] as Date)?.toISOString?.() ??
+              document['effectiveFrom'],
+          },
         );
       }
     }

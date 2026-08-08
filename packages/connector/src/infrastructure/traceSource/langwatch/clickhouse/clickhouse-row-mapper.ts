@@ -165,7 +165,10 @@ const mapSpan = (row: SpanRow): SourceSpan => {
     input: attributeTokenCount(row.attributes, 'gen_ai.usage.input_tokens'),
     output: attributeTokenCount(row.attributes, 'gen_ai.usage.output_tokens'),
     cache_read:
-      attributeTokenCount(row.attributes, 'gen_ai.usage.cache_read.input_tokens') ??
+      attributeTokenCount(
+        row.attributes,
+        'gen_ai.usage.cache_read.input_tokens',
+      ) ??
       attributeTokenCount(
         row.attributes,
         'llm.token_count.prompt_details.cache_read',

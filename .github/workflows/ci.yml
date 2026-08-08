@@ -1,0 +1,85 @@
+# CI for the observability component (module · connector · core · ui).
+#
+# Mirrors the local gates exactly — pre-commit (lint-staged), commit-msg
+# (commitlint) and pre-push (typecheck + lint + unit) are the fast local
+# copies; this workflow is the authority: it also runs the integration
+# suites (real Mongo via mongodb-memory-server), the coverage ratchet
+# (audit E-5) and the packaging check.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint & format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Workspace typecheck resolves @observability/core through its exports
+      # map (dist), so core must be built first — same order as local dev.
+      - run: npm run build
+      - run: npm run typecheck
+
+  test:
+    name: Build, packaging check & tests (unit + integration, coverage ratchet)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # The integration suites boot mongodb-memory-server; cache the mongod
+      # binary download between runs.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/mongodb-binaries
+          key: mongodb-binaries-${{ runner.os }}
+      - run: npm ci
+      # build → packaging-check → per-workspace jest with coverage
+      # thresholds (the ratchet: a coverage DROP fails this step).
+      - run: npm run test:ci
+
+  commitlint:
+    name: Conventional commits
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: >
+          npx commitlint
+          --from ${{ github.event.pull_request.base.sha }}
+          --to ${{ github.event.pull_request.head.sha }}
+          --verbose

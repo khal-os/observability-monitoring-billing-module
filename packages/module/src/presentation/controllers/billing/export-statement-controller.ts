@@ -143,7 +143,10 @@ export const statementPrintHtml = (view: BillingSummaryView): string => {
 
   const reopenHtml = view.reopen_notes.length
     ? `<p class="note">Reaberturas auditadas: ${view.reopen_notes
-        .map((note) => `${escapeHtml(note.at_display)} — ${escapeHtml(note.reason)}`)
+        .map(
+          (note) =>
+            `${escapeHtml(note.at_display)} — ${escapeHtml(note.reason)}`,
+        )
         .join(' · ')}</p>`
     : '';
 
@@ -224,7 +227,9 @@ export class ExportStatementController implements Controller {
 
     let view: BillingSummaryView;
     try {
-      view = toBillingSummaryView(await this.getBillingSummary.get(year, month));
+      view = toBillingSummaryView(
+        await this.getBillingSummary.get(year, month),
+      );
     } catch (error) {
       // audit B-10.3: same 400 mapping as the summary — a future month
       // must not export a legit-looking zero statement (nor 500). Same

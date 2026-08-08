@@ -13,9 +13,7 @@ import { TtlCache } from '../../helpers/ttl-cache.js';
  * sessions) into a memory lookup. TTL 0 disables (tests assert ground
  * truth).
  */
-export class ListSessionFilterOptionsDbUseCase
-  implements ListSessionFilterOptionsUseCase
-{
+export class ListSessionFilterOptionsDbUseCase implements ListSessionFilterOptionsUseCase {
   private readonly sessionQueryRepository: SessionQueryRepository;
   private readonly cache: TtlCache<SessionFilterOptions>;
 

@@ -138,7 +138,9 @@ const addMicrocents = (current: number, value: number): number =>
  * falsely mark every frozen, still-reproducible snapshot as another
  * calculation's output (decision 122's own rationale).
  */
-const lineKey = (line: Omit<StatementLine, 'tokens' | 'costMicrocents' | 'displayCents'>): string =>
+const lineKey = (
+  line: Omit<StatementLine, 'tokens' | 'costMicrocents' | 'displayCents'>,
+): string =>
   JSON.stringify([
     line.agentId,
     line.agentVersion,
@@ -271,7 +273,9 @@ const buildModelShares = (
       b.costMicrocents - a.costMicrocents || nullableCompare(a.model, b.model),
   );
 
-  const costShares = shareBasisPoints(sorted.map((share) => share.costMicrocents));
+  const costShares = shareBasisPoints(
+    sorted.map((share) => share.costMicrocents),
+  );
   // Token share reconciles over the SAME statement's token total, so both
   // shares always close at 100% independently (T9: sempre fechando).
   const tokenShares = shareBasisPoints(
@@ -341,9 +345,15 @@ const createCacheSavingsFold = (): {
 
   return {
     add: (record) => {
-      const read = record.stampedCosts.find((cost) => cost.tokenType === 'cache_read');
-      const write = record.stampedCosts.find((cost) => cost.tokenType === 'cache_write');
-      const input = record.stampedCosts.find((cost) => cost.tokenType === 'input');
+      const read = record.stampedCosts.find(
+        (cost) => cost.tokenType === 'cache_read',
+      );
+      const write = record.stampedCosts.find(
+        (cost) => cost.tokenType === 'cache_write',
+      );
+      const input = record.stampedCosts.find(
+        (cost) => cost.tokenType === 'input',
+      );
 
       if (write) {
         cacheWriteCostMicrocents = addMicrocents(
@@ -368,8 +378,8 @@ const createCacheSavingsFold = (): {
 
       counterfactualBuckets.set(
         input.appliedPriceMicrocentsPerMillion,
-        (counterfactualBuckets.get(input.appliedPriceMicrocentsPerMillion) ?? 0) +
-          read.tokens,
+        (counterfactualBuckets.get(input.appliedPriceMicrocentsPerMillion) ??
+          0) + read.tokens,
       );
     },
     finish: () => {

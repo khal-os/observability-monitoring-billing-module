@@ -14,7 +14,6 @@ import {
 } from '@observability/core/domain/useCases/get-billing-projection-use-case.js';
 import {
   agentKey,
-  StatementAgentGroup,
   StatementAgentModelMix,
   StatementLine,
   StatementModelShare,
@@ -691,9 +690,7 @@ export const toBillingDailySeriesView = (
           // shifting by the zone offset recovers the calendar day it names
           // (raw getUTC* would drift for zones east of UTC).
           const instant = new Date(day.date);
-          const date = new Date(
-            instant.getTime() + clientUtcOffsetMs(instant),
-          );
+          const date = new Date(instant.getTime() + clientUtcOffsetMs(instant));
 
           return {
             year: date.getUTCFullYear(),

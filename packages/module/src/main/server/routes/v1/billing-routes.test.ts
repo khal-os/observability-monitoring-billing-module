@@ -17,7 +17,6 @@ import {
   formatBrlFromMicrocents,
 } from '@observability/core/common/helpers/money/money.js';
 import { formatBrlDisplay } from '@observability/core/common/helpers/display/display.js';
-import { StampedTokenCost } from '@observability/core/domain/models/trace-model.js';
 
 const app = server.app;
 
@@ -42,9 +41,7 @@ describe('Billing Routes', () => {
 
   describe('GET /api/v1/bills', () => {
     it('MUST list bills with the SAME totals the month statement reports', async () => {
-      const billsResponse = await request(app)
-        .get('/api/v1/bills')
-        .expect(200);
+      const billsResponse = await request(app).get('/api/v1/bills').expect(200);
       const june = billsResponse.body.bills.find(
         (bill: { year: number; month: number }) =>
           bill.year === 2026 && bill.month === 6,
@@ -68,9 +65,9 @@ describe('Billing Routes', () => {
       expect(june.stamped_trace_count).toBe(
         traces.filter((trace) => trace.pricingStatus === 'stamped').length,
       );
-      expect(FORBIDDEN_INTERNAL_KEYS.test(JSON.stringify(billsResponse.body))).toBe(
-        false,
-      );
+      expect(
+        FORBIDDEN_INTERNAL_KEYS.test(JSON.stringify(billsResponse.body)),
+      ).toBe(false);
     });
 
     it('MUST return 400 for an unknown query parameter (C-3 strict — the endpoint takes none)', async () => {
@@ -81,12 +78,8 @@ describe('Billing Routes', () => {
   describe('GET /api/v1/billing/summary — validation', () => {
     it('MUST return 400 for missing or malformed year/month', async () => {
       await request(app).get('/api/v1/billing/summary').expect(400);
-      await request(app)
-        .get('/api/v1/billing/summary?year=2026')
-        .expect(400);
-      await request(app)
-        .get('/api/v1/billing/summary?month=6')
-        .expect(400);
+      await request(app).get('/api/v1/billing/summary?year=2026').expect(400);
+      await request(app).get('/api/v1/billing/summary?month=6').expect(400);
       await request(app)
         .get('/api/v1/billing/summary?year=2026&month=13')
         .expect(400);
@@ -272,9 +265,7 @@ describe('Billing Routes', () => {
         .expect(200);
 
       expect(after.body.pending_price.trace_count).toBe(0);
-      expect(after.body.lines.length).toBeGreaterThan(
-        before.body.lines.length,
-      );
+      expect(after.body.lines.length).toBeGreaterThan(before.body.lines.length);
 
       // Consistency must hold again after reprocessing.
       const traces = await juneTracesFromDb();
@@ -481,18 +472,18 @@ describe('Billing Routes', () => {
       if (response.body.insufficient_data) {
         expect(response.body.projected_cost_brl_display).toBeNull();
       } else {
-        expect(typeof response.body.projected_cost_brl_display).toBe(
-          'string',
-        );
+        expect(typeof response.body.projected_cost_brl_display).toBe('string');
       }
 
-      expect(
-        FORBIDDEN_INTERNAL_KEYS.test(JSON.stringify(response.body)),
-      ).toBe(false);
+      expect(FORBIDDEN_INTERNAL_KEYS.test(JSON.stringify(response.body))).toBe(
+        false,
+      );
     });
 
     it('MUST return 400 for ANY query parameter (C-3 — the endpoint takes none)', async () => {
-      await request(app).get('/api/v1/billing/projection?year=2026').expect(400);
+      await request(app)
+        .get('/api/v1/billing/projection?year=2026')
+        .expect(400);
       await request(app).get('/api/v1/billing/projection?foo=1').expect(400);
     });
   });

@@ -61,9 +61,9 @@ class PoisonRowRepositoryStub implements PoisonRowRepository {
   }
 }
 
-const drain = async (
-  source: { fetchTracesPaged: (window: SyncWindow) => AsyncIterable<SourceTrace[]> },
-): Promise<SourceTrace[]> => {
+const drain = async (source: {
+  fetchTracesPaged: (window: SyncWindow) => AsyncIterable<SourceTrace[]>;
+}): Promise<SourceTrace[]> => {
   const traces: SourceTrace[] = [];
 
   for await (const page of source.fetchTracesPaged(WINDOW)) {
@@ -109,7 +109,9 @@ const clickHouseAdapter: AdapterUnderTest = {
           : { 'gen_ai.usage.input_tokens': String(scenario.spanUsage.input) }),
         ...(scenario.spanUsage.output === undefined
           ? {}
-          : { 'gen_ai.usage.output_tokens': String(scenario.spanUsage.output) }),
+          : {
+              'gen_ai.usage.output_tokens': String(scenario.spanUsage.output),
+            }),
       },
     };
     const results: unknown[][] = [
@@ -131,20 +133,9 @@ const clickHouseAdapter: AdapterUnderTest = {
   },
 };
 
-
 describe.each([clickHouseAdapter])(
   'Invariant-2 token salvage gate — $name',
   (adapter: AdapterUnderTest) => {
-    let warn: jest.SpyInstance;
-
-    beforeEach(() => {
-      warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    });
-
-    afterEach(() => {
-      warn.mockRestore();
-    });
-
     it('MUST refuse a trace whose corrupt counts NOTHING rebuilds — unknown usage is never stamped R$ 0,00', async () => {
       const { traces, records } = await adapter.run({
         declared: { prompt: -3, completion: 100.5 },

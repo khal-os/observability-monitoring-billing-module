@@ -13,6 +13,7 @@ import {
 } from '@observability/core/infrastructure/database/mongodb/priceVersion/poc-price-seed.js';
 import { MongoDbFilterCounterRepository } from '@observability/core/infrastructure/database/mongodb/filterCounter/mongodb-filter-counter-repository.js';
 import { MongoDbSessionSummaryRepository } from '@observability/core/infrastructure/database/mongodb/session/mongodb-session-summary-repository.js';
+import { makeLogger } from './logger-factory.js';
 
 /**
  * THE storage seam: the only place (besides this factory file) that names a
@@ -21,13 +22,24 @@ import { MongoDbSessionSummaryRepository } from '@observability/core/infrastruct
  * the wiring below — nothing else in main changes (decoupling audit,
  * decision 56).
  */
-export const makeDatabase = (): Database => ({
-  connect: () => MongoDb.connect(config),
-  disconnect: () => MongoDb.disconnect(),
-});
+export const makeDatabase = (): Database => {
+  // The singleton's logger follows the client's per-process lifecycle:
+  // wired by the entry point that owns connect/disconnect.
+  MongoDb.useLogger(makeLogger({ component: 'mongodb' }));
+
+  return {
+    connect: () => MongoDb.connect(config),
+    disconnect: () => MongoDb.disconnect(),
+  };
+};
 
 export const makeMigrationRunner = (): MigrationRunner => ({
-  run: () => runMigrations(MongoDb.getClient().db(), migrations),
+  run: () =>
+    runMigrations(
+      MongoDb.getClient().db(),
+      migrations,
+      makeLogger({ component: 'migrations' }),
+    ),
 });
 
 /**
@@ -62,5 +74,6 @@ export const makePocPriceSeeder = (): {
  * storage only through the composition root (the architecture boundary) —
  * they must not deep-import an infrastructure helper directly.
  */
-export const makeRebuildGuard = (): ((rebuild: () => Promise<void>) => Promise<void>) =>
-  guardConcurrentRebuild;
+export const makeRebuildGuard = (): ((
+  rebuild: () => Promise<void>,
+) => Promise<void>) => guardConcurrentRebuild;

@@ -1,4 +1,7 @@
-import { makeDatabase, makePocPriceSeeder } from '../factories/database-factory.js';
+import {
+  makeDatabase,
+  makePocPriceSeeder,
+} from '../factories/database-factory.js';
 
 // DEV-ONLY job (decision 74 — formerly migration 002): seeds the PoC demo
 // price table. Production price tables are maintained EXCLUSIVELY via

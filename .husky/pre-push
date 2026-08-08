@@ -1,0 +1,6 @@
+# Push gate: the checks CI would fail on, run locally first. Unit suites
+# only (no mongodb-memory-server) — integration + coverage stay on CI.
+npm run typecheck
+npm run lint
+npm run format:check
+npm run test:unit:ci

@@ -2,6 +2,7 @@ import { ReprocessPendingDbUseCase } from '@observability/core/application/useCa
 import { MongoDbPriceVersionRepository } from '@observability/core/infrastructure/database/mongodb/priceVersion/mongodb-price-version-repository.js';
 import { MongoDbTraceRepository } from '@observability/core/infrastructure/database/mongodb/trace/mongodb-trace-repository.js';
 import { MongoDbBillingPeriodRepository } from '@observability/core/infrastructure/database/mongodb/billing/mongodb-billing-period-repository.js';
+import { makeLogger } from './logger-factory.js';
 
 /**
  * The module's OWN wiring of the reprocess sweep (decisions 82/57/83):
@@ -10,9 +11,13 @@ import { MongoDbBillingPeriodRepository } from '@observability/core/infrastructu
  * in the connector's sync-factory. Same core use case, two composition
  * roots, one calculation (invariant 3).
  */
-export const makeReprocessPendingUseCase = (): ReprocessPendingDbUseCase =>
-  new ReprocessPendingDbUseCase({
+export const makeReprocessPendingUseCase = (): ReprocessPendingDbUseCase => {
+  const logger = makeLogger({ component: 'reprocess' });
+
+  return new ReprocessPendingDbUseCase({
     priceVersionRepository: new MongoDbPriceVersionRepository(),
-    traceRepository: new MongoDbTraceRepository(),
+    traceRepository: new MongoDbTraceRepository({ logger }),
     billingPeriodRepository: new MongoDbBillingPeriodRepository(),
+    logger,
   });
+};

@@ -13,9 +13,7 @@ import { TtlCache } from '../../helpers/ttl-cache.js';
  * memory lookups even on pathological cube cardinality. TTL 0 disables
  * (tests assert cube ground truth without cache interference).
  */
-export class ListTraceFilterOptionsDbUseCase
-  implements ListTraceFilterOptionsUseCase
-{
+export class ListTraceFilterOptionsDbUseCase implements ListTraceFilterOptionsUseCase {
   private readonly traceQueryRepository: TraceQueryRepository;
   private readonly cache: TtlCache<TraceFilterOptions>;
 

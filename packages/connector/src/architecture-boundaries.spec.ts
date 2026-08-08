@@ -53,7 +53,9 @@ const importsOf = (file: string): string[] => {
  */
 const resolvedPathOf = (file: string, specifier: string): string | null => {
   if (specifier.startsWith('@observability/core/')) {
-    return specifier.slice('@observability/core/'.length).replace(/\.js$/, '.ts');
+    return specifier
+      .slice('@observability/core/'.length)
+      .replace(/\.js$/, '.ts');
   }
 
   if (!specifier.startsWith('.')) return null;
@@ -162,9 +164,7 @@ describe('Architecture boundaries (@observability/connector)', () => {
     });
 
     it('application MUST NOT depend on infrastructure or main', () => {
-      expect(violations('application', ['infrastructure', 'main'])).toEqual(
-        [],
-      );
+      expect(violations('application', ['infrastructure', 'main'])).toEqual([]);
     });
 
     it('infrastructure MUST NOT depend on main (adapters implement application ports only)', () => {

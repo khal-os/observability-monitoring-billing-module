@@ -16,7 +16,10 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 
 const require = createRequire(
-  path.join(path.dirname(fileURLToPath(import.meta.url)), '../packages/module/package.json'),
+  path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '../packages/module/package.json',
+  ),
 );
 const { MongoClient } = require('mongodb');
 
@@ -28,30 +31,75 @@ const BATCH = 2_000;
 
 /* ---- 10 values per filterable dimension ---- */
 const AGENTS = [
-  'agent-atendimento', 'agent-cobranca', 'agent-suporte', 'agent-vendas',
-  'agent-onboarding', 'agent-retencao', 'agent-fiscal', 'agent-logistica',
-  'agent-rh', 'agent-juridico',
+  'agent-atendimento',
+  'agent-cobranca',
+  'agent-suporte',
+  'agent-vendas',
+  'agent-onboarding',
+  'agent-retencao',
+  'agent-fiscal',
+  'agent-logistica',
+  'agent-rh',
+  'agent-juridico',
 ];
 const DOMAINS = [
-  'varejo', 'financeiro', 'suporte', 'comercial', 'logistica',
-  'saude', 'educacao', 'industria', 'servicos', 'agro',
+  'varejo',
+  'financeiro',
+  'suporte',
+  'comercial',
+  'logistica',
+  'saude',
+  'educacao',
+  'industria',
+  'servicos',
+  'agro',
 ];
 const SUBDOMAINS = [
-  'loja-sp', 'loja-rj', 'cobranca', 'vendas', 'pos-venda',
-  'onboarding', 'faturamento', 'estoque', 'atendimento-n1', 'atendimento-n2',
+  'loja-sp',
+  'loja-rj',
+  'cobranca',
+  'vendas',
+  'pos-venda',
+  'onboarding',
+  'faturamento',
+  'estoque',
+  'atendimento-n1',
+  'atendimento-n2',
 ];
 const TYPES = [
-  'chat', 'agent', 'workflow', 'task', 'tool-run',
-  'batch', 'evaluation', 'ingestion', 'report', 'webhook',
+  'chat',
+  'agent',
+  'workflow',
+  'task',
+  'tool-run',
+  'batch',
+  'evaluation',
+  'ingestion',
+  'report',
+  'webhook',
 ];
 const CHANNELS = [
-  'whatsapp', 'web', 'api', 'telegram', 'slack',
-  'email', 'sms', 'teams', 'instagram', 'voice-sim',
+  'whatsapp',
+  'web',
+  'api',
+  'telegram',
+  'slack',
+  'email',
+  'sms',
+  'teams',
+  'instagram',
+  'voice-sim',
 ];
 const MODELS = [
-  'anthropic/claude-sonnet-5', 'anthropic/claude-haiku-4-5', 'anthropic/claude-opus-5',
-  'openai/gpt-5-mini', 'openai/gpt-5', 'google/gemini-2.5-pro',
-  'google/gemini-2.5-flash', 'meta/llama-4-70b', 'mistral/mistral-large-3',
+  'anthropic/claude-sonnet-5',
+  'anthropic/claude-haiku-4-5',
+  'anthropic/claude-opus-5',
+  'openai/gpt-5-mini',
+  'openai/gpt-5',
+  'google/gemini-2.5-pro',
+  'google/gemini-2.5-flash',
+  'meta/llama-4-70b',
+  'mistral/mistral-large-3',
   'deepseek/deepseek-v4',
 ];
 const ENVIRONMENTS = ['prod', 'staging', 'dev'];
@@ -66,12 +114,15 @@ const PRICE_TABLE = Object.fromEntries(
   MODELS.map((model, i) => {
     const inputBrlPerMillion = 3 + i * 4.5; // 3.00 .. 43.50 BRL/M
     const input = Math.round(inputBrlPerMillion * 1e8);
-    return [model, {
-      input,
-      output: input * 4,
-      cache_read: Math.round(input / 10),
-      cache_write: Math.round(input * 1.25),
-    }];
+    return [
+      model,
+      {
+        input,
+        output: input * 4,
+        cache_read: Math.round(input / 10),
+        cache_write: Math.round(input * 1.25),
+      },
+    ];
   }),
 );
 
@@ -92,17 +143,22 @@ const modelRef = (key) => {
 // in a December/2025 bill — which then blocks every close (oldest-first).
 // Default window: client-tz midnight of Jan 1 (UTC-3 → 03:00Z) up to now.
 // argv[5]/argv[6] (ISO datetimes) override it — e.g. a single busy day.
-const WINDOW_START = process.argv[5] ? Date.parse(process.argv[5]) : Date.UTC(2026, 0, 1, 3);
+const WINDOW_START = process.argv[5]
+  ? Date.parse(process.argv[5])
+  : Date.UTC(2026, 0, 1, 3);
 const WINDOW_END = process.argv[6] ? Date.parse(process.argv[6]) : Date.now();
 
 const rnd = (max) => Math.floor(Math.random() * max);
 const pick = (arr) => arr[rnd(arr.length)];
 const chance = (p) => Math.random() < p;
-const hex = (n) => Array.from({ length: n }, () => '0123456789abcdef'[rnd(16)]).join('');
+const hex = (n) =>
+  Array.from({ length: n }, () => '0123456789abcdef'[rnd(16)]).join('');
 
-const WORDS = ('cliente pedido fatura cobranca boleto estoque entrega prazo troca cupom '
-  + 'garantia suporte plano upgrade cancelamento reembolso nota fiscal endereco '
-  + 'pagamento cartao pix limite juros parcela desconto catalogo produto agenda').split(' ');
+const WORDS = (
+  'cliente pedido fatura cobranca boleto estoque entrega prazo troca cupom ' +
+  'garantia suporte plano upgrade cancelamento reembolso nota fiscal endereco ' +
+  'pagamento cartao pix limite juros parcela desconto catalogo produto agenda'
+).split(' ');
 const sentence = (min, max) => {
   const n = min + rnd(max - min + 1);
   return Array.from({ length: n }, () => pick(WORDS)).join(' ');
@@ -159,10 +215,18 @@ const buildSpans = (trace, model, tokens) => {
       durationMs,
       offsetMs,
       status: failed ? 'error' : 'ok',
-      errorMessage: failed ? `Timeout após ${durationMs} ms chamando ${type}` : null,
-      tokens: type === 'llm'
-        ? { input: tokens.input, output: tokens.output, cache_read: tokens.cache_read, cache_write: tokens.cache_write }
+      errorMessage: failed
+        ? `Timeout após ${durationMs} ms chamando ${type}`
         : null,
+      tokens:
+        type === 'llm'
+          ? {
+              input: tokens.input,
+              output: tokens.output,
+              cache_read: tokens.cache_read,
+              cache_write: tokens.cache_write,
+            }
+          : null,
       input: chance(0.7) ? sentence(4, 18) : null,
       output: chance(0.7) ? sentence(4, 24) : null,
     });
@@ -191,9 +255,14 @@ const buildTrace = (session, startedMs) => {
   // dialect or it plants unresolvable pending_price / lying R$ 0,00 docs.
   const noMeasuredUsage =
     model !== null && Object.values(tokens).every((n) => n === null);
-  const tokensTotal = Object.values(tokens).reduce((sum, n) => sum + (n ?? 0), 0);
+  const tokensTotal = Object.values(tokens).reduce(
+    (sum, n) => sum + (n ?? 0),
+    0,
+  );
   const stampedCosts =
-    pending || unclassified || noMeasuredUsage ? null : stampCosts(model, tokens);
+    pending || unclassified || noMeasuredUsage
+      ? null
+      : stampCosts(model, tokens);
   const totalCostMicrocents = stampedCosts
     ? stampedCosts.reduce((sum, line) => sum + line.costMicrocents, 0)
     : null;
@@ -202,17 +271,21 @@ const buildTrace = (session, startedMs) => {
     traceId: `lt-${seq.toString(36)}-${hex(12)}`,
     sessionId: session.sessionId,
     userId: chance(0.9) ? session.userId : null,
-    agent: unclassified ? null : {
-      id: session.agentId,
-      version: session.agentVersion,
-      instance: `${session.agentId}-${session.instanceSuffix}`,
-    },
+    agent: unclassified
+      ? null
+      : {
+          id: session.agentId,
+          version: session.agentVersion,
+          instance: `${session.agentId}-${session.instanceSuffix}`,
+        },
     model: model ? modelRef(model) : null,
     type: session.type,
     channel: {
       type: session.channelType,
       version: session.channelVersion,
-      instance: chance(0.8) ? `omni-${session.channelType}-${session.instanceSuffix}` : null,
+      instance: chance(0.8)
+        ? `omni-${session.channelType}-${session.instanceSuffix}`
+        : null,
     },
     domain: session.domain,
     subdomain: session.subdomain,
@@ -230,15 +303,17 @@ const buildTrace = (session, startedMs) => {
         ? 'pending_price'
         : 'stamped',
     stampedCosts: pending || noMeasuredUsage ? null : (stampedCosts ?? []),
-    totalCostMicrocents: pending || noMeasuredUsage ? null : (totalCostMicrocents ?? 0),
+    totalCostMicrocents:
+      pending || noMeasuredUsage ? null : (totalCostMicrocents ?? 0),
     stampedAt: pending || noMeasuredUsage ? null : ingestedAt,
     pendingPrice: null, // never persisted — derived at read time
     unclassified: unclassified ? { reasons: ['missing agent metadata'] } : null,
     ingestedAt,
     input: sentence(6, 40),
-    output: status === 'error' && chance(0.5)
-      ? `Erro: ${sentence(4, 12)}`
-      : sentence(10, 60),
+    output:
+      status === 'error' && chance(0.5)
+        ? `Erro: ${sentence(4, 12)}`
+        : sentence(10, 60),
     spans: [],
     agentId: session.agentId, // temp for span naming, deleted below
   };
@@ -264,7 +339,11 @@ const buildSession = () => {
     subdomain: chance(0.85) ? SUBDOMAINS[rnd(SUBDOMAINS.length)] : null,
     environment: chance(0.95) ? ENVIRONMENTS[rnd(3)] : null,
     experiment: chance(0.15)
-      ? { name: `exp-${pick(['pricing', 'tone', 'router'])}`, variant: pick(['A', 'B', 'C']), variantVersion: chance(0.5) ? '1' : null }
+      ? {
+          name: `exp-${pick(['pricing', 'tone', 'router'])}`,
+          variant: pick(['A', 'B', 'C']),
+          variantVersion: chance(0.5) ? '1' : null,
+        }
       : null,
   };
 };
@@ -302,7 +381,9 @@ const main = async () => {
   if (batch.length) await collection.insertMany(batch, { ordered: false });
 
   const total = await collection.countDocuments();
-  console.log(`done: ${total.toLocaleString()} docs in db "${DB}" (${Math.round((Date.now() - started) / 1000)}s)`);
+  console.log(
+    `done: ${total.toLocaleString()} docs in db "${DB}" (${Math.round((Date.now() - started) / 1000)}s)`,
+  );
   await client.close();
 };
 

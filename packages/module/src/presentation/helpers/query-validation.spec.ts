@@ -11,10 +11,7 @@ import {
   parseQuery,
   yearMonthQueryShape,
 } from './query-validation.js';
-import {
-  InvalidParamError,
-  MissingParamError,
-} from '../errors/index.js';
+import { InvalidParamError, MissingParamError } from '../errors/index.js';
 import { registerPriceVersionRequestSchema } from '../controllers/prices/price-view-schemas.js';
 
 describe('isoDateParam (B-8: no server-TZ-dependent instants)', () => {
@@ -136,5 +133,4 @@ describe('yearMonthQueryShape + parseQuery (C-3: strict, house error mapping)', 
       expect(schema.parse({})).toEqual({ page: 1, page_size: 20 });
     });
   });
-
 });

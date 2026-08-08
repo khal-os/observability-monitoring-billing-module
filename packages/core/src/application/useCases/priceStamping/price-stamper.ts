@@ -1,7 +1,16 @@
-import { TOKEN_TYPES, TokenType } from '../../../domain/models/price-version-model.js';
-import { StampedTokenCost, TokenCounts } from '../../../domain/models/trace-model.js';
+import {
+  TOKEN_TYPES,
+  TokenType,
+} from '../../../domain/models/price-version-model.js';
+import {
+  StampedTokenCost,
+  TokenCounts,
+} from '../../../domain/models/trace-model.js';
 import { EffectivePrices } from '../../interfaces/price-version-repository.js';
-import { costMicrocents, sumMicrocents } from '../../../common/helpers/money/money.js';
+import {
+  costMicrocents,
+  sumMicrocents,
+} from '../../../common/helpers/money/money.js';
 
 export type StampOutcome =
   | {
@@ -68,25 +77,27 @@ export const stampTokens = (
 
   // flatMap so the missing-price case needs no non-null assertion — it is
   // unreachable here (any missing price returned pending_price above).
-  const stampedCosts: StampedTokenCost[] = usedTokenTypes.flatMap((tokenType) => {
-    const tokenCount = tokens[tokenType] as number;
-    const price = effectivePrices[tokenType];
+  const stampedCosts: StampedTokenCost[] = usedTokenTypes.flatMap(
+    (tokenType) => {
+      const tokenCount = tokens[tokenType] as number;
+      const price = effectivePrices[tokenType];
 
-    if (!price) return [];
+      if (!price) return [];
 
-    return [
-      {
-        tokenType,
-        tokens: tokenCount,
-        appliedPriceMicrocentsPerMillion: price.priceMicrocentsPerMillion,
-        appliedPriceEffectiveFrom: price.effectiveFrom,
-        costMicrocents: costMicrocents(
-          tokenCount,
-          price.priceMicrocentsPerMillion,
-        ),
-      },
-    ];
-  });
+      return [
+        {
+          tokenType,
+          tokens: tokenCount,
+          appliedPriceMicrocentsPerMillion: price.priceMicrocentsPerMillion,
+          appliedPriceEffectiveFrom: price.effectiveFrom,
+          costMicrocents: costMicrocents(
+            tokenCount,
+            price.priceMicrocentsPerMillion,
+          ),
+        },
+      ];
+    },
+  );
 
   return {
     pricingStatus: 'stamped',

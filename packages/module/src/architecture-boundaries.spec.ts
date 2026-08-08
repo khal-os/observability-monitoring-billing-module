@@ -55,7 +55,9 @@ const importsOf = (file: string): string[] => {
  */
 const resolvedPathOf = (file: string, specifier: string): string | null => {
   if (specifier.startsWith('@observability/core/')) {
-    return specifier.slice('@observability/core/'.length).replace(/\.js$/, '.ts');
+    return specifier
+      .slice('@observability/core/'.length)
+      .replace(/\.js$/, '.ts');
   }
 
   if (!specifier.startsWith('.')) return null;
@@ -209,7 +211,9 @@ describe('Architecture boundaries (@observability/module)', () => {
       const storageImports = importsOf(barrel).filter((specifier) => {
         const resolved = resolvedPathOf(barrel, specifier);
 
-        return resolved !== null && resolved.startsWith('infrastructure/database');
+        return (
+          resolved !== null && resolved.startsWith('infrastructure/database')
+        );
       });
 
       expect(storageImports).toEqual([]);

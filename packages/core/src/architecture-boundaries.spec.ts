@@ -72,7 +72,9 @@ describe('Architecture boundaries (@observability/core)', () => {
   it('MUST NOT import any workspace package — core is the bottom of the graph', () => {
     const offenders = allFiles
       .filter((file) =>
-        importsOf(file).some((specifier) => specifier.startsWith('@observability/')),
+        importsOf(file).some((specifier) =>
+          specifier.startsWith('@observability/'),
+        ),
       )
       .map(posixRelative);
 
@@ -98,9 +100,9 @@ describe('Architecture boundaries (@observability/core)', () => {
         );
 
     it('domain MUST NOT depend on any outer layer', () => {
-      expect(
-        violations('domain', ['application', 'infrastructure']),
-      ).toEqual([]);
+      expect(violations('domain', ['application', 'infrastructure'])).toEqual(
+        [],
+      );
     });
 
     it('application MUST NOT depend on infrastructure', () => {

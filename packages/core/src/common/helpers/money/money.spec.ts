@@ -75,9 +75,9 @@ describe('Money helpers', () => {
       expect(sumMicrocents([])).toBe(0);
       expect(sumMicrocents([1, 2, 3])).toBe(6);
       expect(() => sumMicrocents([1.5])).toThrow();
-      expect(() =>
-        sumMicrocents([Number.MAX_SAFE_INTEGER, 1]),
-      ).toThrow(/MAX_SAFE_INTEGER/);
+      expect(() => sumMicrocents([Number.MAX_SAFE_INTEGER, 1])).toThrow(
+        /MAX_SAFE_INTEGER/,
+      );
     });
   });
 

@@ -27,10 +27,16 @@ const makeSession = (
 
 class ListSessionsStub implements ListSessionsUseCase {
   async list(
-    filters: SessionListFilters,
-    pagination: Pagination,
+    _filters: SessionListFilters,
+    _pagination: Pagination,
   ): Promise<Paginated<SessionSummaryModel>> {
-    return { items: [makeSession()], page: 1, pageSize: 20, total: 1, totalCapped: false };
+    return {
+      items: [makeSession()],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+      totalCapped: false,
+    };
   }
 }
 
@@ -132,9 +138,7 @@ describe('ListSessionsController', () => {
     const { sut, listSessionsStub } = makeSut();
 
     jest.spyOn(listSessionsStub, 'list').mockResolvedValueOnce({
-      items: [
-        makeSession({ pendingPriceCount: 2, stampedCostMicrocents: 0 }),
-      ],
+      items: [makeSession({ pendingPriceCount: 2, stampedCostMicrocents: 0 })],
       page: 1,
       pageSize: 20,
       total: 1,

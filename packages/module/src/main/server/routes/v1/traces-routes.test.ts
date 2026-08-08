@@ -317,9 +317,7 @@ describe('Traces Routes', () => {
 
       expect(JSON.stringify(list.body)).not.toMatch(FORBIDDEN_INTERNAL_KEYS);
       expect(JSON.stringify(detail.body)).not.toMatch(FORBIDDEN_INTERNAL_KEYS);
-      expect(JSON.stringify(filters.body)).not.toMatch(
-        FORBIDDEN_INTERNAL_KEYS,
-      );
+      expect(JSON.stringify(filters.body)).not.toMatch(FORBIDDEN_INTERNAL_KEYS);
     });
   });
 });

@@ -22,6 +22,8 @@ import {
   mapSummaryTrace,
 } from './clickhouse-row-mapper.js';
 import { tokenSalvageIsSafe } from '../../token-salvage-gate.js';
+import { Logger } from '@observability/core/common/logging/logger.js';
+import { nullLogger } from '@observability/core/common/logging/null-logger.js';
 import {
   DEFAULT_QUIET_PERIOD_MS,
   clampWindowToQuietPeriod,
@@ -122,6 +124,7 @@ export class ClickHouseLangWatchClient
   private readonly quietPeriodMs: number;
   private readonly queryFn: QueryFn;
   private readonly poisonRowRepository?: PoisonRowRepository;
+  private readonly logger: Logger;
 
   constructor(args: {
     url: string;
@@ -136,11 +139,13 @@ export class ClickHouseLangWatchClient
     poisonRowRepository?: PoisonRowRepository;
     /** Test seam, like the HTTP client's fetchFn. */
     queryFn?: QueryFn;
+    logger?: Logger;
   }) {
     this.tenantId = args.tenantId;
     this.quietPeriodMs = args.quietPeriodMs ?? DEFAULT_QUIET_PERIOD_MS;
     this.poisonRowRepository = args.poisonRowRepository;
     this.queryFn = args.queryFn ?? makeClickHouseQueryFn(args);
+    this.logger = args.logger ?? nullLogger;
   }
 
   /**
@@ -246,18 +251,19 @@ export class ClickHouseLangWatchClient
     );
 
     if (!safe) {
-      console.warn(
+      this.logger.warn(
         'Sync: window entirely inside the quiet period — nothing fetched ' +
-          '(decision 61: in-flight traces would freeze partial stamps).',
+          '(decision 61: in-flight traces would freeze partial stamps)',
       );
 
       return;
     }
 
     if (safe.clamped) {
-      console.warn(
-        `Sync: window upper bound clamped to ${safe.window.to.toISOString()} ` +
-          '(quiet period, decision 61) — re-run later to cover the rest.',
+      this.logger.warn(
+        'Sync: window upper bound clamped (quiet period, decision 61) — ' +
+          're-run later to cover the rest',
+        { clampedTo: safe.window.to.toISOString() },
       );
     }
 
@@ -269,10 +275,11 @@ export class ClickHouseLangWatchClient
     // more (the deferred rows stay in the source).
     const updatedBefore = new Date(now.getTime() - this.quietPeriodMs);
 
-    console.warn(
-      `Sync: rows still updating after ${updatedBefore.toISOString()} are ` +
-        'deferred (quiet period on the update axis, audit B-4) — re-run ' +
-        'the window later to pick up traces that were still receiving spans.',
+    this.logger.warn(
+      'Sync: rows still updating past the ceiling are deferred (quiet ' +
+        'period on the update axis, audit B-4) — re-run the window later ' +
+        'to pick up traces that were still receiving spans',
+      { updatedBefore: updatedBefore.toISOString() },
     );
 
     const window = safe.window;
@@ -332,7 +339,8 @@ export class ClickHouseLangWatchClient
       // error, never an infinite backfill.
       if (
         next.occurredAtMs < afterOccurredAtMs ||
-        (next.occurredAtMs === afterOccurredAtMs && next.traceId <= afterTraceId)
+        (next.occurredAtMs === afterOccurredAtMs &&
+          next.traceId <= afterTraceId)
       ) {
         throw new Error(
           `Sync: window cursor failed to advance (${context}) — ` +
@@ -365,11 +373,14 @@ export class ClickHouseLangWatchClient
         continue;
       }
 
-      const rowId = String((raw as { traceId?: unknown })?.traceId ?? 'unknown');
-
-      console.warn(
-        `Sync: poison summary row skipped (traceId=${rowId}): ${parsed.error}`,
+      const rowId = String(
+        (raw as { traceId?: unknown })?.traceId ?? 'unknown',
       );
+
+      this.logger.warn('Sync: poison summary row skipped', {
+        traceId: rowId,
+        err: String(parsed.error),
+      });
       await this.poisonRowRepository?.record({
         kind: 'summary',
         id: rowId,
@@ -397,9 +408,10 @@ export class ClickHouseLangWatchClient
       try {
         trace = mapSummaryTrace(row, spansByTrace.get(row.traceId) ?? []);
       } catch (error) {
-        console.warn(
-          `Sync: poison trace skipped (traceId=${row.traceId}): ${String(error)}`,
-        );
+        this.logger.warn('Sync: poison trace skipped', {
+          traceId: row.traceId,
+          err: error,
+        });
         await this.poisonRowRepository?.record({
           kind: 'summary',
           id: row.traceId,
@@ -428,6 +440,7 @@ export class ClickHouseLangWatchClient
           context,
           rawRow: raw,
           poisonRowRepository: this.poisonRowRepository,
+          logger: this.logger,
         }))
       ) {
         continue;
@@ -450,11 +463,14 @@ export class ClickHouseLangWatchClient
       const parsed = spanRowSchema.safeParse(raw);
 
       if (!parsed.success) {
-        const rowId = String((raw as { spanId?: unknown })?.spanId ?? 'unknown');
-
-        console.warn(
-          `Sync: poison span row skipped (spanId=${rowId}): ${parsed.error.message}`,
+        const rowId = String(
+          (raw as { spanId?: unknown })?.spanId ?? 'unknown',
         );
+
+        this.logger.warn('Sync: poison span row skipped', {
+          spanId: rowId,
+          err: parsed.error.message,
+        });
         await this.poisonRowRepository?.record({
           kind: 'span',
           id: rowId,

@@ -8,11 +8,12 @@ import {
 } from '../../interfaces/ingest-failure-repository.js';
 import { BillingPeriodRepository } from '@observability/core/application/interfaces/billing-period-repository.js';
 import { SourceTrace } from '../../interfaces/trace-source-client.js';
-import { BillingPeriodModel } from '@observability/core/domain/models/billing-period-model.js';
 import { modelKey } from '@observability/core/domain/models/model-ref.js';
 import { stampTokens } from '@observability/core/application/useCases/priceStamping/price-stamper.js';
-import { closedMonthKeys, monthKeyOf } from '@observability/core/domain/models/month-key.js';
+import { monthKeyOf } from '@observability/core/domain/models/month-key.js';
 import { clientCalendarOf } from '@observability/core/common/helpers/clock/client-clock.js';
+import { Logger } from '@observability/core/common/logging/logger.js';
+import { nullLogger } from '@observability/core/common/logging/null-logger.js';
 import { mapToTrace, sourceModelRef, sumTokens } from './trace-mapper.js';
 import {
   UnstorableTraceError,
@@ -50,6 +51,7 @@ export interface IngestDeps {
   billingPeriodRepository: BillingPeriodRepository;
   ingestFailureRepository: IngestFailureRepository;
   estimateDocumentBytes: EstimateDocumentBytes;
+  logger?: Logger;
 }
 
 export const ALL_FAILED_BREAKER_MIN_TRACES = 10;
@@ -171,6 +173,8 @@ export const ingestSourceTrace = async (
   /** Closed billing months as monthKeyOf keys — loaded once per cycle (audit C-7.3). */
   closedMonths: Set<string>,
 ): Promise<IngestOutcome> => {
+  const logger = deps.logger ?? nullLogger;
+
   // The domain carries the model as a structured ref; the price table
   // stays keyed by the canonical string, recomposed via modelKey.
   const model = sourceModelRef(trace);
@@ -251,10 +255,10 @@ export const ingestSourceTrace = async (
   // between the two writes). Recording it before the insert described a
   // store that might never have happened.
   if (guarded.truncated) {
-    console.warn(
-      `Sync: trace ${trace.traceId} content truncated at ingestion — ` +
-        `estimated ${guarded.originalBytes} bytes exceeds the document cap ` +
-        '(audit B-3/Q8); tokens and costs are unaffected.',
+    logger.warn(
+      'Sync: trace content truncated at ingestion — estimated bytes exceed ' +
+        'the document cap (audit B-3/Q8); tokens and costs are unaffected',
+      { traceId: trace.traceId, originalBytes: guarded.originalBytes },
     );
     await deps.ingestFailureRepository.recordTruncation({
       traceId: trace.traceId,
@@ -285,11 +289,14 @@ export const ingestSourceTrace = async (
     storedTokensTotal !== undefined && storedTokensTotal !== sourceTokensTotal;
 
   if (tokenDivergence) {
-    console.warn(
-      `Sync: trace ${trace.traceId} re-synced with divergent token totals — ` +
-        `source now ${sourceTokensTotal}, stored ${storedTokensTotal} ` +
-        '(audit B-4 residual, Q3: logged only; the stored stamp/counts are ' +
-        'never mutated).',
+    logger.warn(
+      'Sync: trace re-synced with divergent token totals (audit B-4 ' +
+        'residual, Q3: logged only; the stored stamp/counts are never mutated)',
+      {
+        traceId: trace.traceId,
+        sourceTokensTotal,
+        storedTokensTotal,
+      },
     );
   }
 
@@ -317,11 +324,12 @@ export const ingestSourceTrace = async (
     modelDivergence = update.modelPinnedByStamp;
 
     if (modelDivergence) {
-      console.warn(
-        `Sync: trace ${trace.traceId} re-synced with a DIFFERENT model, ` +
-          'refused — the trace is stamped and the stored model is part of ' +
-          "the stamp's meaning (audit A-5; corrections to a stamped month " +
-          'go through the audited reopen flow).',
+      logger.warn(
+        'Sync: trace re-synced with a DIFFERENT model, refused — the trace ' +
+          "is stamped and the stored model is part of the stamp's meaning " +
+          '(audit A-5; corrections to a stamped month go through the ' +
+          'audited reopen flow)',
+        { traceId: trace.traceId },
       );
     }
   }

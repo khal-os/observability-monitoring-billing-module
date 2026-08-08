@@ -7,6 +7,13 @@ import {
   toMongoDbEnvironment,
 } from '@observability/core/common/config/parse-mongo-env.js';
 import {
+  LoggingEnvironmentVariables,
+  bootstrapLoggerOptions,
+  logEnvSchemaShape,
+  toLoggingEnvironment,
+} from '@observability/core/common/config/parse-log-env.js';
+import { createLogger } from '@observability/core/common/logging/structured-logger.js';
+import {
   BillingSchedulerEnvironmentVariables,
   MongoDbEnvironmentVariables,
   ServerEnvironmentVariables,
@@ -21,9 +28,11 @@ const environmentEnum = {
 type Environment = (typeof environmentEnum)[keyof typeof environmentEnum];
 
 export interface EnvironmentVariables
-  extends ServerEnvironmentVariables,
+  extends
+    ServerEnvironmentVariables,
     MongoDbEnvironmentVariables,
-    BillingSchedulerEnvironmentVariables {
+    BillingSchedulerEnvironmentVariables,
+    LoggingEnvironmentVariables {
   Environment: Environment;
 }
 
@@ -77,7 +86,9 @@ const envSchema = z
     // Decision 130: REQUIRED — the client's business timezone (IANA name).
     // Declared, never inferred (a fallback zone is a wrong bill); validity
     // is asserted by initializeClientClock below.
-    CLIENT_TIMEZONE: z.string().min(1, 'CLIENT_TIMEZONE is required (decision 130)'),
+    CLIENT_TIMEZONE: z
+      .string()
+      .min(1, 'CLIENT_TIMEZONE is required (decision 130)'),
     // Canonical khal consumer surface (ADR-97; the ONLY spelling — the
     // pre-discovery AUTH_SYSTEM_* names were removed pre-prod, decision
     // 133): discovery + tenant resolve the Auth System URL at runtime; the
@@ -102,6 +113,8 @@ const envSchema = z
     ),
     // audit C-6: the Mongo env is core's — one reader for both images.
     ...mongoEnvSchemaShape,
+    // Same rule for the logging knobs: one reader, both images.
+    ...logEnvSchemaShape,
   })
   .transform((env) => ({
     ...env,
@@ -127,10 +140,30 @@ dotenv.config({
 
 const unsafeEnv = process.env as Record<string, string>;
 
+const environmentContext = {
+  isDevelopment: narrowedEnv === environmentEnum.DEVELOPMENT,
+  isTest: narrowedEnv === environmentEnum.TEST,
+};
+
 const parsedEnv = envSchema.safeParse(unsafeEnv);
 
 if (!parsedEnv.success) {
-  console.error('Invalid environment variables:', parsedEnv.error);
+  // The strict parse failed, so the root logger cannot exist yet — the
+  // tolerant bootstrap reader gives this one fatal line the same shape as
+  // every other log line (a shipper must not need a special case for the
+  // most important message the process ever writes).
+  const bootstrapLogging = bootstrapLoggerOptions(
+    unsafeEnv,
+    environmentContext,
+  );
+
+  createLogger({
+    level: bootstrapLogging.logLevel,
+    format: bootstrapLogging.logFormat,
+    bindings: { service: 'module' },
+  }).fatal('Invalid environment variables — refusing to boot', {
+    issues: parsedEnv.error.issues,
+  });
   process.exit(1);
 }
 
@@ -151,8 +184,10 @@ export const environment: EnvironmentVariables = {
   corsAllowedOrigins: safeEnvironment.CORS_ALLOWED_ORIGINS,
   khalClientId: safeEnvironment.KHAL_CLIENT_ID,
   khalClientSecret: safeEnvironment.KHAL_CLIENT_SECRET,
-  billingAutoCloseDelayMinutes: safeEnvironment.BILLING_AUTO_CLOSE_DELAY_MINUTES,
+  billingAutoCloseDelayMinutes:
+    safeEnvironment.BILLING_AUTO_CLOSE_DELAY_MINUTES,
   billingAutoCloseCheckIntervalSeconds:
     safeEnvironment.BILLING_AUTO_CLOSE_CHECK_INTERVAL_SECONDS,
   ...toMongoDbEnvironment(safeEnvironment),
+  ...toLoggingEnvironment(safeEnvironment, environmentContext),
 };

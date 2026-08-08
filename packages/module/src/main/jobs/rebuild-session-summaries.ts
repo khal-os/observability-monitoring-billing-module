@@ -4,7 +4,6 @@ import {
   makeSessionSummaryRebuild,
 } from '../factories/database-factory.js';
 
-
 /**
  * Recomputes the sessions read-model (session_summaries, decision 80)
  * from the traces collection. Run once after restoring/backfilling a

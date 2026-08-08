@@ -31,7 +31,7 @@ const makeOptions = (): TraceFilterOptions => ({
 });
 
 class ListTraceFilterOptionsStub implements ListTraceFilterOptionsUseCase {
-  async list(filters: TraceListFilters): Promise<TraceFilterOptions> {
+  async list(_filters: TraceListFilters): Promise<TraceFilterOptions> {
     return makeOptions();
   }
 }

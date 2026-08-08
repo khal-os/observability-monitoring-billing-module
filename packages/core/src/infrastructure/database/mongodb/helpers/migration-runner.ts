@@ -1,10 +1,16 @@
 import { Collection, Db, Document } from 'mongodb';
+import { Logger } from '../../../../common/logging/logger.js';
+import { nullLogger } from '../../../../common/logging/null-logger.js';
 
 export const MIGRATIONS_COLLECTION = 'migrations';
 
 export interface Migration {
   id: string;
-  run(db: Db): Promise<void>;
+  // The logger is the runner's: a migration that has something to say
+  // (skipped collision rows, backfill counts) says it through the run's
+  // logger, never through console. Optional so tests can drive a single
+  // migration directly; the runner always passes one.
+  run(db: Db, logger?: Logger): Promise<void>;
 }
 
 /**
@@ -45,6 +51,7 @@ export const dropIndexIfExists = async (
 export const runMigrations = async (
   db: Db,
   migrations: Migration[],
+  logger: Logger = nullLogger,
 ): Promise<string[]> => {
   const collection = db.collection(MIGRATIONS_COLLECTION);
 
@@ -66,7 +73,7 @@ export const runMigrations = async (
       continue;
     }
 
-    await migration.run(db);
+    await migration.run(db, logger);
     await collection.updateOne(
       { id: migration.id },
       { $set: { appliedAt: new Date() } },

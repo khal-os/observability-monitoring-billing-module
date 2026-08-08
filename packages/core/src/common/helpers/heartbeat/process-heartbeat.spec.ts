@@ -2,6 +2,7 @@ import { readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beatProcessHeartbeat } from './process-heartbeat.js';
+import { RecordingLogger } from '../../logging/logging-test-fakes.js';
 
 describe('process heartbeat (audit G-1 — progress, not process existence)', () => {
   const path = join(tmpdir(), `process-heartbeat-spec-${process.pid}`);
@@ -22,15 +23,13 @@ describe('process heartbeat (audit G-1 — progress, not process existence)', ()
   });
 
   it('MUST swallow a write failure — a dead beat is the signal, never a crash', () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const logger = new RecordingLogger();
 
     expect(() =>
-      beatProcessHeartbeat('/nonexistent-dir/heartbeat', 'Spec loop'),
+      beatProcessHeartbeat('/nonexistent-dir/heartbeat', 'Spec loop', logger),
     ).not.toThrow();
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('Spec loop: heartbeat write failed'),
-    );
-
-    warn.mockRestore();
+    expect(logger.messages('warn')).toEqual([
+      'Spec loop: heartbeat write failed',
+    ]);
   });
 });

@@ -6,9 +6,12 @@ import { config } from '../../../infrastructure/index.js';
 export const setupDocs = (app: Application): void => {
   const document = buildOpenApiDocument(config.clientName);
 
-  app.get('/api/v1/docs/openapi.json', (request: Request, response: Response) => {
-    response.json(document);
-  });
+  app.get(
+    '/api/v1/docs/openapi.json',
+    (request: Request, response: Response) => {
+      response.json(document);
+    },
+  );
 
   // Without the trailing slash the UI's relative assets resolve OUTSIDE
   // the mount (/api/v1/swagger-ui.css → 404) and the page renders broken

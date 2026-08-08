@@ -43,7 +43,9 @@ describe('migration 018-ingest-failure-indexes (audit E-4)', () => {
     const ingestUnique = await uniqueIndexOn(INGEST_FAILURES_COLLECTION);
     const poisonUnique = await uniqueIndexOn(POISON_ROWS_COLLECTION);
 
-    expect(ingestUnique.map((index) => index.key)).toEqual([{ traceId: 1, kind: 1 }]);
+    expect(ingestUnique.map((index) => index.key)).toEqual([
+      { traceId: 1, kind: 1 },
+    ]);
     expect(poisonUnique.map((index) => index.key)).toEqual([
       { kind: 1, id: 1 },
     ]);
@@ -51,7 +53,9 @@ describe('migration 018-ingest-failure-indexes (audit E-4)', () => {
 
   it('MUST be idempotent — a second run changes nothing', async () => {
     await ingestFailureIndexes.run(MongoDb.getClient().db());
-    const before = await MongoDb.getCollection(POISON_ROWS_COLLECTION).indexes();
+    const before = await MongoDb.getCollection(
+      POISON_ROWS_COLLECTION,
+    ).indexes();
 
     await ingestFailureIndexes.run(MongoDb.getClient().db());
     const after = await MongoDb.getCollection(POISON_ROWS_COLLECTION).indexes();

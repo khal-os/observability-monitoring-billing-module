@@ -1,4 +1,6 @@
 import { beatProcessHeartbeat } from '@observability/core/common/helpers/heartbeat/process-heartbeat.js';
+import { Logger } from '@observability/core/common/logging/logger.js';
+import { nullLogger } from '@observability/core/common/logging/null-logger.js';
 
 /**
  * Liveness that means PROGRESS, not process existence (audit G-1). The old
@@ -19,6 +21,7 @@ export const WORKER_HEARTBEAT_PATH = '/tmp/trace-ingestion-heartbeat';
 
 export const beatWorkerHeartbeat = (
   path: string = WORKER_HEARTBEAT_PATH,
+  logger: Logger = nullLogger,
 ): void => {
-  beatProcessHeartbeat(path, 'Trace ingestion worker');
+  beatProcessHeartbeat(path, 'Trace ingestion worker', logger);
 };

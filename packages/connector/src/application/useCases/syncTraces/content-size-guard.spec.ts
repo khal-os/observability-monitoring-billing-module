@@ -50,8 +50,7 @@ describe('truncateOversizedContent (audit B-3/Q8)', () => {
   it('MUST clip span content to markers and flag the trace when over the cap', () => {
     // First estimate (full doc) is oversized; everything after fits.
     const estimates = [MAX_TRACE_DOCUMENT_BYTES + 1, 64, 64, 512];
-    const estimator: EstimateDocumentBytes = () =>
-      estimates.shift() ?? 512;
+    const estimator: EstimateDocumentBytes = () => estimates.shift() ?? 512;
 
     const result = truncateOversizedContent(makeTrace(), estimator);
 

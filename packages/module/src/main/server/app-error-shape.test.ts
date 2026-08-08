@@ -118,7 +118,9 @@ describe('App error shape', () => {
           .filter((method) => method.length > 0)
           .sort();
 
-      const notAllowed = await request(app).delete('/api/v1/traces').expect(405);
+      const notAllowed = await request(app)
+        .delete('/api/v1/traces')
+        .expect(405);
       const options = await request(app).options('/api/v1/traces').expect(200);
 
       expect(methodSet(notAllowed.headers.allow)).toEqual(['GET', 'HEAD']);

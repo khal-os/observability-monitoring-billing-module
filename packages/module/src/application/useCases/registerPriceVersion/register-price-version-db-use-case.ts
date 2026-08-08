@@ -22,9 +22,7 @@ import {
 /** audit B-5: one page's worth of immediate stamping per HTTP registration. */
 const HTTP_REPROCESS_CAP = 1_000;
 
-export class RegisterPriceVersionDbUseCase
-  implements RegisterPriceVersionUseCase
-{
+export class RegisterPriceVersionDbUseCase implements RegisterPriceVersionUseCase {
   private readonly priceVersionRepository: PriceVersionRepository;
   private readonly reprocessPending: ReprocessPendingUseCase;
 

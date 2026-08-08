@@ -66,7 +66,10 @@ export interface BillingSnapshotRepository {
   ): Promise<'closed' | 'conflict'>;
 
   /** The CURRENT version's snapshot for the month (highest version), or null. */
-  findCurrent(year: number, month: number): Promise<BillingSnapshotModel | null>;
+  findCurrent(
+    year: number,
+    month: number,
+  ): Promise<BillingSnapshotModel | null>;
 
   /** A specific version (US5: reopened months show every version). */
   findVersion(

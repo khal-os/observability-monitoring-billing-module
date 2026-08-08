@@ -34,7 +34,10 @@ describe('runMigrations()', () => {
 
   it('MUST apply migrations once, in order, and record them', async () => {
     const log: string[] = [];
-    const migrations = [makeMigration('001-a', log), makeMigration('002-b', log)];
+    const migrations = [
+      makeMigration('001-a', log),
+      makeMigration('002-b', log),
+    ];
     const db = MongoDb.getClient().db();
 
     const applied = await runMigrations(db, migrations);
@@ -95,7 +98,10 @@ describe('runMigrations()', () => {
 
   it('concurrent runs MUST NOT crash and MUST leave exactly one record per migration', async () => {
     const log: string[] = [];
-    const migrations = [makeMigration('001-a', log), makeMigration('002-b', log)];
+    const migrations = [
+      makeMigration('001-a', log),
+      makeMigration('002-b', log),
+    ];
     const db = MongoDb.getClient().db();
 
     await expect(

@@ -9,7 +9,7 @@ import { buildSuccess } from '../../presentation/helpers/http-helper.js';
 import { ServerError } from '../../presentation/errors/index.js';
 
 class ControllerStub implements Controller {
-  async handle(httpRequest: HttpRequest): Promise<HttpResponse> {
+  async handle(_httpRequest: HttpRequest): Promise<HttpResponse> {
     return buildSuccess({ ok: true });
   }
 }

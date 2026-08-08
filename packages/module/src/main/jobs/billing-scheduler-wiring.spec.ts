@@ -19,13 +19,17 @@ describe('billing scheduler wiring (decision 131 — one close, two honest doors
     expect(scheduler).toContain('makeCloseDueBillingPeriodsUseCase(');
     // \s escapes keep this file's own source free of an import-shaped
     // "from '…'" sequence the architecture scanner would flag.
-    expect(scheduler).not.toMatch(new RegExp(String.raw`new MongoDb|from\s+'mongodb'`));
+    expect(scheduler).not.toMatch(
+      new RegExp(String.raw`new MongoDb|from\s+'mongodb'`),
+    );
   });
 
   it("the factory MUST compose the scheduler's close with trigger 'scheduled' exactly once", () => {
     const factory = source('main/factories/billing-factory.ts');
 
-    const scheduled = factory.match(/makeCloseBillingPeriodUseCase\('scheduled'\)/g);
+    const scheduled = factory.match(
+      /makeCloseBillingPeriodUseCase\('scheduled'\)/g,
+    );
 
     expect(scheduled).toHaveLength(1);
   });

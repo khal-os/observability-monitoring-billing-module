@@ -3,6 +3,7 @@ import {
   makeCloseDueBillingPeriodsUseCase,
 } from '../factories/billing-factory.js';
 import { makeDatabase } from '../factories/database-factory.js';
+import { makeLogger } from '../factories/logger-factory.js';
 import { beatSchedulerHeartbeat } from './billing-scheduler-heartbeat.js';
 import { formatCloseSuccess } from './helpers/format-close-result.js';
 import { clientTimezone } from '@observability/core/common/helpers/clock/client-clock.js';
@@ -26,11 +27,18 @@ import { clientTimezone } from '@observability/core/common/helpers/clock/client-
  * even a SIGKILL mid-close leaves nothing readable; the next wake retries
  * cleanly).
  */
+const logger = makeLogger({ component: 'billing-close-scheduler' });
+
 let stopping = false;
 let wake: (() => void) | undefined;
 
 const requestStop = (signal: string): void => {
-  console.log(`Billing close scheduler: ${signal} received — finishing current cycle.`);
+  logger.info(
+    'Billing close scheduler: stop requested — finishing current cycle',
+    {
+      signal,
+    },
+  );
   stopping = true;
   wake?.();
 };
@@ -68,11 +76,11 @@ const STEADY_STATE_LOG_INTERVAL_MS = 3_600_000;
 const runScheduler = async (): Promise<void> => {
   // audit F-4: the resolved knobs in the first lines of the log — a
   // misconfigured knob must be visible without reading compose.
-  console.log(
-    `Billing close scheduler: started (fecha ${billingCloseSchedulerSettings.delayMs / 60_000}min ` +
-      `após a meia-noite do cliente, verificação a cada ` +
-      `${billingCloseSchedulerSettings.checkIntervalMs / 1000}s, fuso ${clientTimezone()}).`,
-  );
+  logger.info('Billing close scheduler: started', {
+    delayMinutes: billingCloseSchedulerSettings.delayMs / 60_000,
+    checkIntervalSeconds: billingCloseSchedulerSettings.checkIntervalMs / 1000,
+    timezone: clientTimezone(),
+  });
 
   const runner = makeCloseDueBillingPeriodsUseCase();
 
@@ -85,7 +93,7 @@ const runScheduler = async (): Promise<void> => {
       key !== lastSteadyState ||
       Date.now() - lastSteadyStateLogAt >= STEADY_STATE_LOG_INTERVAL_MS
     ) {
-      console.log(line);
+      logger.info(line);
       lastSteadyState = key;
       lastSteadyStateLogAt = Date.now();
     }
@@ -101,18 +109,19 @@ const runScheduler = async (): Promise<void> => {
       // cycle beats — a blocked close is a completed decision and beats
       // too; error paths fall through without beating, so a hung Mongo
       // socket ages the heartbeat and the container turns unhealthy.
-      beatSchedulerHeartbeat();
+      beatSchedulerHeartbeat(undefined, logger);
 
       for (const closed of report.closed) {
         for (const line of formatCloseSuccess(closed)) {
-          console.log(line);
+          logger.info(line);
         }
       }
 
       for (const raced of report.racedAlreadyClosed) {
-        console.log(
-          `Billing close scheduler: mês ${raced.year}-${String(raced.month).padStart(2, '0')} ` +
-            'já fechado por outra porta (runbook concorrente) — nada a fazer.',
+        logger.info(
+          'Billing close scheduler: mês já fechado por outra porta ' +
+            '(runbook concorrente) — nada a fazer',
+          { year: raced.year, month: raced.month },
         );
       }
 
@@ -121,10 +130,9 @@ const runScheduler = async (): Promise<void> => {
         // re-attempts and re-lists what is missing, and the moment the
         // price lands (its registration re-stamps pending traces) the
         // next cycle closes the month with no second manual step.
-        console.error(
-          `✖ ${report.blocked.message} Nova tentativa em ` +
-            `${billingCloseSchedulerSettings.checkIntervalMs / 1000}s.`,
-        );
+        logger.error(`✖ ${report.blocked.message}`, {
+          retryInSeconds: billingCloseSchedulerSettings.checkIntervalMs / 1000,
+        });
       } else if (report.reopenedHold) {
         const { year, month } = report.reopenedHold;
 
@@ -134,11 +142,16 @@ const runScheduler = async (): Promise<void> => {
             'REABERTO — fechamento automático suspenso (a correção é de quem reabriu); ' +
             'feche via make billing-close quando terminar.',
         );
-      } else if (report.closed.length === 0 && report.racedAlreadyClosed.length === 0) {
+      } else if (
+        report.closed.length === 0 &&
+        report.racedAlreadyClosed.length === 0
+      ) {
         const candidate = report.nextCandidate;
 
         logSteadyState(
-          candidate ? `waiting:${candidate.year}-${candidate.month}` : 'waiting:empty',
+          candidate
+            ? `waiting:${candidate.year}-${candidate.month}`
+            : 'waiting:empty',
           candidate
             ? `Billing close scheduler: nada a fechar — próximo candidato ` +
                 `${candidate.year}-${String(candidate.month).padStart(2, '0')}, ` +
@@ -154,10 +167,10 @@ const runScheduler = async (): Promise<void> => {
 
       backoffMs = TRANSIENT_BACKOFF_BASE_MS; // healthy cycle → reset
     } catch (error) {
-      console.error(
-        `Billing close scheduler: cycle failed (retrying in ${backoffMs / 1000}s): ` +
-          `${String(error)}`,
-      );
+      logger.error('Billing close scheduler: cycle failed', {
+        retryInSeconds: backoffMs / 1000,
+        err: error,
+      });
       cycleFailed = true;
     }
 
@@ -172,7 +185,7 @@ const runScheduler = async (): Promise<void> => {
     }
   }
 
-  console.log('Billing close scheduler: stopped cleanly.');
+  logger.info('Billing close scheduler: stopped cleanly');
 };
 
 const database = makeDatabase();

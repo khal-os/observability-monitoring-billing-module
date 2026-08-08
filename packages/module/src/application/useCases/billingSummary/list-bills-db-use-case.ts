@@ -15,6 +15,8 @@ import {
   monthWindow,
   resolvePeriodStatus,
 } from '@observability/core/domain/models/billing-period-model.js';
+import { Logger } from '@observability/core/common/logging/logger.js';
+import { nullLogger } from '@observability/core/common/logging/null-logger.js';
 
 /**
  * The months list (T7 feed for US6/US7's selector): every OPEN month with
@@ -32,17 +34,20 @@ export class ListBillsDbUseCase implements ListBillsUseCase {
   private readonly billingPeriodRepository: BillingPeriodRepository;
   private readonly billingSnapshotRepository: BillingSnapshotRepository;
   private readonly now: () => Date;
+  private readonly logger: Logger;
 
   constructor(args: {
     billingQueryRepository: BillingQueryRepository;
     billingPeriodRepository: BillingPeriodRepository;
     billingSnapshotRepository: BillingSnapshotRepository;
     now?: () => Date;
+    logger?: Logger;
   }) {
     this.billingQueryRepository = args.billingQueryRepository;
     this.billingPeriodRepository = args.billingPeriodRepository;
     this.billingSnapshotRepository = args.billingSnapshotRepository;
     this.now = args.now ?? (() => new Date());
+    this.logger = args.logger ?? nullLogger;
   }
 
   async list(): Promise<BillListItem[]> {
@@ -85,10 +90,10 @@ export class ListBillsDbUseCase implements ListBillsUseCase {
     );
 
     for (const row of futureRows) {
-      console.warn(
-        `Bills: mês ${row.year}-${String(row.month).padStart(2, '0')} tem ` +
-          'traces datados no FUTURO — fora da lista de faturas até o mês ' +
-          'chegar (anomalia de relógio da fonte? audit B-1).',
+      this.logger.warn(
+        'Bills: mês tem traces datados no FUTURO — fora da lista de ' +
+          'faturas até o mês chegar (anomalia de relógio da fonte? audit B-1)',
+        { year: row.year, month: row.month },
       );
     }
 

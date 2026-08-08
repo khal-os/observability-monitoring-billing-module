@@ -34,7 +34,9 @@ const period = parseRunbookYearMonth(values.year, values.month);
 
 if (!period) {
   console.error('Usage: npm run billing:close -- --year <YYYY> --month <1-12>');
-  console.error(`--year "${values.year}" --month "${values.month}": ${RUNBOOK_YEAR_MONTH_HINT}`);
+  console.error(
+    `--year "${values.year}" --month "${values.month}": ${RUNBOOK_YEAR_MONTH_HINT}`,
+  );
   process.exit(1);
 }
 

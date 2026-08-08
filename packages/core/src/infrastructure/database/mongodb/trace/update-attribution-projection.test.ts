@@ -46,14 +46,16 @@ describe('updateAttribution projection + no-op guard (audit F-2)', () => {
 
   it('MUST project both reads (no transcript/spans) and issue ZERO updates when attribution is unchanged', async () => {
     const repository = new MongoDbTraceRepository();
-    await repository.insertIfAbsent(
-      makeContractTrace({ traceId: 'f2-trace' }),
-    );
+    await repository.insertIfAbsent(makeContractTrace({ traceId: 'f2-trace' }));
     started.length = 0;
 
     // Re-sync with the SAME attribution the trace already carries.
     await repository.updateAttribution('f2-trace', {
-      agent: { id: 'agent-atendimento', version: '1.4.2', instance: 'agent-atendimento-7d9f4b-k2xp8' },
+      agent: {
+        id: 'agent-atendimento',
+        version: '1.4.2',
+        instance: 'agent-atendimento-7d9f4b-k2xp8',
+      },
       domain: 'varejo',
     });
 

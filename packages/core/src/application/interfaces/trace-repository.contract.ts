@@ -56,10 +56,18 @@ export const makeContractTrace = (
   return {
     traceId,
     sessionId: 'sess-001',
-    agent: { id: 'agent-atendimento', version: '1.4.2', instance: 'agent-atendimento-7d9f4b-k2xp8' },
+    agent: {
+      id: 'agent-atendimento',
+      version: '1.4.2',
+      instance: 'agent-atendimento-7d9f4b-k2xp8',
+    },
     model: { id: 'gpt-5-mini', provider: 'openai' },
     type: 'chat',
-    channel: { type: 'whatsapp', version: '3.2.0', instance: 'omni-wa-6b4c9f-r3zs5' },
+    channel: {
+      type: 'whatsapp',
+      version: '3.2.0',
+      instance: 'omni-wa-6b4c9f-r3zs5',
+    },
     domain: 'varejo',
     startedAt: new Date('2026-06-05T14:00:00.000Z'),
     finishedAt: new Date('2026-06-05T14:00:04.000Z'),
@@ -118,9 +126,8 @@ export const runTraceRepositoryContract = (
 
     describe('insertIfAbsent()', () => {
       it('MUST persist the SELF-CONTAINED trace on first ingestion', async () => {
-        const result = await harness.repository.insertIfAbsent(
-          makeContractTrace(),
-        );
+        const result =
+          await harness.repository.insertIfAbsent(makeContractTrace());
 
         expect(result).toBe('inserted');
 
@@ -128,9 +135,9 @@ export const runTraceRepositoryContract = (
 
         expect(stored?.['input']).toBe('entrada');
         expect(stored?.['spans']).toHaveLength(1);
-        expect(
-          (stored?.['spans'] as { spanId: string }[])[0]?.spanId,
-        ).toBe('span-trace-001');
+        expect((stored?.['spans'] as { spanId: string }[])[0]?.spanId).toBe(
+          'span-trace-001',
+        );
       });
 
       it('MUST skip an already-ingested trace and change NOTHING (idempotency)', async () => {
@@ -155,7 +162,10 @@ export const runTraceRepositoryContract = (
 
       it('MUST store pending_price traces with the cost OPEN — never R$ 0 (invariant 2)', async () => {
         await harness.repository.insertIfAbsent(
-          makePending({ traceId: 'trace-pending', model: { id: 'llama-4-scout', provider: 'meta' } }),
+          makePending({
+            traceId: 'trace-pending',
+            model: { id: 'llama-4-scout', provider: 'meta' },
+          }),
         );
 
         const stored = await harness.readTrace('trace-pending');
@@ -197,13 +207,10 @@ export const runTraceRepositoryContract = (
         // its prices were resolved for — the drift would be undetectable.
         await harness.repository.insertIfAbsent(makeContractTrace());
 
-        const update = await harness.repository.updateAttribution(
-          'trace-001',
-          {
-            agent: { id: 'agent-corrigido' },
-            model: { id: 'claude-sonnet-5', provider: 'anthropic' },
-          },
-        );
+        const update = await harness.repository.updateAttribution('trace-001', {
+          agent: { id: 'agent-corrigido' },
+          model: { id: 'claude-sonnet-5', provider: 'anthropic' },
+        });
 
         expect(update.modelPinnedByStamp).toBe(true);
 
@@ -211,7 +218,10 @@ export const runTraceRepositoryContract = (
 
         // The model the prices were resolved for survives; the mutable
         // half of the refresh (invariant 7) still lands.
-        expect(stored?.['model']).toEqual({ id: 'gpt-5-mini', provider: 'openai' });
+        expect(stored?.['model']).toEqual({
+          id: 'gpt-5-mini',
+          provider: 'openai',
+        });
         expect((stored?.['agent'] as AgentRecord)?.id).toBe('agent-corrigido');
         expect(stored?.['totalCostMicrocents']).toBe(330_000);
       });
@@ -230,7 +240,10 @@ export const runTraceRepositoryContract = (
 
         const stored = await harness.readTrace('trace-pending-model');
 
-        expect(stored?.['model']).toEqual({ id: 'gpt-5-mini', provider: 'openai' });
+        expect(stored?.['model']).toEqual({
+          id: 'gpt-5-mini',
+          provider: 'openai',
+        });
       });
 
       it('MUST clear the unclassified flag once attribution is complete', async () => {
@@ -273,7 +286,9 @@ export const runTraceRepositoryContract = (
         expect(agent?.id).toBe('agent-novo');
         expect(agent?.version ?? null).toBeNull();
         expect(agent?.instance ?? null).toBeNull();
-        expect(stored?.['unclassified']).toEqual({ reasons: ['missing model'] });
+        expect(stored?.['unclassified']).toEqual({
+          reasons: ['missing model'],
+        });
       });
 
       it('MUST NOT revert a runbook correction when the re-synced payload still CARRIES the stale value (decision 79)', async () => {
@@ -336,7 +351,10 @@ export const runTraceRepositoryContract = (
 
         const stored = await harness.readTrace('trace-001');
 
-        expect(stored?.['model']).toEqual({ id: 'gpt-5-mini', provider: 'openai' });
+        expect(stored?.['model']).toEqual({
+          id: 'gpt-5-mini',
+          provider: 'openai',
+        });
         expect(stored?.['unclassified'] ?? null).toBeNull();
         expect(stored?.['pricingStatus']).toBe('pending_price');
       });

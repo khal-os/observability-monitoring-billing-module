@@ -53,7 +53,10 @@ describe('runbook date wiring (decision 123, price door)', () => {
   });
 
   it('MUST be the border insert-price-version.ts actually uses', () => {
-    const job = readFileSync(join(__dirname, 'insert-price-version.ts'), 'utf-8');
+    const job = readFileSync(
+      join(__dirname, 'insert-price-version.ts'),
+      'utf-8',
+    );
 
     expect(job).toContain(
       "from '@observability/core/common/helpers/parse-runbook-date.js'",

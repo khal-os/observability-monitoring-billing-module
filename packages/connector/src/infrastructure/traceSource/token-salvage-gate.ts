@@ -6,6 +6,8 @@ import {
   SourceTrace,
   TokenCounts,
 } from '../../application/interfaces/trace-source-client.js';
+import { Logger } from '@observability/core/common/logging/logger.js';
+import { nullLogger } from '@observability/core/common/logging/null-logger.js';
 
 /**
  * A token count the SOURCE declared and the boundary REJECTED (negative,
@@ -74,8 +76,10 @@ export const tokenSalvageIsSafe = async (args: {
   context: string;
   rawRow: unknown;
   poisonRowRepository?: PoisonRowRepository;
+  logger?: Logger;
 }): Promise<boolean> => {
   const { trace, corrupt, kind, context, rawRow } = args;
+  const logger = args.logger ?? nullLogger;
   const label = ROW_LABEL[kind];
   const corruptFields = corrupt.map((count) => count.field).join(', ');
   const unreconstructed = unreconstructedTokenCounts(trace, corrupt);
@@ -87,9 +91,9 @@ export const tokenSalvageIsSafe = async (args: {
       'the real usage is unknown, so the trace is NOT salvaged: ingesting ' +
       'it would stamp that usage at R$ 0,00 immutably (invariant 2).';
 
-    console.warn(
-      `Sync: poison ${label} skipped (traceId=${trace.traceId}): ${error}`,
-    );
+    logger.warn(`Sync: poison ${label} skipped: ${error}`, {
+      traceId: trace.traceId,
+    });
     await args.poisonRowRepository?.record({
       kind,
       id: trace.traceId,
@@ -107,7 +111,7 @@ export const tokenSalvageIsSafe = async (args: {
     'span-level usage sums; the trace proceeds with content preserved ' +
     '(audit C-6.2).';
 
-  console.warn(`Sync: ${label} salvaged (traceId=${trace.traceId}): ${note}`);
+  logger.warn(`Sync: ${label} salvaged: ${note}`, { traceId: trace.traceId });
   await args.poisonRowRepository?.record({
     kind: `${kind}_salvaged`,
     id: trace.traceId,

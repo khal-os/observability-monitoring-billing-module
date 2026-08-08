@@ -16,6 +16,9 @@ import { MongoDbBillingQueryRepository } from '@observability/core/infrastructur
 import { MongoDbBillingPeriodRepository } from '@observability/core/infrastructure/database/mongodb/billing/mongodb-billing-period-repository.js';
 import { MongoDbBillingSnapshotRepository } from '@observability/core/infrastructure/database/mongodb/billing/mongodb-billing-snapshot-repository.js';
 import { MongoDbTraceRepository } from '@observability/core/infrastructure/database/mongodb/trace/mongodb-trace-repository.js';
+import { makeLogger } from './logger-factory.js';
+
+const billingLogger = makeLogger({ component: 'billing' });
 
 const makeGetBillingSummaryUseCase = (): GetBillingSummaryDbUseCase =>
   new GetBillingSummaryDbUseCase({
@@ -24,10 +27,11 @@ const makeGetBillingSummaryUseCase = (): GetBillingSummaryDbUseCase =>
     billingSnapshotRepository: new MongoDbBillingSnapshotRepository(),
   });
 
-export const makeGetBillingSummaryController = (): GetBillingSummaryController =>
-  new GetBillingSummaryController({
-    getBillingSummary: makeGetBillingSummaryUseCase(),
-  });
+export const makeGetBillingSummaryController =
+  (): GetBillingSummaryController =>
+    new GetBillingSummaryController({
+      getBillingSummary: makeGetBillingSummaryUseCase(),
+    });
 
 export const makeListBillsController = (): ListBillsController =>
   new ListBillsController({
@@ -35,6 +39,7 @@ export const makeListBillsController = (): ListBillsController =>
       billingQueryRepository: new MongoDbBillingQueryRepository(),
       billingPeriodRepository: new MongoDbBillingPeriodRepository(),
       billingSnapshotRepository: new MongoDbBillingSnapshotRepository(),
+      logger: billingLogger,
     }),
   });
 
@@ -47,12 +52,13 @@ export const makeGetBillingSeriesController = (): GetBillingSeriesController =>
     }),
   });
 
-export const makeGetBillingProjectionController = (): GetBillingProjectionController =>
-  new GetBillingProjectionController({
-    getBillingProjection: new GetBillingProjectionDbUseCase({
-      billingQueryRepository: new MongoDbBillingQueryRepository(),
-    }),
-  });
+export const makeGetBillingProjectionController =
+  (): GetBillingProjectionController =>
+    new GetBillingProjectionController({
+      getBillingProjection: new GetBillingProjectionDbUseCase({
+        billingQueryRepository: new MongoDbBillingQueryRepository(),
+      }),
+    });
 
 export const makeExportStatementController = (): ExportStatementController =>
   new ExportStatementController({
@@ -71,16 +77,20 @@ export const makeCloseBillingPeriodUseCase = (
   new CloseBillingPeriodDbUseCase({
     billingQueryRepository: new MongoDbBillingQueryRepository(),
     billingPeriodRepository: new MongoDbBillingPeriodRepository(),
-    billingSnapshotRepository: new MongoDbBillingSnapshotRepository(),
+    billingSnapshotRepository: new MongoDbBillingSnapshotRepository(
+      undefined,
+      billingLogger,
+    ),
     // Post-close quarantine reconciliation (audit B-1, decision 100).
-    traceRepository: new MongoDbTraceRepository(),
+    traceRepository: new MongoDbTraceRepository({ logger: billingLogger }),
     trigger,
   });
 
-export const makeReopenBillingPeriodUseCase = (): ReopenBillingPeriodDbUseCase =>
-  new ReopenBillingPeriodDbUseCase({
-    billingPeriodRepository: new MongoDbBillingPeriodRepository(),
-  });
+export const makeReopenBillingPeriodUseCase =
+  (): ReopenBillingPeriodDbUseCase =>
+    new ReopenBillingPeriodDbUseCase({
+      billingPeriodRepository: new MongoDbBillingPeriodRepository(),
+    });
 
 /**
  * Decision 131 knobs, resolved once: env override or default — the same
@@ -102,10 +112,11 @@ export const billingCloseSchedulerSettings = {
 } as const;
 
 /** The scheduler's cycle runner (decision 131) — trigger 'scheduled'. */
-export const makeCloseDueBillingPeriodsUseCase = (): CloseDueBillingPeriodsDbUseCase =>
-  new CloseDueBillingPeriodsDbUseCase({
-    billingPeriodRepository: new MongoDbBillingPeriodRepository(),
-    billingQueryRepository: new MongoDbBillingQueryRepository(),
-    closeBillingPeriod: makeCloseBillingPeriodUseCase('scheduled'),
-    delayMs: billingCloseSchedulerSettings.delayMs,
-  });
+export const makeCloseDueBillingPeriodsUseCase =
+  (): CloseDueBillingPeriodsDbUseCase =>
+    new CloseDueBillingPeriodsDbUseCase({
+      billingPeriodRepository: new MongoDbBillingPeriodRepository(),
+      billingQueryRepository: new MongoDbBillingQueryRepository(),
+      closeBillingPeriod: makeCloseBillingPeriodUseCase('scheduled'),
+      delayMs: billingCloseSchedulerSettings.delayMs,
+    });

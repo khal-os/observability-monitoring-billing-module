@@ -1,9 +1,7 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "types": [
-      "node"
-    ],
+    "types": ["node"],
     "tsBuildInfoFile": "dist/tsconfig.build.tsbuildinfo"
   },
   "references": [

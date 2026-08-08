@@ -8,9 +8,7 @@ import {
   BillingUsageRecord,
 } from '../../domain/models/billing-snapshot-model.js';
 import { BillingPeriodStateError } from '../../domain/useCases/close-billing-period-use-case.js';
-import {
-  PendingPriceSummary,
-} from '../../domain/useCases/get-billing-summary-use-case.js';
+import { PendingPriceSummary } from '../../domain/useCases/get-billing-summary-use-case.js';
 import { BillingPeriodRepository } from '../interfaces/billing-period-repository.js';
 import { BillingSnapshotRepository } from '../interfaces/billing-snapshot-repository.js';
 import {
@@ -546,9 +544,7 @@ export class StubBillingQueryRepository implements BillingQueryRepository {
         return monthWindow(year as number, month as number).start.getTime();
       });
 
-    return monthStarts.length === 0
-      ? null
-      : new Date(Math.min(...monthStarts));
+    return monthStarts.length === 0 ? null : new Date(Math.min(...monthStarts));
   }
 
   async hasTraces(monthStart: Date): Promise<boolean> {
@@ -576,7 +572,12 @@ export class QuarantineReconcilerStub {
     snapshotTraceIds: string[],
     snapshotVersion: number,
   ): Promise<{ flaggedStragglers: number; absorbed: number }> {
-    this.calls.push({ monthStart, monthEnd, snapshotTraceIds, snapshotVersion });
+    this.calls.push({
+      monthStart,
+      monthEnd,
+      snapshotTraceIds,
+      snapshotVersion,
+    });
 
     return this.result;
   }

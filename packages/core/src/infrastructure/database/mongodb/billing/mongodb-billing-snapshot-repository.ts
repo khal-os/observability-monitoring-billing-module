@@ -9,6 +9,8 @@ import { BillingSnapshotRepository } from '../../../../application/interfaces/bi
 import { MongoDb } from '../mongo-db.js';
 import { isDuplicateKeyError } from '../helpers/is-duplicate-key-error.js';
 import { applyMarkClosed } from './mongodb-billing-period-repository.js';
+import { Logger } from '../../../../common/logging/logger.js';
+import { nullLogger } from '../../../../common/logging/null-logger.js';
 
 export const BILLING_SNAPSHOTS_COLLECTION = 'billing_snapshots';
 export const BILLING_SNAPSHOT_USAGE_COLLECTION = 'billing_snapshot_usage';
@@ -81,14 +83,17 @@ class PeriodFlipConflict extends Error {
 
 export class MongoDbBillingSnapshotRepository implements BillingSnapshotRepository {
   private readonly usageWriteChunkSize: number;
+  private readonly logger: Logger;
 
   constructor(
     // Parameterized (default: the bounded constant) so the chunking logic
     // itself is testable with a tiny size — same seam as the trace
     // repository's reconcileQuarantineAfterClose chunkSize.
     usageWriteChunkSize: number = USAGE_WRITE_CHUNK_SIZE,
+    logger: Logger = nullLogger,
   ) {
     this.usageWriteChunkSize = usageWriteChunkSize;
+    this.logger = logger;
   }
 
   async insert(
@@ -343,14 +348,14 @@ export class MongoDbBillingSnapshotRepository implements BillingSnapshotReposito
    */
   private async discardStaging(stagingKey: string): Promise<void> {
     try {
-      await MongoDb.getCollection(
-        BILLING_SNAPSHOT_USAGE_COLLECTION,
-      ).deleteMany({ snapshotKey: stagingKey });
+      await MongoDb.getCollection(BILLING_SNAPSHOT_USAGE_COLLECTION).deleteMany(
+        { snapshotKey: stagingKey },
+      );
     } catch (error) {
-      console.warn(
-        `Billing snapshot staging ${stagingKey}: discard failed — nothing was ` +
-          'published and no header names these rows:',
-        error,
+      this.logger.warn(
+        'Billing snapshot staging: discard failed — nothing was published ' +
+          'and no header names these rows',
+        { stagingKey, err: error },
       );
     }
   }
@@ -381,22 +386,22 @@ export class MongoDbBillingSnapshotRepository implements BillingSnapshotReposito
     writeToken: string,
   ): Promise<void> {
     try {
-      await MongoDb.getCollection(
-        BILLING_SNAPSHOT_USAGE_COLLECTION,
-      ).deleteMany({
-        // Prefix range over the indexed snapshotKey, minus the published
-        // area (`#` 0x23 < `$` 0x24 bounds every `${key}#<token>`).
-        snapshotKey: {
-          $gte: `${key}#`,
-          $lt: `${key}$`,
-          $ne: usageStagingKey(key, writeToken),
+      await MongoDb.getCollection(BILLING_SNAPSHOT_USAGE_COLLECTION).deleteMany(
+        {
+          // Prefix range over the indexed snapshotKey, minus the published
+          // area (`#` 0x23 < `$` 0x24 bounds every `${key}#<token>`).
+          snapshotKey: {
+            $gte: `${key}#`,
+            $lt: `${key}$`,
+            $ne: usageStagingKey(key, writeToken),
+          },
         },
-      });
+      );
     } catch (error) {
-      console.warn(
-        `Billing snapshot ${key}: staging sweep failed — the close IS durable ` +
-          'and the leftover rows are unreachable (no header names them):',
-        error,
+      this.logger.warn(
+        'Billing snapshot: staging sweep failed — the close IS durable and ' +
+          'the leftover rows are unreachable (no header names them)',
+        { snapshotKey: key, err: error },
       );
     }
   }
@@ -492,7 +497,10 @@ export class MongoDbBillingSnapshotRepository implements BillingSnapshotReposito
     const documents = await MongoDb.getCollection(
       BILLING_SNAPSHOT_USAGE_COLLECTION,
     )
-      .find({ snapshotKey: publishedKey }, { projection: { _id: 0, traceId: 1 } })
+      .find(
+        { snapshotKey: publishedKey },
+        { projection: { _id: 0, traceId: 1 } },
+      )
       .toArray();
 
     return documents.map((document) => document['traceId'] as string);

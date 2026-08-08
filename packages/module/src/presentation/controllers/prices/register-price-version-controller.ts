@@ -47,9 +47,7 @@ export class RegisterPriceVersionController implements Controller {
       // Strict contract: an unknown key fails loudly on ITS name — a typoed
       // field silently ignored is how a wrong price gets registered.
       if (issue?.code === 'unrecognized_keys') {
-        return buildBadRequest(
-          new InvalidParamError(issue.keys[0] ?? 'body'),
-        );
+        return buildBadRequest(new InvalidParamError(issue.keys[0] ?? 'body'));
       }
 
       // House rule: absent field → MissingParamError; wrong shape →

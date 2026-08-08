@@ -27,9 +27,7 @@ const toOptionViews = (options: TraceFilterOption[]) =>
 export class ListTraceFilterOptionsController implements Controller {
   private readonly listTraceFilterOptions: ListTraceFilterOptionsUseCase;
 
-  constructor(args: {
-    listTraceFilterOptions: ListTraceFilterOptionsUseCase;
-  }) {
+  constructor(args: { listTraceFilterOptions: ListTraceFilterOptionsUseCase }) {
     this.listTraceFilterOptions = args.listTraceFilterOptions;
   }
 

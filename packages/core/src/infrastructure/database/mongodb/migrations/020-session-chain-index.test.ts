@@ -27,7 +27,7 @@ describe('migration 020-session-chain-index (audit C-7.6)', () => {
     await MongoDb.getClient().db().createCollection(TRACES_COLLECTION);
   });
 
-  it('MUST supersede 003\'s {sessionId, startedAt} with the full chain-sort key', async () => {
+  it("MUST supersede 003's {sessionId, startedAt} with the full chain-sort key", async () => {
     const db = MongoDb.getClient().db();
     await traceIndexes.run(db);
 

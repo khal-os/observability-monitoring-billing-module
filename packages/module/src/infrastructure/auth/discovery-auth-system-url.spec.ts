@@ -58,9 +58,7 @@ describe('makeDiscoveryAuthSystemUrl', () => {
   });
 
   it('MUST re-resolve after the Cache-Control window lapses', async () => {
-    const mock = jest
-      .fn()
-      .mockResolvedValue(responseWith(REGISTERS_BODY, 300));
+    const mock = jest.fn().mockResolvedValue(responseWith(REGISTERS_BODY, 300));
     withFetchReturning(mock);
     const resolve = makeDiscoveryAuthSystemUrl({
       discoveryUrl: 'https://connectors.example',

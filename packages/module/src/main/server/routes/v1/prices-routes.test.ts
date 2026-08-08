@@ -209,17 +209,18 @@ describe('Prices Routes', () => {
         (item: { model: string }) => item.model === 'meta/llama-4-maverick',
       );
 
-      expect(llama.map((item: { effective_from: string }) => item.effective_from)).toEqual([
-        '2026-07-01T00:00:00.000Z',
-        '2026-06-01T00:00:00.000Z',
-      ]);
+      expect(
+        llama.map((item: { effective_from: string }) => item.effective_from),
+      ).toEqual(['2026-07-01T00:00:00.000Z', '2026-06-01T00:00:00.000Z']);
       expect(llama[0]).toMatchObject({
         token_type: 'input',
         pricing_type: 'fixed_brl',
         price_brl_per_million: '1.25',
       });
       // Invariant 4: R$-only by construction.
-      expect(FORBIDDEN_INTERNAL_KEYS.test(JSON.stringify(response.body))).toBe(false);
+      expect(FORBIDDEN_INTERNAL_KEYS.test(JSON.stringify(response.body))).toBe(
+        false,
+      );
     });
 
     it('MUST filter exactly and refuse unknown params (C-3 policy)', async () => {
@@ -249,5 +250,4 @@ describe('Prices Routes', () => {
       await request(app).get('/api/v1/prices?token_type=banana').expect(400);
     });
   });
-
 });

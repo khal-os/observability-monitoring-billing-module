@@ -143,39 +143,38 @@ const traceContentViewSchema = z.strictObject({
   output_text: z.string().nullable(),
 });
 
-export const traceDetailResponseSchema = traceListItemSchema
-  .extend({
-    finished_at: z.string(),
-    finished_at_display: z.string(),
-    model: z.string().nullable(),
-    tokens: tokenCountsViewSchema,
-    tokens_display: z.strictObject({
-      input: z.string(),
-      output: z.string(),
-      cache_read: z.string(),
-      cache_write: z.string(),
-    }),
-    span_count: z.number().int(),
-    span_types: z.array(z.string()),
-    unclassified_reasons: z.array(z.string()).nullable(),
-    unclassified_label: z.string().nullable(),
-    pending_missing_token_types: z.array(tokenTypeSchema).nullable(),
-    pending_missing_label: z.string().nullable(),
-    costs: z.array(traceCostViewSchema).nullable(),
-    costs_effective_from_display: z.string().nullable(),
-    spans: z.array(spanViewSchema),
-    /** audit D-8: the size guard clipped this trace's content (decision 101) — the archive kept the trace, not the oversized payload. */
-    content_truncated: z.boolean(),
-    /** audit D-9: T6 post-close arrival state — null for the ordinary trace; absorbed_in_snapshot_version non-null once a re-close billed it. */
-    billing_quarantine: z
-      .strictObject({
-        reason: z.literal('period_closed'),
-        quarantined_at: z.string(),
-        absorbed_in_snapshot_version: z.number().int().nullable(),
-      })
-      .nullable(),
-    content: traceContentViewSchema.nullable(),
-  });
+export const traceDetailResponseSchema = traceListItemSchema.extend({
+  finished_at: z.string(),
+  finished_at_display: z.string(),
+  model: z.string().nullable(),
+  tokens: tokenCountsViewSchema,
+  tokens_display: z.strictObject({
+    input: z.string(),
+    output: z.string(),
+    cache_read: z.string(),
+    cache_write: z.string(),
+  }),
+  span_count: z.number().int(),
+  span_types: z.array(z.string()),
+  unclassified_reasons: z.array(z.string()).nullable(),
+  unclassified_label: z.string().nullable(),
+  pending_missing_token_types: z.array(tokenTypeSchema).nullable(),
+  pending_missing_label: z.string().nullable(),
+  costs: z.array(traceCostViewSchema).nullable(),
+  costs_effective_from_display: z.string().nullable(),
+  spans: z.array(spanViewSchema),
+  /** audit D-8: the size guard clipped this trace's content (decision 101) — the archive kept the trace, not the oversized payload. */
+  content_truncated: z.boolean(),
+  /** audit D-9: T6 post-close arrival state — null for the ordinary trace; absorbed_in_snapshot_version non-null once a re-close billed it. */
+  billing_quarantine: z
+    .strictObject({
+      reason: z.literal('period_closed'),
+      quarantined_at: z.string(),
+      absorbed_in_snapshot_version: z.number().int().nullable(),
+    })
+    .nullable(),
+  content: traceContentViewSchema.nullable(),
+});
 
 export type TraceListItemView = z.infer<typeof traceListItemSchema>;
 export type TraceDetailView = z.infer<typeof traceDetailResponseSchema>;

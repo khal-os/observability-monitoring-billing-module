@@ -27,9 +27,9 @@ describe('parseRunbookDate (runbook --effective-from border)', () => {
     });
 
     it('MUST accept an offset-carrying datetime, applying the offset', () => {
-      expect(
-        parseRunbookDate('2026-07-01T00:00:00+03:00')?.toISOString(),
-      ).toBe('2026-06-30T21:00:00.000Z');
+      expect(parseRunbookDate('2026-07-01T00:00:00+03:00')?.toISOString()).toBe(
+        '2026-06-30T21:00:00.000Z',
+      );
     });
   });
 

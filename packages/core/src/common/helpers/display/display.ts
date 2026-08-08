@@ -7,7 +7,6 @@
  * so DST zones stay correct; single-tenant deployment, invariant 5).
  */
 
-
 import { clientUtcOffsetMs } from '../clock/client-clock.js';
 
 const MONTHS_PT = [

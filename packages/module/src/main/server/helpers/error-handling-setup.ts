@@ -1,6 +1,7 @@
 import { Application } from 'express';
+import { Logger } from '@observability/core/common/logging/logger.js';
 import {
-  errorHandlerMiddleware,
+  makeErrorHandlerMiddleware,
   makeNotFoundMiddleware,
 } from '../middlewares/index.js';
 import { RegisteredRoute } from '../middlewares/not-found.js';
@@ -15,7 +16,8 @@ import { RegisteredRoute } from '../middlewares/not-found.js';
 export const setupErrorHandling = (
   app: Application,
   routes: RegisteredRoute[],
+  logger: Logger,
 ): void => {
   app.use(makeNotFoundMiddleware(routes));
-  app.use(errorHandlerMiddleware);
+  app.use(makeErrorHandlerMiddleware(logger));
 };

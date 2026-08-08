@@ -57,7 +57,12 @@ const makeSut = (args: { delayMs?: number; now: Date }) => {
     now: () => args.now,
   });
 
-  return { sut, billingPeriodRepository, billingQueryRepository, closeBillingPeriod };
+  return {
+    sut,
+    billingPeriodRepository,
+    billingQueryRepository,
+    closeBillingPeriod,
+  };
 };
 
 /** Seeds one stamped trace so the month "has traces" for the walk. */
@@ -68,7 +73,10 @@ const seedMonth = (
   startedAt: string,
 ): void => {
   repository.usageByMonth.set(`${year}-${month}`, [
-    usageRecord({ traceId: `t-${year}-${month}`, startedAt: new Date(startedAt) }),
+    usageRecord({
+      traceId: `t-${year}-${month}`,
+      startedAt: new Date(startedAt),
+    }),
   ]);
 };
 
@@ -129,36 +137,60 @@ describe('CloseDueBillingPeriodsDbUseCase (decision 131 — the reconcile walk)'
       initializeClientClock('America/New_York');
       // March 2026 ends Apr 1 00:00 EDT (UTC-4) = 04:00Z → due 05:00Z.
       const early = makeSut({ now: new Date('2026-04-01T04:59:59.999Z') });
-      seedMonth(early.billingQueryRepository, 2026, 3, '2026-03-15T12:00:00.000Z');
+      seedMonth(
+        early.billingQueryRepository,
+        2026,
+        3,
+        '2026-03-15T12:00:00.000Z',
+      );
 
       await early.sut.runCycle();
 
       expect(early.closeBillingPeriod.attempts).toEqual([]);
 
       const due = makeSut({ now: new Date('2026-04-01T05:00:00.000Z') });
-      seedMonth(due.billingQueryRepository, 2026, 3, '2026-03-15T12:00:00.000Z');
+      seedMonth(
+        due.billingQueryRepository,
+        2026,
+        3,
+        '2026-03-15T12:00:00.000Z',
+      );
 
       await due.sut.runCycle();
 
-      expect(due.closeBillingPeriod.attempts).toEqual([{ year: 2026, month: 3 }]);
+      expect(due.closeBillingPeriod.attempts).toEqual([
+        { year: 2026, month: 3 },
+      ]);
     });
 
     it('a month ending after DST falls back becomes due at the LATER offset (America/New_York, November)', async () => {
       initializeClientClock('America/New_York');
       // November 2026 ends Dec 1 00:00 EST (UTC-5) = 05:00Z → due 06:00Z.
       const early = makeSut({ now: new Date('2026-12-01T05:59:59.999Z') });
-      seedMonth(early.billingQueryRepository, 2026, 11, '2026-11-15T12:00:00.000Z');
+      seedMonth(
+        early.billingQueryRepository,
+        2026,
+        11,
+        '2026-11-15T12:00:00.000Z',
+      );
 
       await early.sut.runCycle();
 
       expect(early.closeBillingPeriod.attempts).toEqual([]);
 
       const due = makeSut({ now: new Date('2026-12-01T06:00:00.000Z') });
-      seedMonth(due.billingQueryRepository, 2026, 11, '2026-11-15T12:00:00.000Z');
+      seedMonth(
+        due.billingQueryRepository,
+        2026,
+        11,
+        '2026-11-15T12:00:00.000Z',
+      );
 
       await due.sut.runCycle();
 
-      expect(due.closeBillingPeriod.attempts).toEqual([{ year: 2026, month: 11 }]);
+      expect(due.closeBillingPeriod.attempts).toEqual([
+        { year: 2026, month: 11 },
+      ]);
     });
   });
 
@@ -166,7 +198,9 @@ describe('CloseDueBillingPeriodsDbUseCase (decision 131 — the reconcile walk)'
     const NOW = new Date('2026-07-15T10:00:00.000Z');
 
     it('MUST catch up several overdue months oldest-first in one cycle (scheduler downtime)', async () => {
-      const { sut, billingQueryRepository, closeBillingPeriod } = makeSut({ now: NOW });
+      const { sut, billingQueryRepository, closeBillingPeriod } = makeSut({
+        now: NOW,
+      });
       seedMonth(billingQueryRepository, 2026, 4, '2026-04-10T12:00:00.000Z');
       seedMonth(billingQueryRepository, 2026, 5, '2026-05-10T12:00:00.000Z');
       seedMonth(billingQueryRepository, 2026, 6, '2026-06-10T12:00:00.000Z');
@@ -185,7 +219,9 @@ describe('CloseDueBillingPeriodsDbUseCase (decision 131 — the reconcile walk)'
     });
 
     it('MUST skip a trace-free gap month without attempting it (the close-order guard exemption)', async () => {
-      const { sut, billingQueryRepository, closeBillingPeriod } = makeSut({ now: NOW });
+      const { sut, billingQueryRepository, closeBillingPeriod } = makeSut({
+        now: NOW,
+      });
       seedMonth(billingQueryRepository, 2026, 4, '2026-04-10T12:00:00.000Z');
       seedMonth(billingQueryRepository, 2026, 6, '2026-06-10T12:00:00.000Z');
 
@@ -198,8 +234,12 @@ describe('CloseDueBillingPeriodsDbUseCase (decision 131 — the reconcile walk)'
     });
 
     it('MUST skip already-closed months (pre-check, not error-driven)', async () => {
-      const { sut, billingQueryRepository, billingPeriodRepository, closeBillingPeriod } =
-        makeSut({ now: NOW });
+      const {
+        sut,
+        billingQueryRepository,
+        billingPeriodRepository,
+        closeBillingPeriod,
+      } = makeSut({ now: NOW });
       seedMonth(billingQueryRepository, 2026, 5, '2026-05-10T12:00:00.000Z');
       seedMonth(billingQueryRepository, 2026, 6, '2026-06-10T12:00:00.000Z');
       await billingPeriodRepository.markClosed({
@@ -221,8 +261,12 @@ describe('CloseDueBillingPeriodsDbUseCase (decision 131 — the reconcile walk)'
     });
 
     it('MUST hold on a REOPENED month and stop the walk — the correction flow owns it', async () => {
-      const { sut, billingQueryRepository, billingPeriodRepository, closeBillingPeriod } =
-        makeSut({ now: NOW });
+      const {
+        sut,
+        billingQueryRepository,
+        billingPeriodRepository,
+        closeBillingPeriod,
+      } = makeSut({ now: NOW });
       seedMonth(billingQueryRepository, 2026, 5, '2026-05-10T12:00:00.000Z');
       seedMonth(billingQueryRepository, 2026, 6, '2026-06-10T12:00:00.000Z');
       // A period doc with status 'open' exists only via an audited reopen.
@@ -242,7 +286,9 @@ describe('CloseDueBillingPeriodsDbUseCase (decision 131 — the reconcile walk)'
     });
 
     it('MUST report a blocked month with its models, stop the walk, and leave the retry to the next cycle', async () => {
-      const { sut, billingQueryRepository, closeBillingPeriod } = makeSut({ now: NOW });
+      const { sut, billingQueryRepository, closeBillingPeriod } = makeSut({
+        now: NOW,
+      });
       seedMonth(billingQueryRepository, 2026, 5, '2026-05-10T12:00:00.000Z');
       seedMonth(billingQueryRepository, 2026, 6, '2026-06-10T12:00:00.000Z');
       closeBillingPeriod.failWith.set(
@@ -266,12 +312,16 @@ describe('CloseDueBillingPeriodsDbUseCase (decision 131 — the reconcile walk)'
     });
 
     it('MUST treat losing the race to a concurrent runbook close as benign and keep walking', async () => {
-      const { sut, billingQueryRepository, closeBillingPeriod } = makeSut({ now: NOW });
+      const { sut, billingQueryRepository, closeBillingPeriod } = makeSut({
+        now: NOW,
+      });
       seedMonth(billingQueryRepository, 2026, 5, '2026-05-10T12:00:00.000Z');
       seedMonth(billingQueryRepository, 2026, 6, '2026-06-10T12:00:00.000Z');
       closeBillingPeriod.failWith.set(
         '2026-5',
-        new BillingPeriodStateError('O mês 2026-05 já está fechado (snapshot v1).'),
+        new BillingPeriodStateError(
+          'O mês 2026-05 já está fechado (snapshot v1).',
+        ),
       );
 
       const report = await sut.runCycle();
@@ -285,7 +335,9 @@ describe('CloseDueBillingPeriodsDbUseCase (decision 131 — the reconcile walk)'
     });
 
     it('MUST propagate an unexpected error to the loop (backoff territory)', async () => {
-      const { sut, billingQueryRepository, closeBillingPeriod } = makeSut({ now: NOW });
+      const { sut, billingQueryRepository, closeBillingPeriod } = makeSut({
+        now: NOW,
+      });
       seedMonth(billingQueryRepository, 2026, 6, '2026-06-10T12:00:00.000Z');
       closeBillingPeriod.failWith.set('2026-6', new Error('mongo down'));
 

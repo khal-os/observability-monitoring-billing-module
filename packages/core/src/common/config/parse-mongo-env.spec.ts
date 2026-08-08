@@ -40,7 +40,10 @@ describe('shared Mongo env parser (audit C-6)', () => {
       mongoDbPassword: undefined,
       mongoDbPort: undefined,
     });
-    expect(toMongoDbEnvironment(schema.parse({ MONGO_DB_ATLAS: 'false' })).mongoDbAtlas).toBe(false);
+    expect(
+      toMongoDbEnvironment(schema.parse({ MONGO_DB_ATLAS: 'false' }))
+        .mongoDbAtlas,
+    ).toBe(false);
   });
 
   it('MUST refuse a non-integer port and an invalid atlas flag', () => {
